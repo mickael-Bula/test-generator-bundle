@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Llm;
 
+use Symfony\Component\Serializer\Serializer;
 use Mika\TestGeneratorBundle\Dto\GeneratedTestResult;
+use Symfony\Component\Serializer\Encoder\JsonEncoder;
+use Symfony\Component\Serializer\Normalizer\ObjectNormalizer;
 use Mika\TestGeneratorBundle\Exception\TestGenerationException;
 use Symfony\AI\Platform\Message\Message;
 use Symfony\AI\Platform\Message\MessageBag;
@@ -16,19 +19,21 @@ use Symfony\Component\Serializer\SerializerInterface;
 /**
  * @noinspection PhpUnused
  */
-readonly class SymfonyAiClient implements LlmClientInterface
+class SymfonyAiClient implements LlmClientInterface
 {
     /**
      * @param ServiceLocator<PlatformInterface> $platforms
      */
     public function __construct(
-        // On indique d'indexer le ServiceLocator avec la colonne "index" du tag, correspondant aux noms des providers.
-        #[AutowireLocator('ai.platform', indexAttribute: 'index')]
-        private ServiceLocator $platforms,
-        private SerializerInterface $serializer,
-        private string $defaultProvider = 'gemini',
-        private string $defaultModel = 'gemini-2.5-flash-lite',
+        // On indexe le ServiceLocator avec la colonne "index" du tag, correspondant aux noms des providers.
+        #[AutowireLocator('mika_test_generator.ai_platform', indexAttribute: 'index')]
+        private readonly ServiceLocator $platforms,
+        private ?SerializerInterface    $serializer = null,
+        private readonly string         $defaultProvider = 'gemini',
+        private readonly string         $defaultModel = 'gemini-2.5-flash-lite',
     ) {
+        // Fallback automatique si aucun Serializer n'est configuré dans le conteneur
+        $this->serializer = $serializer ?? new Serializer([new ObjectNormalizer()], [new JsonEncoder()]);
     }
 
     public function supports(string $provider): bool

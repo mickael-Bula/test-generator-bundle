@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Service;
 
+use Symfony\Component\HttpClient\HttpClient;
 use Symfony\AI\Platform\Bridge\Anthropic\Factory as AnthropicFactory;
 use Symfony\AI\Platform\Bridge\Gemini\Factory as GeminiFactory;
 use Symfony\AI\Platform\Bridge\Generic\CompletionsModel;
@@ -20,16 +21,18 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
  *
  * @noinspection PhpUnused
  */
-readonly class AiPlatformFactory
+class AiPlatformFactory
 {
     public function __construct(
-        private HttpClientInterface $httpClient,
-        private ?string $anthropicKey = '',
-        private ?string $openAiKey = '',
-        private ?string $geminiKey = '',
-        private ?string $openRouterKey = '',
-        private ?string $ollamaUrl = '',
+        private ?HttpClientInterface $httpClient = null,
+        private readonly ?string     $anthropicKey = '',
+        private readonly ?string     $openAiKey = '',
+        private readonly ?string     $geminiKey = '',
+        private readonly ?string     $openRouterKey = '',
+        private readonly ?string     $ollamaUrl = '',
     ) {
+        // Fallback si aucun service HttpClientInterface n'est injecté
+        $this->httpClient = $httpClient ?? HttpClient::create();
     }
 
     /**
