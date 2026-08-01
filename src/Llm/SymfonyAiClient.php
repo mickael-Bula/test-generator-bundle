@@ -12,9 +12,12 @@ use Mika\TestGeneratorBundle\Exception\TestGenerationException;
 use Symfony\AI\Platform\Message\Message;
 use Symfony\AI\Platform\Message\MessageBag;
 use Symfony\AI\Platform\PlatformInterface;
+use Symfony\Component\Serializer\Mapping\Loader\AttributeLoader;
 use Symfony\Component\DependencyInjection\Attribute\AutowireLocator;
 use Symfony\Component\DependencyInjection\ServiceLocator;
 use Symfony\Component\Serializer\SerializerInterface;
+use Symfony\Component\Serializer\Mapping\Factory\ClassMetadataFactory;
+use Symfony\Component\Serializer\NameConverter\MetadataAwareNameConverter;
 
 /**
  * @noinspection PhpUnused
@@ -32,8 +35,19 @@ class SymfonyAiClient implements LlmClientInterface
         private readonly string         $defaultProvider = 'gemini',
         private readonly string         $defaultModel = 'gemini-2.5-flash-lite',
     ) {
-        // Fallback automatique si aucun Serializer n'est configuré dans le conteneur
-        $this->serializer = $serializer ?? new Serializer([new ObjectNormalizer()], [new JsonEncoder()]);
+        // Fallback autonome : instanciation manuelle d'un Serializer compatible avec les attributs PHP
+        // au cas où l'application hôte n'enregistre pas de SerializerInterface dans le conteneur DI.
+        if (null === $this->serializer) {
+            $classMetadataFactory = new ClassMetadataFactory(new AttributeLoader());
+            $metadataAwareNameConverter = new MetadataAwareNameConverter($classMetadataFactory);
+
+            $normalizer = new ObjectNormalizer(
+                classMetadataFactory: $classMetadataFactory,
+                nameConverter: $metadataAwareNameConverter
+            );
+
+            $this->serializer = new Serializer([$normalizer], [new JsonEncoder()]);
+        }
     }
 
     public function supports(string $provider): bool
@@ -85,13 +99,21 @@ class SymfonyAiClient implements LlmClientInterface
             $jsonString = preg_replace('/\s*```$/', '', $jsonString);
             $jsonString = trim($jsonString);
 
-            // Tentative de désérialisation vers le DTO
+            // Tentative de désérialisation
             try {
+                /** @var GeneratedTestResult $testResult */
                 $testResult = $this->serializer->deserialize($jsonString, GeneratedTestResult::class, 'json');
 
                 return $testResult->getCleanTestCode();
             } catch (\Throwable) {
-                // Fallback si le LLM a répondu directement en code PHP brut au lieu du JSON
+                // Fallback direct si la désérialisation échoue
+                $data = json_decode($jsonString, true, 512, JSON_THROW_ON_ERROR);
+                if (is_array($data) && isset($data['test_code'])) {
+                    $testResult = new GeneratedTestResult((string) $data['test_code']);
+
+                    return $testResult->getCleanTestCode();
+                }
+
                 $testResult = new GeneratedTestResult($jsonString);
 
                 return $testResult->getCleanTestCode();
