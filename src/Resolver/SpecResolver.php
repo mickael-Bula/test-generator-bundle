@@ -7,11 +7,12 @@ namespace Mika\TestGeneratorBundle\Resolver;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\Finder\Finder;
 use Symfony\Component\Finder\SplFileInfo;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 readonly class SpecResolver
 {
     public function __construct(
-        private string $projectDir,
+        #[Autowire('%kernel.project_dir%')] private string $projectDir,
     ) {
     }
 

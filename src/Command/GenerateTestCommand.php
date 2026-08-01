@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Mika\TestGeneratorBundle\Command;
 
 use Mika\TestGeneratorBundle\Enum\TestType;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Mika\TestGeneratorBundle\Exception\TestCorrectionException;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\Resolver\ClassResolver;
@@ -30,7 +31,7 @@ class GenerateTestCommand extends Command
     public function __construct(
         private readonly TestGenerator $testGenerator,
         private readonly LlmClientFactory $llmFactory, // Injecte la factory qui récupère le client et le modèle.
-        private readonly string $projectDir, // injecté depuis services.yaml
+        #[Autowire('%kernel.project_dir%')] private readonly string $projectDir,
         private readonly ClassResolver $classResolver,
         private readonly SpecResolver $specResolver,
     ) {

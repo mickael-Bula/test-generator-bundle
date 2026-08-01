@@ -5,11 +5,12 @@ declare(strict_types=1);
 namespace Mika\TestGeneratorBundle\Resolver;
 
 use Symfony\Component\Finder\Finder;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 readonly class ClassResolver
 {
     public function __construct(
-        private string $projectDir,
+        #[Autowire('%kernel.project_dir%')] private string $projectDir,
     ) {
     }
 

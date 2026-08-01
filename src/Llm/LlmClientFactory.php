@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Llm;
 
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\DependencyInjection\Attribute\AutowireIterator;
 
 /**
@@ -18,8 +19,8 @@ readonly class LlmClientFactory
      */
     public function __construct(
         #[AutowireIterator('app.llm_client')] private iterable $clients,
-        private string $defaultProvider, // Paramètre déclaré dans le fichier services.yaml
-        private string $defaultModel,
+        #[Autowire('%env(default::LLM_PROVIDER)%')] private string $defaultProvider = 'gemini',
+        #[Autowire('%env(default::LLM_MODEL)%')] private string $defaultModel = 'gemini-flash-latest',
     ) {
     }
 

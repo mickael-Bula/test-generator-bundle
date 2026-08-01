@@ -4,16 +4,22 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\PromptBuilder;
 
+use Mika\TestGeneratorBundle\Attribute\AsTestPromptBuilder;
 use Mika\TestGeneratorBundle\RepoMap\CachedRepoMapBuilder;
 use Mika\TestGeneratorBundle\Resolver\SkillResolver;
 use Psr\Cache\InvalidArgumentException;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
+/**
+ * @noinspection PhpUnused
+ */
+#[AsTestPromptBuilder(type: 'unit')]
 readonly class UnitTestPromptBuilder implements TestPromptBuilderInterface
 {
     public function __construct(
         private CachedRepoMapBuilder $repoMapBuilder,
         private SkillResolver $skillResolver,
-        private string $projectDir,
+        #[Autowire('%kernel.project_dir%')] private string $projectDir,
     ) {
     }
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Mika\TestGeneratorBundle\Service;
 
 use Symfony\Component\Process\Process;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 /**
  * Ce service écrit temporairement le code sur le disque
@@ -13,7 +14,7 @@ use Symfony\Component\Process\Process;
 readonly class PhpUnitTestRunner
 {
     public function __construct(
-        private string $projectDir, // Injecté via le Kernel de Symfony
+        #[Autowire('%kernel.project_dir%')] private string $projectDir,
     ) {
     }
 

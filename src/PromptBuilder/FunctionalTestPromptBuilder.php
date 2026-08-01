@@ -2,6 +2,12 @@
 
 namespace Mika\TestGeneratorBundle\PromptBuilder;
 
+use Mika\TestGeneratorBundle\Attribute\AsTestPromptBuilder;
+
+/**
+ * @noinspection PhpUnused
+ */
+#[AsTestPromptBuilder(type: 'functional')]
 final class FunctionalTestPromptBuilder implements TestPromptBuilderInterface
 {
     public function supports(string $type): bool
