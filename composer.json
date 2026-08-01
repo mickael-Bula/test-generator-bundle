@@ -1,0 +1,32 @@
+{
+    "name": "mika/test-generator-bundle",
+    "version": "0.0.1-dev",
+    "description": "Bundle Symfony pour générer automatiquement des tests PHPUnit via LLM",
+    "type": "symfony-bundle",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Mika\\TestGeneratorBundle\\": "src/"
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "nikic/php-parser": "^5.0",
+        "symfony/framework-bundle": "^6.4|^7.0",
+        "symfony/console": "^6.4|^7.0",
+        "symfony/http-client": "^6.4|^7.0",
+        "symfony/ai-generic-platform": "^0.12.0",
+        "symfony/ai-open-router-platform": "^0.12.0",
+        "symfony/ai-ollama-platform": "^0.12.0",
+        "symfony/process": "^7.4",
+        "symfony/ai-platform": "^0.12.0",
+        "symfony/ai-open-ai-platform": "^0.12.0",
+        "symfony/ai-anthropic-platform": "^0.12.0",
+        "symfony/ai-gemini-platform": "^0.12.0"
+    },
+    "extra": {
+        "symfony": {
+            "allow-contrib": false
+        }
+    }
+}
