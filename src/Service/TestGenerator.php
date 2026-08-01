@@ -19,13 +19,13 @@ readonly class TestGenerator
     public function __construct(
         private LlmClientFactory $llmFactory,
         private PhpUnitTestRunner $testRunner,
-        #[AutowireIterator('app.test_prompt_builder')] // Récupère toutes les classes portant ce tag
+        #[AutowireIterator('mika_test_generator.prompt_builder')] // Récupère toutes les classes portant ce tag
         private iterable $promptBuilders,
     ) {
     }
 
     /**
-     * Retourne la première instance avec le tag `app.test_prompt_builder` répondant au type de prompt.
+     * Retourne la première instance avec le tag répondant au type de prompt.
      */
     private function getPromptBuilder(string $type): TestPromptBuilderInterface
     {
@@ -75,7 +75,6 @@ readonly class TestGenerator
         $targetModel = $model ?? $this->llmFactory->getDefaultModel();
 
         $attempt = 0;
-        $rawContent = '';
 
         while ($attempt < self::MAX_ATTEMPT) {
             ++$attempt;
@@ -93,7 +92,7 @@ readonly class TestGenerator
             $errorMessage = sprintf("L'exécution de PHPUnit a échoué :\n\n%s", $result['output']);
 
             // 3. Enrichissement de l'historique (Partagé pour PHPUnit ET erreurs JSON).
-            $messages[] = ['role' => 'assistant', 'content' => $rawContent];
+            $messages[] = ['role' => 'assistant', 'content' => $testCode];
             $messages[] = [
                 'role' => 'user',
                 'content' => $errorMessage."\n\nAnalyse ce problème, corrige ton code et renvoie le JSON attendu.",

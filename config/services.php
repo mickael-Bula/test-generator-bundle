@@ -1,11 +1,13 @@
 <?php
 
-namespace Mika\TestGeneratorBundle\Config;
+declare(strict_types=1);
 
-use Mika\TestGeneratorBundle\config\TestGeneratorBundle\ModelCatalog\PermissiveModelCatalog;
-use Mika\TestGeneratorBundle\Service\TestGeneratorService;
-use Mika\TestGeneratorBundle\Command\GenerateTestCommand;
-use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
+namespace Symfony\Component\DependencyInjection\Loader\Configurator;
+
+use Mika\TestGeneratorBundle\Attribute\AsTestPromptBuilder;
+use Mika\TestGeneratorBundle\ModelCatalog\PermissiveModelCatalog;
+
+use Symfony\Component\DependencyInjection\ChildDefinition;
 
 return static function (ContainerConfigurator $container): void {
     $services = $container->services()
@@ -15,9 +17,9 @@ return static function (ContainerConfigurator $container): void {
 
     // Chargement automatique des classes du bundle
     $services->load('Mika\\TestGeneratorBundle\\', '../src/*')
-        ->exclude('../src/{DependencyInjection,Entity,Dto,TestGeneratorBundle.php}');
+        ->exclude('../src/{DependencyInjection,Dto,Enum,Exception,Resources,TestGeneratorBundle.php}');
 
-    // Enregistrement explicite du catalogue permissif (réutilisable OpenRouter/Ollama)
+    // Enregistrement explicite du catalogue permissif
     $services->set(PermissiveModelCatalog::class);
 
     // Attribue automatiquement le tag 'mika_test_generator.prompt_builder'
