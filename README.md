@@ -148,12 +148,13 @@ Grâce aux récents composants AbstractBundle de Symfony (depuis la v6.1), le ch
 ```php
 <?php
 
-namespace Mika\TestGeneratorBundle\Config;
+declare(strict_types=1);
 
-use Mika\TestGeneratorBundle\Config\TestGeneratorBundle\ModelCatalog\PermissiveModelCatalog;
-use Mika\TestGeneratorBundle\Config\TestGeneratorBundle\Service\TestGeneratorService;
-use Mika\TestGeneratorBundle\Command\GenerateTestCommand;
-use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
+namespace Symfony\Component\DependencyInjection\Loader\Configurator;
+
+use Mika\TestGeneratorBundle\Attribute\AsTestPromptBuilder;
+use Mika\TestGeneratorBundle\ModelCatalog\PermissiveModelCatalog;
+use Symfony\Component\DependencyInjection\ChildDefinition;
 
 return static function (ContainerConfigurator $container): void {
     $services = $container->services()
@@ -163,10 +164,22 @@ return static function (ContainerConfigurator $container): void {
 
     // Chargement automatique des classes du bundle
     $services->load('Mika\\TestGeneratorBundle\\', '../src/*')
-        ->exclude('../src/{DependencyInjection,Entity,Dto,TestGeneratorBundle.php}');
+        ->exclude('../src/{DependencyInjection,Dto,Enum,Exception,Resources,TestGeneratorBundle.php}');
 
-    // Enregistrement explicite du catalogue permissif (réutilisable OpenRouter/Ollama)
+    // Enregistrement explicite du catalogue permissif
     $services->set(PermissiveModelCatalog::class);
+
+    // Attribue automatiquement le tag 'mika_test_generator.prompt_builder'
+    // à n'importe quelle classe annotée avec #[AsTestPromptBuilder]
+    $container->services()
+        ->registerAttributeForAutoconfiguration(
+            AsTestPromptBuilder::class,
+            static function (ChildDefinition $definition, AsTestPromptBuilder $attribute): void {
+                $definition->addTag('mika_test_generator.prompt_builder', [
+                    'type' => $attribute->type,
+                ]);
+            }
+        );
 };
 ```
 
