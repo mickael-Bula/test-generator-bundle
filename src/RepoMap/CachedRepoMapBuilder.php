@@ -66,7 +66,7 @@ class CachedRepoMapBuilder
         $hashes = [];
         foreach ($finder as $file) {
             // Combine le chemin relatif et le timestamp de dernière modification
-            $hashes[] = $file->getRelativePathname().':'.$file->getMTime();
+            $hashes[] = $file->getRelativePathname() . ':' . $file->getMTime();
         }
 
         // On trie pour garantir le même ordre d'itération.

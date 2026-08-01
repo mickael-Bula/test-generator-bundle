@@ -26,6 +26,28 @@
         "symfony/ai-anthropic-platform": "^0.12",
         "symfony/ai-gemini-platform": "^0.12"
     },
+    "require-dev": {
+        "phpstan/phpstan": "^1.11|^2.0",
+        "friendsofphp/php-cs-fixer": "^3.50"
+    },
+    "scripts": {
+        "auto-scripts": {
+            "cache:clear": "symfony-cmd"
+        },
+        "post-install-cmd": [
+            "@auto-scripts"
+        ],
+        "post-update-cmd": [
+            "@auto-scripts"
+        ],
+        "phpstan": "vendor/bin/phpstan analyse",
+        "cs-check": "vendor/bin/php-cs-fixer fix --dry-run --diff",
+        "cs-fix": "vendor/bin/php-cs-fixer fix",
+        "ci": [
+            "@cs-check",
+            "@phpstan"
+        ]
+    },
     "extra": {
         "symfony": {
             "allow-contrib": false

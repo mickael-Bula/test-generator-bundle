@@ -68,25 +68,25 @@ FORMAT DE RÉPONSE OBLIGATOIRE :
 TEXT;
 
         try {
-            $repoMap = $this->repoMapBuilder->buildMap($this->projectDir.'/src');
+            $repoMap = $this->repoMapBuilder->buildMap($this->projectDir . '/src');
         } catch (\InvalidArgumentException|InvalidArgumentException $e) {
             $message = sprintf(
                 "Impossible de générer le Repo-Map dans '%s' : %s",
-                $this->projectDir.'/src', $e->getMessage()
+                $this->projectDir . '/src', $e->getMessage()
             );
             throw new \RuntimeException($message, previous: $e);
         }
 
         if (!empty($repoMap)) {
             $systemMessage .= "\n\n"
-                ."STRUCTURE DU PROJET (REPO-MAP) :\n"
-                ."```text\n".$repoMap."\n```\n\n"
-                ."CONSIGNES SUR LA REPO-MAP :\n"
-                ."- Utilise obligatoirement cette cartographie pour vérifier les namespaces exacts, les méthodes et les types de retour des classes dépendantes lors de la création de mocks.\n"
-                .'- Ne devine pas les signatures des méthodes externes si elles sont présentes dans la repo-map.';
+                . "STRUCTURE DU PROJET (REPO-MAP) :\n"
+                . "```text\n" . $repoMap . "\n```\n\n"
+                . "CONSIGNES SUR LA REPO-MAP :\n"
+                . "- Utilise obligatoirement cette cartographie pour vérifier les namespaces exacts, les méthodes et les types de retour des classes dépendantes lors de la création de mocks.\n"
+                . '- Ne devine pas les signatures des méthodes externes si elles sont présentes dans la repo-map.';
         }
 
-        $systemMessage .= "\n\n".<<<'TEXT'
+        $systemMessage .= "\n\n" . <<<'TEXT'
 RÈGLE D'INFÉRENCE DES DÉPENDANCES ET MOCKS :
 - Analyse le constructeur (__construct) de la classe cible présente dans la Repo-Map.
 - Si le constructeur requiert des services ou interfaces :
@@ -100,7 +100,7 @@ RÈGLE D'INFÉRENCE DES DÉPENDANCES ET MOCKS :
 - Ne demande pas à la spécification BDD de lister les mocks techniques : déduis-les toi-même à partir de la Repo-Map.
 TEXT;
 
-        $systemMessage .= "\n\n".<<<'TEXT'
+        $systemMessage .= "\n\n" . <<<'TEXT'
 EXIGENCES STRICTES DE QUALITÉ ET STYLE :
 
 1. NORMES PHPUNIT 10 & PHP 8 (OBLIGATOIRE) :
@@ -139,7 +139,7 @@ EXIGENCES STRICTES DE QUALITÉ ET STYLE :
 TEXT;
 
         if (null !== $skillsPrompt) {
-            $systemMessage .= "\n\n".$skillsPrompt;
+            $systemMessage .= "\n\n" . $skillsPrompt;
         }
 
         return $systemMessage;

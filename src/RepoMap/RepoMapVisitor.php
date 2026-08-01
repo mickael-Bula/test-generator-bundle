@@ -35,12 +35,12 @@ class RepoMapVisitor extends NodeVisitorAbstract
             $params = [];
             foreach ($node->params as $param) {
                 // Utilisation du printer pour les types de paramètres
-                $type = $param->type ? $this->printer->prettyPrint([$param->type]).' ' : '';
-                $params[] = $type.'$'.$param->var->name;
+                $type = $param->type ? $this->printer->prettyPrint([$param->type]) . ' ' : '';
+                $params[] = $type . '$' . $param->var->name;
             }
 
             // Utilisation du printer pour le type de retour
-            $returnType = $node->returnType ? ': '.$this->printer->prettyPrint([$node->returnType]) : '';
+            $returnType = $node->returnType ? ': ' . $this->printer->prettyPrint([$node->returnType]) : '';
 
             // Détermination explicite de la visibilité
             $visibility = 'public';

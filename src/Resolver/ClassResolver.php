@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Resolver;
 
-use Symfony\Component\Finder\Finder;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
+use Symfony\Component\Finder\Finder;
 
 readonly class ClassResolver
 {
@@ -67,7 +67,7 @@ readonly class ClassResolver
         $realPath = realpath($input);
 
         if (!$realPath && !str_starts_with($normalizedPath, '/')) {
-            $realPath = realpath($this->projectDir.DIRECTORY_SEPARATOR.$normalizedPath);
+            $realPath = realpath($this->projectDir . DIRECTORY_SEPARATOR . $normalizedPath);
         }
 
         if ($realPath && is_file($realPath)) {
@@ -125,7 +125,7 @@ readonly class ClassResolver
 
             $message = sprintf(
                 'Ambigüité : plusieurs classes correspondent au nom "%s" : %s. '
-                    .'Veuillez préciser le namespace complet ou le chemin du fichier.',
+                    . 'Veuillez préciser le namespace complet ou le chemin du fichier.',
                 $shortName,
                 implode(', ', $foundFqcn)
             );
@@ -142,16 +142,16 @@ readonly class ClassResolver
      */
     private function findClassInProject(string $shortClassName): array
     {
-        $srcDir = $this->projectDir.DIRECTORY_SEPARATOR.'src';
+        $srcDir = $this->projectDir . DIRECTORY_SEPARATOR . 'src';
         if (!is_dir($srcDir)) {
             return [];
         }
 
         $finder = new Finder();
-        $finder->files()->in($srcDir)->name($shortClassName.'.php');
+        $finder->files()->in($srcDir)->name($shortClassName . '.php');
 
         // Pour éviter de recalculer la concaténation '\\'.$shortClassName, on l'enregistre hors de la boucle.
-        $suffix = '\\'.$shortClassName;
+        $suffix = '\\' . $shortClassName;
 
         $results = [];
         foreach ($finder as $file) {
@@ -195,6 +195,6 @@ readonly class ClassResolver
             $class = trim($matches[1]);
         }
 
-        return $namespace ? $namespace.'\\'.$class : $class;
+        return $namespace ? $namespace . '\\' . $class : $class;
     }
 }

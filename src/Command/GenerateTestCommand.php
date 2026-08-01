@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Mika\TestGeneratorBundle\Command;
 
 use Mika\TestGeneratorBundle\Enum\TestType;
-use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Mika\TestGeneratorBundle\Exception\TestCorrectionException;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\Resolver\ClassResolver;
@@ -18,6 +17,7 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\Process\Process;
 
 #[AsCommand(
@@ -44,8 +44,8 @@ class GenerateTestCommand extends Command
             'class',
             InputArgument::REQUIRED,
             'Le nom de la classe à tester, '
-                .'ou son chemin (ex: src/Service/CalculatorService.php) '
-                .'ou encore son namespace (ex : \\App\\Service\\Calculator)'
+                . 'ou son chemin (ex: src/Service/CalculatorService.php) '
+                . 'ou encore son namespace (ex : \\App\\Service\\Calculator)'
         )->addOption(
             'method',
             'm',
@@ -62,7 +62,7 @@ class GenerateTestCommand extends Command
             's',
             InputOption::VALUE_OPTIONAL,
             'Fichier de spécification (.md), texte libre ou convention automatique '
-                .'(<SpecDir>/<ClassName>Spec.md) si aucun argument n\'est fourni.',
+                . '(<SpecDir>/<ClassName>Spec.md) si aucun argument n\'est fourni.',
             false // Valeur par défaut quand l'option --spec n'est pas présente dasn la commande
         )
         ->addOption(
@@ -148,7 +148,7 @@ class GenerateTestCommand extends Command
             [$targetNamespace, $finalDisplayDir, $finalAbsoluteFilePath] = $this->getNamespaceAndPaths($classCode, $shortClassName);
 
             if (!$input->getOption('method') && file_exists($finalAbsoluteFilePath)) {
-                $this->io->warning('Un fichier de test existe déjà pour cette classe : '.basename($finalAbsoluteFilePath));
+                $this->io->warning('Un fichier de test existe déjà pour cette classe : ' . basename($finalAbsoluteFilePath));
 
                 $confirm = $this->io->confirm(
                     'Voulez-vous lancer la fusion automatique par le LLM sur ce fichier existant ?',
@@ -222,10 +222,10 @@ class GenerateTestCommand extends Command
                     'Le code existant a été préservé et enrichi.',
                     "Utilisez votre IDE ou la commande 'git diff' pour inspecter les ajouts de l'IA.",
                     "Si le résultat ne vous convient pas, vous pouvez l'annuler à tout moment avec :",
-                    '👉 git restore '.str_replace($this->projectDir.'/', '', $finalAbsoluteFilePath),
+                    '👉 git restore ' . str_replace($this->projectDir . '/', '', $finalAbsoluteFilePath),
                 ]);
             } else {
-                $relativeLogPath = str_replace($this->projectDir.'/', '', $finalAbsoluteFilePath);
+                $relativeLogPath = str_replace($this->projectDir . '/', '', $finalAbsoluteFilePath);
                 $this->io->success(
                     sprintf(
                         'Le fichier de test %s a été généré avec succès dans : %s',
@@ -237,7 +237,7 @@ class GenerateTestCommand extends Command
 
             return Command::SUCCESS;
         } catch (\Exception $e) {
-            $this->io->error('Une erreur est survenue lors de la génération : '.$e->getMessage());
+            $this->io->error('Une erreur est survenue lors de la génération : ' . $e->getMessage());
 
             return Command::FAILURE;
         }

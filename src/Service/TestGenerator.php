@@ -95,7 +95,7 @@ readonly class TestGenerator
             $messages[] = ['role' => 'assistant', 'content' => $testCode];
             $messages[] = [
                 'role' => 'user',
-                'content' => $errorMessage."\n\nAnalyse ce problème, corrige ton code et renvoie le JSON attendu.",
+                'content' => $errorMessage . "\n\nAnalyse ce problème, corrige ton code et renvoie le JSON attendu.",
             ];
         }
 

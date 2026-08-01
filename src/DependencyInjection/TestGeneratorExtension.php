@@ -22,7 +22,7 @@ class TestGeneratorExtension extends Extension
         $configuration = new Configuration();
         $config = $this->processConfiguration($configuration, $configs);
 
-        $loader = new PhpFileLoader($container, new FileLocator(__DIR__.'/../../config'));
+        $loader = new PhpFileLoader($container, new FileLocator(__DIR__ . '/../../config'));
         $loader->load('services.php');
 
         // Injection des paramètres si nécessaire dans le conteneur

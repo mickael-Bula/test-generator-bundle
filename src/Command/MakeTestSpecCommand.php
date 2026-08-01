@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Mika\TestGeneratorBundle\Command\Command;
+namespace Mika\TestGeneratorBundle\Command;
 
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -56,7 +56,7 @@ class MakeTestSpecCommand extends Command
             : 'test_spec_class_template.md'; // Spec globale pour la classe
 
         // Chemin du template
-        $templatePath = $this->projectDir.'/templates/'.$templateName;
+        $templatePath = $this->projectDir . '/templates/' . $templateName;
         if (!file_exists($templatePath)) {
             $io->error(sprintf('Le template "%s" n\'existe pas.', $templatePath));
 
@@ -73,13 +73,13 @@ class MakeTestSpecCommand extends Command
         );
 
         // Détermination du nom de destination.
-        $specsDir = $this->projectDir.'/tests/Specs';
+        $specsDir = $this->projectDir . '/tests/Specs';
         if (!is_dir($specsDir) && !mkdir($specsDir, 0777, true) && !is_dir($specsDir)) {
             throw new \RuntimeException(sprintf('Directory "%s" was not created', $specsDir));
         }
 
         // Résultat en partant de la racine du projet : ./tests/Specs/VatCalculator_CalculateVTA
-        $suffix = $methodName ? '_'.$methodName : '';
+        $suffix = $methodName ? '_' . $methodName : '';
         $targetPath = sprintf('%s/%s%sSpec.md', $specsDir, $shortClassName, $suffix);
 
         file_put_contents($targetPath, $specContent);

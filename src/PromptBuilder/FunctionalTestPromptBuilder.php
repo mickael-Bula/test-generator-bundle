@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Mika\TestGeneratorBundle\PromptBuilder;
 
 use Mika\TestGeneratorBundle\Attribute\AsTestPromptBuilder;
@@ -12,7 +14,7 @@ final class FunctionalTestPromptBuilder implements TestPromptBuilderInterface
 {
     public function supports(string $type): bool
     {
-        return $type === 'functional';
+        return 'functional' === $type;
     }
 
     public function buildPrompt(

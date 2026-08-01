@@ -4,20 +4,20 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Llm;
 
-use Symfony\Component\Serializer\Serializer;
 use Mika\TestGeneratorBundle\Dto\GeneratedTestResult;
-use Symfony\Component\Serializer\Encoder\JsonEncoder;
-use Symfony\Component\Serializer\Normalizer\ObjectNormalizer;
 use Mika\TestGeneratorBundle\Exception\TestGenerationException;
 use Symfony\AI\Platform\Message\Message;
 use Symfony\AI\Platform\Message\MessageBag;
 use Symfony\AI\Platform\PlatformInterface;
-use Symfony\Component\Serializer\Mapping\Loader\AttributeLoader;
 use Symfony\Component\DependencyInjection\Attribute\AutowireLocator;
 use Symfony\Component\DependencyInjection\ServiceLocator;
-use Symfony\Component\Serializer\SerializerInterface;
+use Symfony\Component\Serializer\Encoder\JsonEncoder;
 use Symfony\Component\Serializer\Mapping\Factory\ClassMetadataFactory;
+use Symfony\Component\Serializer\Mapping\Loader\AttributeLoader;
 use Symfony\Component\Serializer\NameConverter\MetadataAwareNameConverter;
+use Symfony\Component\Serializer\Normalizer\ObjectNormalizer;
+use Symfony\Component\Serializer\Serializer;
+use Symfony\Component\Serializer\SerializerInterface;
 
 /**
  * @noinspection PhpUnused
@@ -31,9 +31,9 @@ class SymfonyAiClient implements LlmClientInterface
         // On indexe le ServiceLocator avec la colonne "index" du tag, correspondant aux noms des providers.
         #[AutowireLocator('mika_test_generator.ai_platform', indexAttribute: 'index')]
         private readonly ServiceLocator $platforms,
-        private ?SerializerInterface    $serializer = null,
-        private readonly string         $defaultProvider = 'gemini',
-        private readonly string         $defaultModel = 'gemini-2.5-flash-lite',
+        private ?SerializerInterface $serializer = null,
+        private readonly string $defaultProvider = 'gemini',
+        private readonly string $defaultModel = 'gemini-2.5-flash-lite',
     ) {
         // Fallback autonome : instanciation manuelle d'un Serializer compatible avec les attributs PHP
         // au cas où l'application hôte n'enregistre pas de SerializerInterface dans le conteneur DI.

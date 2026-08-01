@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Service;
 
-use Symfony\Component\Process\Process;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
+use Symfony\Component\Process\Process;
 
 /**
  * Ce service écrit temporairement le code sur le disque
@@ -36,7 +36,7 @@ readonly class PhpUnitTestRunner
         file_put_contents($testFilePath, $testCode);
 
         // Utilisation de DIRECTORY_SEPARATOR pour avoir 'vendor\bin\phpunit' sur Windows et 'vendor/bin/phpunit' ailleurs
-        $phpunitBin = 'vendor'.DIRECTORY_SEPARATOR.'bin'.DIRECTORY_SEPARATOR.'phpunit';
+        $phpunitBin = 'vendor' . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'phpunit';
 
         // Exécution de PHPUnit ciblé sur ce fichier précis
         $process = new Process([
