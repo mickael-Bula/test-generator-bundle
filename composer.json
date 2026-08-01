@@ -12,17 +12,41 @@
     "require": {
         "php": ">=8.2",
         "nikic/php-parser": "^5.0",
+        "phpunit/phpunit": "^10.0|^11.0",
         "symfony/framework-bundle": "^6.4|^7.0",
         "symfony/console": "^6.4|^7.0",
         "symfony/http-client": "^6.4|^7.0",
-        "symfony/ai-generic-platform": "^0.12.0",
-        "symfony/ai-open-router-platform": "^0.12.0",
-        "symfony/ai-ollama-platform": "^0.12.0",
-        "symfony/process": "^7.4",
-        "symfony/ai-platform": "^0.12.0",
-        "symfony/ai-open-ai-platform": "^0.12.0",
-        "symfony/ai-anthropic-platform": "^0.12.0",
-        "symfony/ai-gemini-platform": "^0.12.0"
+        "symfony/process": "^6.4|^7.0",
+        "symfony/serializer": "^6.4|^7.0",
+        "symfony/ai-platform": "^0.12",
+        "symfony/ai-generic-platform": "^0.12",
+        "symfony/ai-open-router-platform": "^0.12",
+        "symfony/ai-ollama-platform": "^0.12",
+        "symfony/ai-open-ai-platform": "^0.12",
+        "symfony/ai-anthropic-platform": "^0.12",
+        "symfony/ai-gemini-platform": "^0.12"
+    },
+    "require-dev": {
+        "phpstan/phpstan": "^1.11|^2.0",
+        "friendsofphp/php-cs-fixer": "^3.50"
+    },
+    "scripts": {
+        "auto-scripts": {
+            "cache:clear": "symfony-cmd"
+        },
+        "post-install-cmd": [
+            "@auto-scripts"
+        ],
+        "post-update-cmd": [
+            "@auto-scripts"
+        ],
+        "phpstan": "vendor/bin/phpstan analyse",
+        "cs-check": "vendor/bin/php-cs-fixer fix --dry-run --diff",
+        "cs-fix": "vendor/bin/php-cs-fixer fix",
+        "ci": [
+            "@cs-check",
+            "@phpstan"
+        ]
     },
     "extra": {
         "symfony": {

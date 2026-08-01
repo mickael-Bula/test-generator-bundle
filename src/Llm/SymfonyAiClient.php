@@ -11,24 +11,43 @@ use Symfony\AI\Platform\Message\MessageBag;
 use Symfony\AI\Platform\PlatformInterface;
 use Symfony\Component\DependencyInjection\Attribute\AutowireLocator;
 use Symfony\Component\DependencyInjection\ServiceLocator;
+use Symfony\Component\Serializer\Encoder\JsonEncoder;
+use Symfony\Component\Serializer\Mapping\Factory\ClassMetadataFactory;
+use Symfony\Component\Serializer\Mapping\Loader\AttributeLoader;
+use Symfony\Component\Serializer\NameConverter\MetadataAwareNameConverter;
+use Symfony\Component\Serializer\Normalizer\ObjectNormalizer;
+use Symfony\Component\Serializer\Serializer;
 use Symfony\Component\Serializer\SerializerInterface;
 
 /**
  * @noinspection PhpUnused
  */
-readonly class SymfonyAiClient implements LlmClientInterface
+class SymfonyAiClient implements LlmClientInterface
 {
     /**
      * @param ServiceLocator<PlatformInterface> $platforms
      */
     public function __construct(
-        // On indique d'indexer le ServiceLocator avec la colonne "index" du tag, correspondant aux noms des providers.
-        #[AutowireLocator('ai.platform', indexAttribute: 'index')]
-        private ServiceLocator $platforms,
-        private SerializerInterface $serializer,
-        private string $defaultProvider = 'gemini',
-        private string $defaultModel = 'gemini-2.5-flash-lite',
+        // On indexe le ServiceLocator avec la colonne "index" du tag, correspondant aux noms des providers.
+        #[AutowireLocator('mika_test_generator.ai_platform', indexAttribute: 'index')]
+        private readonly ServiceLocator $platforms,
+        private ?SerializerInterface $serializer = null,
+        private readonly string $defaultProvider = 'gemini',
+        private readonly string $defaultModel = 'gemini-2.5-flash-lite',
     ) {
+        // Fallback autonome : instanciation manuelle d'un Serializer compatible avec les attributs PHP
+        // au cas où l'application hôte n'enregistre pas de SerializerInterface dans le conteneur DI.
+        if (null === $this->serializer) {
+            $classMetadataFactory = new ClassMetadataFactory(new AttributeLoader());
+            $metadataAwareNameConverter = new MetadataAwareNameConverter($classMetadataFactory);
+
+            $normalizer = new ObjectNormalizer(
+                classMetadataFactory: $classMetadataFactory,
+                nameConverter: $metadataAwareNameConverter
+            );
+
+            $this->serializer = new Serializer([$normalizer], [new JsonEncoder()]);
+        }
     }
 
     public function supports(string $provider): bool
@@ -80,13 +99,21 @@ readonly class SymfonyAiClient implements LlmClientInterface
             $jsonString = preg_replace('/\s*```$/', '', $jsonString);
             $jsonString = trim($jsonString);
 
-            // Tentative de désérialisation vers le DTO
+            // Tentative de désérialisation
             try {
+                /** @var GeneratedTestResult $testResult */
                 $testResult = $this->serializer->deserialize($jsonString, GeneratedTestResult::class, 'json');
 
                 return $testResult->getCleanTestCode();
             } catch (\Throwable) {
-                // Fallback si le LLM a répondu directement en code PHP brut au lieu du JSON
+                // Fallback direct si la désérialisation échoue
+                $data = json_decode($jsonString, true, 512, JSON_THROW_ON_ERROR);
+                if (is_array($data) && isset($data['test_code'])) {
+                    $testResult = new GeneratedTestResult((string) $data['test_code']);
+
+                    return $testResult->getCleanTestCode();
+                }
+
                 $testResult = new GeneratedTestResult($jsonString);
 
                 return $testResult->getCleanTestCode();

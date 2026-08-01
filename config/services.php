@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 
-use Mika\TestGeneratorBundle\Attribute\AsTestPromptBuilder;
-use Mika\TestGeneratorBundle\ModelCatalog\PermissiveModelCatalog;
-
-use Symfony\Component\DependencyInjection\ChildDefinition;
+use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
+use Mika\TestGeneratorBundle\Llm\LlmClientInterface;
+use Mika\TestGeneratorBundle\PromptBuilder\TestPromptBuilderInterface;
+use Mika\TestGeneratorBundle\Service\AiPlatformFactory;
+use Symfony\AI\Platform\Platform;
 
 return static function (ContainerConfigurator $container): void {
     $services = $container->services()
@@ -15,22 +16,41 @@ return static function (ContainerConfigurator $container): void {
         ->autowire()
         ->autoconfigure();
 
-    // Chargement automatique des classes du bundle
+    // 1. Tags automatiques appliqués à toutes les classes implémentant les interfaces du bundle
+    $services->instanceof(LlmClientInterface::class)
+        ->tag('mika_test_generator.llm_client');
+
+    $services->instanceof(TestPromptBuilderInterface::class)
+        ->tag('mika_test_generator.prompt_builder');
+
+    // 2. Chargement automatique de toutes les classes PHP du bundle
     $services->load('Mika\\TestGeneratorBundle\\', '../src/*')
         ->exclude('../src/{DependencyInjection,Dto,Enum,Exception,Resources,TestGeneratorBundle.php}');
 
-    // Enregistrement explicite du catalogue permissif
-    $services->set(PermissiveModelCatalog::class);
+    // 3. Configuration des clés d'environnement pour AiPlatformFactory
+    $services->set(AiPlatformFactory::class)
+        ->arg('$geminiKey', '%env(string:default::GEMINI_API_KEY)%')
+        ->arg('$openAiKey', '%env(string:default::OPENAI_API_KEY)%')
+        ->arg('$anthropicKey', '%env(string:default::ANTHROPIC_API_KEY)%')
+        ->arg('$openRouterKey', '%env(string:default::OPENROUTER_API_KEY)%')
+        ->arg('$ollamaUrl', '%env(string:default::OLLAMA_HOST)%');
 
-    // Attribue automatiquement le tag 'mika_test_generator.prompt_builder'
-    // à n'importe quelle classe annotée avec #[AsTestPromptBuilder]
-    $container->services()
-        ->registerAttributeForAutoconfiguration(
-            AsTestPromptBuilder::class,
-            static function (ChildDefinition $definition, AsTestPromptBuilder $attribute): void {
-                $definition->addTag('mika_test_generator.prompt_builder', [
-                    'type' => $attribute->type,
-                ]);
-            }
-        );
+    // 4. Enregistrement des plateformes Symfony AI pour le ServiceLocator
+    $platforms = [
+        'gemini' => 'createGeminiPlatform',
+        'openai' => 'createOpenAiPlatform',
+        'anthropic' => 'createAnthropicPlatform',
+        'openrouter' => 'createOpenRouterPlatform',
+        'ollama' => 'createOllamaPlatform',
+    ];
+
+    foreach ($platforms as $index => $method) {
+        $services->set('mika_test_generator.ai_platform.' . $index, Platform::class)
+            ->factory([service(AiPlatformFactory::class), $method])
+            ->tag('mika_test_generator.ai_platform', ['index' => $index]);
+    }
+
+    // 5. Injection de l'itérateur taggué dans la Factory de clients LLM
+    $services->set(LlmClientFactory::class)
+        ->arg('$clients', tagged_iterator('mika_test_generator.llm_client'));
 };

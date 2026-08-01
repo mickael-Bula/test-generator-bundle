@@ -5,13 +5,14 @@ declare(strict_types=1);
 namespace Mika\TestGeneratorBundle\Resolver;
 
 use Symfony\Component\Console\Style\SymfonyStyle;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\Finder\Finder;
 use Symfony\Component\Finder\SplFileInfo;
 
 readonly class SpecResolver
 {
     public function __construct(
-        private string $projectDir,
+        #[Autowire('%kernel.project_dir%')] private string $projectDir,
     ) {
     }
 
@@ -27,7 +28,7 @@ readonly class SpecResolver
         }
         // Si `--spec` ou `-s` a été passé SANS valeur ($specOption === null), on recherche un fichier <ClassName>Spec.md
         if (null === $specOption) {
-            $conventionName = $shortClassName.'Spec.md';
+            $conventionName = $shortClassName . 'Spec.md';
             $content = $this->resolveByFinderSearch($conventionName, $conventionName, $io);
 
             if (null === $content && null !== $io) {
@@ -74,8 +75,8 @@ readonly class SpecResolver
         }
 
         // Si le fichier direct n'existe pas, tente d'ajouter l'extension .md au nom de fichier
-        if (file_exists($normalizedOption.'.md') && is_file($normalizedOption.'.md')) {
-            return file_get_contents($normalizedOption.'.md') ?: null;
+        if (file_exists($normalizedOption . '.md') && is_file($normalizedOption . '.md')) {
+            return file_get_contents($normalizedOption . '.md') ?: null;
         }
 
         return null;
@@ -86,15 +87,15 @@ readonly class SpecResolver
      */
     private function resolveByRelativeProjectPath(string $normalizedOption): ?string
     {
-        $relativePath = $this->projectDir.DIRECTORY_SEPARATOR.ltrim($normalizedOption, '/\\');
+        $relativePath = $this->projectDir . DIRECTORY_SEPARATOR . ltrim($normalizedOption, '/\\');
 
         if (file_exists($relativePath) && is_file($relativePath)) {
             return file_get_contents($relativePath) ?: null;
         }
 
         // Si non trouvé, on tente d'ajouter l'extension .md au chemin relatif
-        if (file_exists($relativePath.'.md') && is_file($relativePath.'.md')) {
-            return file_get_contents($relativePath.'.md') ?: null;
+        if (file_exists($relativePath . '.md') && is_file($relativePath . '.md')) {
+            return file_get_contents($relativePath . '.md') ?: null;
         }
 
         return null;
@@ -137,7 +138,7 @@ readonly class SpecResolver
         if (null !== $io && \count($files) > 1) {
             $io->warning(sprintf(
                 'Plusieurs fichiers de spécification nommés "%s" ont été trouvés dans le projet. '
-                .'Veuillez préciser le chemin relatif complet.',
+                . 'Veuillez préciser le chemin relatif complet.',
                 $fileName
             ));
         }
@@ -161,11 +162,11 @@ readonly class SpecResolver
             || !str_contains($specOption, ' ');
 
         if ($looksLikeFile) {
-            $relativePath = $this->projectDir.DIRECTORY_SEPARATOR.ltrim($normalizedOption, '/\\');
+            $relativePath = $this->projectDir . DIRECTORY_SEPARATOR . ltrim($normalizedOption, '/\\');
 
             $io->warning(sprintf(
                 'Fichier de spécification non trouvé (recherché aux emplacements : "%s" ou via Finder). '
-                .'La valeur sera traitée comme du texte brut.',
+                . 'La valeur sera traitée comme du texte brut.',
                 $relativePath
             ));
         }
