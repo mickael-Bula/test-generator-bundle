@@ -87,6 +87,41 @@ class GenerateTestCommand extends Command
         $this->io = new SymfonyStyle($input, $output);
         $targetInput = $input->getArgument('class');
 
+        // 1. Vérification de la présence du binaire PHPUnit
+        $phpunitBinary = $this->projectDir
+            . DIRECTORY_SEPARATOR . 'vendor'
+            . DIRECTORY_SEPARATOR . 'bin'
+            . DIRECTORY_SEPARATOR . 'phpunit';
+
+        if (!file_exists($phpunitBinary) && !file_exists($phpunitBinary . '.bat')) {
+            $this->io->error('PHPUnit n\'est pas installé sur le projet hôte.');
+            $this->io->note('Exécutez : composer require --dev phpunit/phpunit');
+
+            return Command::FAILURE;
+        }
+
+        // 2. Vérification de la présence du fichier de configuration de PHPUnit
+        $configFiles = ['phpunit.xml', 'phpunit.xml.dist', 'phpunit.dist.xml'];
+
+        $hasConfig = (bool) array_filter(
+            $configFiles,
+            fn ($file) => file_exists($this->projectDir . DIRECTORY_SEPARATOR . $file)
+        );
+
+        if (!$hasConfig) {
+            // Formate les premiers éléments séparés par des virgules et le dernier par "ou".
+            $lastFile = array_pop($configFiles);
+            $formattedList = implode(', ', $configFiles) . ' ou ' . $lastFile;
+
+            $this->io->error(sprintf(
+                'Aucun fichier de configuration PHPUnit (%s) n\'a été trouvé à la racine du projet.',
+                $formattedList)
+            );
+            $this->io->note('Vous pouvez en générer un en exécutant : composer require --dev symfony/test-pack');
+
+            return Command::FAILURE;
+        }
+
         try {
             // Résolution automatique de l'entrée
             $resolved = $this->classResolver->resolve($targetInput);
