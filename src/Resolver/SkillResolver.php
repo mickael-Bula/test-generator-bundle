@@ -14,8 +14,11 @@ class SkillResolver
         private readonly ?string $customSkillsDir = null,
         ?string $nativeSkillsDir = null,
     ) {
-        // Chemin relatif vers src/Resources/skills
-        $this->nativeSkillsDir = $nativeSkillsDir ?? \dirname(__DIR__) . '/Resources/skills';
+        // Remonte de deux niveaux depuis le répertoire courant (src/Resolver) pour atteindre la racine du Bundle.
+        $bundleDir = \dirname(__DIR__, 2);
+
+        // Chemin relatif vers Resources/skills
+        $this->nativeSkillsDir = $nativeSkillsDir ?? $bundleDir . DIRECTORY_SEPARATOR . 'Resources' . DIRECTORY_SEPARATOR . 'skills';
     }
 
     /**
@@ -81,7 +84,7 @@ class SkillResolver
 
     private function loadSkill(string $filename): ?string
     {
-        $path = $this->nativeSkillsDir . '/' . $filename;
+        $path = $this->nativeSkillsDir . DIRECTORY_SEPARATOR . $filename;
 
         if (!file_exists($path)) {
             return null;

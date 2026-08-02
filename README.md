@@ -63,8 +63,18 @@ Selon les normes PSR-4 et les conventions Symfony, la classe principale du bundl
 test-generator-bundle/
 ├── config/
 │   └── services.php
+├── docs/
+│   └── specifications.ms
+├── Resources/
+│   ├── skill/
+│   │   ├── dto_test.md
+│   │   ├── filsystem_test.md
+│   │   ├── php-parser-v5.md
+│   │   └── symfony_command.md
+│   └── spec-templates/
+│       ├── test_spec_class_template.md
+│       └── test_spec_template.md
 ├── src/
-│   ├── TestGeneratorBundle.php
 │   ├── Attribute/
 │   │   └── AsTestPromptBuilder.php
 │   ├── Command/
@@ -98,20 +108,12 @@ test-generator-bundle/
 │   │   ├── ClassResolver.php
 │   │   ├── SkillResolver.php
 |   │   └── SpecResolver.php
-│   ├── Resources/
-│   │   ├── skill/
-│   │   │   ├── dto_test.md
-│   │   │   ├── filsystem_test.md
-│   │   │   ├── php-parser-v5.md
-|   │   │   └── symfony_command.md
-│   │   └── templates/
-│   │       ├── test_spec_class_template.md
-|   │       └── test_spec_template.md
-│   └── Service/
-│       ├── AiPlatformFactory.php
-│       ├── ClassCodeResolver.php
-│       ├── PhpUnitTestRunner.php
-│       └── TestGenerator.php
+│   ├── Service/
+│   │   ├── AiPlatformFactory.php
+│   │   ├── ClassCodeResolver.php
+│   │   ├── PhpUnitTestRunner.php
+│   │   └── TestGenerator.php
+│   └── TestGeneratorBundle.php
 ├── composer.json
 └── README.md
 ```
