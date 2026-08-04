@@ -6,6 +6,7 @@ namespace Mika\TestGeneratorBundle\Llm;
 
 use Mika\TestGeneratorBundle\Dto\GeneratedTestResult;
 use Mika\TestGeneratorBundle\Exception\TestGenerationException;
+use Mika\TestGeneratorBundle\Util\JsonSanitizer;
 use Symfony\AI\Platform\Message\Message;
 use Symfony\AI\Platform\Message\MessageBag;
 use Symfony\AI\Platform\PlatformInterface;
@@ -31,6 +32,7 @@ class SymfonyAiClient implements LlmClientInterface
         // On indexe le ServiceLocator avec la colonne "index" du tag, correspondant aux noms des providers.
         #[AutowireLocator('mika_test_generator.ai_platform', indexAttribute: 'index')]
         private readonly ServiceLocator $platforms,
+        private readonly JsonSanitizer $jsonSanitizer,
         private ?SerializerInterface $serializer = null,
         private readonly string $defaultProvider = 'gemini',
         private readonly string $defaultModel = 'gemini-2.5-flash-lite',
@@ -94,10 +96,8 @@ class SymfonyAiClient implements LlmClientInterface
             // 2. Extraction du texte brut avec la méthode asText()
             $rawContent = $deferredResult->asText();
 
-            // 3. Nettoyage strict des balises Markdown de début et de fin
-            $jsonString = preg_replace('/^```(?:json|php)?\s*/i', '', $rawContent);
-            $jsonString = preg_replace('/\s*```$/', '', $jsonString);
-            $jsonString = trim($jsonString);
+            // 3. Nettoyage du JSON
+            $jsonString = $this->jsonSanitizer->sanitizeLlmJsonResponse($rawContent);
 
             // Tentative de désérialisation
             try {
