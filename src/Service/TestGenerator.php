@@ -106,4 +106,37 @@ readonly class TestGenerator
         );
         throw new TestCorrectionException($message);
     }
+
+    public function replaceDynamicHeadersInExistingTestCode(
+        string $existingTestCode,
+        string $targetNamespace,
+        string $className,
+    ): string {
+        return str_replace(
+            [
+                sprintf('namespace %s;', $targetNamespace),
+                sprintf('class %sTest', $className),
+            ],
+            [
+                'namespace App\Tests\Dynamic;',
+                sprintf('class %sDynamicTest', $className),
+            ],
+            $existingTestCode
+        );
+    }
+
+    public function replaceDynamicHeadersInTestCode(string $testCode, string $targetNamespace, string $className): string
+    {
+        return str_replace(
+            [
+                'namespace App\Tests\Dynamic;',
+                sprintf('class %sDynamicTest', $className),
+            ],
+            [
+                sprintf('namespace %s;', $targetNamespace),
+                sprintf('class %sTest', $className),
+            ],
+            $testCode
+        );
+    }
 }
