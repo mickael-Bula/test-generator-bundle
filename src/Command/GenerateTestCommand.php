@@ -9,6 +9,7 @@ use Mika\TestGeneratorBundle\Exception\TestCorrectionException;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\Resolver\ClassResolver;
 use Mika\TestGeneratorBundle\Resolver\SpecResolver;
+use Mika\TestGeneratorBundle\Resolver\TestPathResolver;
 use Mika\TestGeneratorBundle\Service\TestGenerator;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -34,6 +35,7 @@ class GenerateTestCommand extends Command
         #[Autowire('%kernel.project_dir%')] private readonly string $projectDir,
         private readonly ClassResolver $classResolver,
         private readonly SpecResolver $specResolver,
+        private readonly TestPathResolver $pathResolver,
     ) {
         parent::__construct();
     }
@@ -180,7 +182,7 @@ class GenerateTestCommand extends Command
         }
 
         try {
-            [$targetNamespace, $finalDisplayDir, $finalAbsoluteFilePath] = $this->getNamespaceAndPaths($classCode, $shortClassName);
+            [$targetNamespace, $finalDisplayDir, $finalAbsoluteFilePath] = $this->pathResolver->resolve($fqcn, $shortClassName);
 
             if (!$input->getOption('method') && file_exists($finalAbsoluteFilePath)) {
                 $this->io->warning('Un fichier de test existe déjà pour cette classe : ' . basename($finalAbsoluteFilePath));
@@ -210,7 +212,7 @@ class GenerateTestCommand extends Command
 
                 $this->io->note('Un fichier de test existant a été détecté. Il va être transmis au LLM pour fusion.');
                 $existingTestCode = file_get_contents($finalAbsoluteFilePath);
-                $existingTestCode = $this->replaceDynamicHeadersInExistingTestCode(
+                $existingTestCode = $this->testGenerator->replaceDynamicHeadersInExistingTestCode(
                     existingTestCode: $existingTestCode,
                     targetNamespace: $targetNamespace,
                     className: $shortClassName,
@@ -242,7 +244,7 @@ class GenerateTestCommand extends Command
                 return Command::FAILURE;
             }
 
-            $testCode = $this->replaceDynamicHeadersInTestCode(
+            $testCode = $this->testGenerator->replaceDynamicHeadersInTestCode(
                 testCode: $testCode,
                 targetNamespace: $targetNamespace,
                 className: $shortClassName,
@@ -276,69 +278,6 @@ class GenerateTestCommand extends Command
 
             return Command::FAILURE;
         }
-    }
-
-    /**
-     * @return array{0: string, 1: string, 2: string}
-     */
-    private function getNamespaceAndPaths(string $classCode, string $shortClassName): array
-    {
-        // 1. On normalise la racine du projet
-        $normalizedProjectDir = rtrim(str_replace('\\', '/', $this->projectDir), '/');
-
-        // 2. On extrait le namespace d'origine (ex : "App\Service")
-        $originNamespace = $this->extractNamespaceFromCode($classCode);
-
-        // 3. On calcule le namespace cible avec des antislashes (ex : "App\Tests\Service")
-        $targetNamespace = str_replace('App\\', 'App\\Tests\\', $originNamespace);
-
-        // 4. On extrait le sous-dossier (on retire "App\Tests\" puis on convertit les "\" restants en "/")
-        $subFolder = str_replace(['App\\Tests\\', '\\'], ['', '/'], $targetNamespace); // Donne: "Service"
-
-        // 5. On assemble le tout proprement avec des slashes
-        $finalDisplayDir = sprintf('%s/tests/%s', $normalizedProjectDir, $subFolder);
-        $finalAbsoluteFilePath = sprintf('%s/%sTest.php', $finalDisplayDir, $shortClassName);
-
-        return [$targetNamespace, $finalDisplayDir, $finalAbsoluteFilePath];
-    }
-
-    private function extractNamespaceFromCode(string $classCode): string
-    {
-        if (preg_match('/namespace\s+([^;]+);/', $classCode, $matches)) {
-            return trim($matches[1]);
-        }
-
-        return 'App\Tests';
-    }
-
-    private function replaceDynamicHeadersInExistingTestCode(string $existingTestCode, string $targetNamespace, string $className): string
-    {
-        return str_replace(
-            [
-                sprintf('namespace %s;', $targetNamespace),
-                sprintf('class %sTest', $className),
-            ],
-            [
-                'namespace App\Tests\Dynamic;',
-                sprintf('class %sDynamicTest', $className),
-            ],
-            $existingTestCode
-        );
-    }
-
-    private function replaceDynamicHeadersInTestCode(string $testCode, string $targetNamespace, string $className): string
-    {
-        return str_replace(
-            [
-                'namespace App\Tests\Dynamic;',
-                sprintf('class %sDynamicTest', $className),
-            ],
-            [
-                sprintf('namespace %s;', $targetNamespace),
-                sprintf('class %sTest', $className),
-            ],
-            $testCode
-        );
     }
 
     private function checkTestFileIsClean(string $path): int
