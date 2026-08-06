@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 
+use Mika\TestGeneratorBundle\Llm\SymfonyAiClient;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\Llm\LlmClientInterface;
 use Mika\TestGeneratorBundle\PromptBuilder\TestPromptBuilderInterface;
@@ -43,6 +44,17 @@ return static function (ContainerConfigurator $container): void {
         'openrouter' => 'createOpenRouterPlatform',
         'ollama' => 'createOllamaPlatform',
     ];
+
+    // 5. Injection dans LlmClientFactory de l'itérateur taggué et binding explicite des variables d'environnement
+    $services->set(LlmClientFactory::class)
+        ->arg('$clients', tagged_iterator('mika_test_generator.llm_client'))
+        ->arg('$defaultProvider', '%env(string:default::LLM_PROVIDER)%')
+        ->arg('$defaultModel', '%env(string:default::LLM_MODEL)%');
+
+    // 6. Injection des variables d'environnement dans SymfonyAiClient
+    $services->set(SymfonyAiClient::class)
+        ->arg('$defaultProvider', '%env(string:default::LLM_PROVIDER)%')
+        ->arg('$defaultModel', '%env(string:default::LLM_MODEL)%');
 
     foreach ($platforms as $index => $method) {
         $services->set('mika_test_generator.ai_platform.' . $index, Platform::class)

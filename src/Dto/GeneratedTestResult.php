@@ -18,12 +18,19 @@ final readonly class GeneratedTestResult
     {
         $code = str_replace(["\r\n", "\r"], "\n", $this->testCode);
 
-        // Retrait des éventuelles balises Markdown
-        $code = preg_replace('/^```php\s*/i', '', $code);
+        // Retrait des éventuelles balises Markdown (avec ou sans "php")
+        $code = preg_replace('/^```(?:php)?\s*/i', '', $code);
         $code = preg_replace('/```\s*$/', '', $code);
 
-        // Gestion des doubles antislashs PHP (ex : \\InvalidArgumentException pour \InvalidArgumentException)
+        // Gestion des doubles antislashs PHP (ex : \\InvalidArgumentException -> \InvalidArgumentException)
         $code = preg_replace('/\\\\\\\\([a-zA-Z_\x7f-\xff])/', '\\\\$1', $code);
+
+        // Correction automatique : '... n\'est ...' → "... n'est ..."
+        $code = preg_replace_callback("/'((?:[^'\\\\]|\\\\.)*?\\\\'[\s\S]*?)'/", static function (array $matches): string {
+            $inner = str_replace("\\'", "'", $matches[1]);
+
+            return '"' . $inner . '"';
+        }, $code);
 
         return trim($code);
     }
