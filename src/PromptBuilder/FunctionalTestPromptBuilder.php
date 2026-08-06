@@ -24,6 +24,7 @@ final class FunctionalTestPromptBuilder implements TestPromptBuilderInterface
         ?string $methodName = null,
         ?string $existingTestCode = null,
         ?string $specContent = null,
+        ?string $provider = null,
     ): array {
         $systemPrompt = <<<PROMPT
 Tu es un expert PHP, Symfony et PHPUnit.

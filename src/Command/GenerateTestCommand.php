@@ -166,6 +166,9 @@ class GenerateTestCommand extends Command
         // Récupère le modèle passé en option, sinon celui déclaré par défaut dans les variables d'environnement
         $model = $input->getOption('model') ?? $this->llmFactory->getDefaultModel();
 
+        // Récupère le provider
+        $provider = $this->llmFactory->getDefaultProvider();
+
         // Récupération du contenu de la spécification
         $specOption = $input->getOption('spec');
 
@@ -236,6 +239,7 @@ class GenerateTestCommand extends Command
                     existingTestCode: $existingTestCode,
                     specContent: $specContent,
                     type: $testType->value,
+                    provider: $provider
                 );
             } catch (\RuntimeException|TestCorrectionException $e) {
                 // Intercepte les erreurs de Repo-Map ainsi que l'échec de correction PHPUnit

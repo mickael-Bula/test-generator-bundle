@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 
+use Symfony\AI\Platform\Platform;
 use Mika\TestGeneratorBundle\Llm\SymfonyAiClient;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
+use Mika\TestGeneratorBundle\Llm\AiPlatformFactory;
 use Mika\TestGeneratorBundle\Llm\LlmClientInterface;
 use Mika\TestGeneratorBundle\PromptBuilder\TestPromptBuilderInterface;
-use Mika\TestGeneratorBundle\Service\AiPlatformFactory;
-use Symfony\AI\Platform\Platform;
 
 return static function (ContainerConfigurator $container): void {
     $services = $container->services()
@@ -45,6 +45,12 @@ return static function (ContainerConfigurator $container): void {
         'ollama' => 'createOllamaPlatform',
     ];
 
+    foreach ($platforms as $index => $method) {
+        $services->set('mika_test_generator.ai_platform.' . $index, Platform::class)
+            ->factory([service(AiPlatformFactory::class), $method])
+            ->tag('mika_test_generator.ai_platform', ['index' => $index]);
+    }
+
     // 5. Injection dans LlmClientFactory de l'itérateur taggué et binding explicite des variables d'environnement
     $services->set(LlmClientFactory::class)
         ->arg('$clients', tagged_iterator('mika_test_generator.llm_client'))
@@ -55,14 +61,4 @@ return static function (ContainerConfigurator $container): void {
     $services->set(SymfonyAiClient::class)
         ->arg('$defaultProvider', '%env(string:default::LLM_PROVIDER)%')
         ->arg('$defaultModel', '%env(string:default::LLM_MODEL)%');
-
-    foreach ($platforms as $index => $method) {
-        $services->set('mika_test_generator.ai_platform.' . $index, Platform::class)
-            ->factory([service(AiPlatformFactory::class), $method])
-            ->tag('mika_test_generator.ai_platform', ['index' => $index]);
-    }
-
-    // 5. Injection de l'itérateur taggué dans la Factory de clients LLM
-    $services->set(LlmClientFactory::class)
-        ->arg('$clients', tagged_iterator('mika_test_generator.llm_client'));
 };

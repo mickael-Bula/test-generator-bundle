@@ -7,6 +7,7 @@ namespace Mika\TestGeneratorBundle\Llm;
 use Mika\TestGeneratorBundle\Dto\GeneratedTestResult;
 use Mika\TestGeneratorBundle\Exception\TestGenerationException;
 use Mika\TestGeneratorBundle\Util\JsonSanitizer;
+use Mika\TestGeneratorBundle\Util\PhpCodeExtractor;
 use Symfony\AI\Platform\Message\Message;
 use Symfony\AI\Platform\Message\MessageBag;
 use Symfony\AI\Platform\PlatformInterface;
@@ -103,6 +104,20 @@ class SymfonyAiClient implements LlmClientInterface
             throw new TestGenerationException($message, 0, $e);
         }
 
+        // Pour Ollama, on extrait directement le code PHP sans chercher à parser du JSON (demandé dans le prompt).
+        if ('ollama' === $provider) {
+            return PhpCodeExtractor::extract($rawContent);
+        }
+
+        // CAS SPÉCIAL : Si le LLM a renvoyé du PHP pur sans enveloppe JSON
+        if (str_starts_with($rawContent, '<?php') || str_contains($rawContent, 'namespace App\Tests')) {
+            // Si emballé dans du markdown ```php ... ```
+            $cleanPhp = preg_replace('/^```(?:php)?\s*/i', '', $rawContent);
+            $cleanPhp = preg_replace('/\s*```$/', '', (string) $cleanPhp);
+
+            return (new GeneratedTestResult(trim((string) $cleanPhp)))->getCleanTestCode();
+        }
+
         // 2. Traitement du contenu retourné sans bloquer le flux par une exception
         $jsonString = $this->jsonSanitizer->sanitizeLlmJsonResponse($rawContent);
 
@@ -116,19 +131,30 @@ class SymfonyAiClient implements LlmClientInterface
             // Ignoré, on tente le fallback manuel
         }
 
-        // Tentative 2 : Décodage manuel via json_decode sans lever d'exception
-        $data = json_decode($jsonString, true);
-        if (is_array($data) && isset($data['test_code']) && is_string($data['test_code'])) {
-            $testResult = new GeneratedTestResult($data['test_code']);
+        // Tentative 2 : Décodage manuel via json_decode sans lever d'exception (pas de JSON_THROW_ON_ERROR)
+        try {
+            $data = json_decode($jsonString, true, 512, JSON_THROW_ON_ERROR);
 
-            return $testResult->getCleanTestCode();
+            if (is_array($data) && isset($data['test_code']) && is_string($data['test_code'])) {
+                $testResult = new GeneratedTestResult($data['test_code']);
+
+                return $testResult->getCleanTestCode();
+            }
+        } catch (\JsonException) {
+            // Le JSON est malformé : on ignore l'exception pour poursuivre vers le fallback
         }
 
-        // Tentative 3 : Fallback ultime si le JSON est complètement corrompu
-        // On passe la chaîne brute nettoyée au DTO pour laisser getCleanTestCode() extraire ce qu'il peut
-        // ou pour laisser TestGenerator valider le code PHP et déclencher la boucle de retry.
-        $testResult = new GeneratedTestResult($jsonString);
+        // Tentative 3 : Extraction de la valeur "test_code" dans le JSON corrompu.
+        // On extrait la valeur entre "test_code": "..." sans passer par json_decode().
+        if (preg_match('/"test_code"\s*:\s*"(.*)"\s*}\s*$/s', $jsonString, $matches)) {
+            // stripcslashes() transforme les \n littéraux du JSON en vrais sauts de ligne PHP
+            // et restaure les antislashs \ de namespace.
+            $extractedCode = stripcslashes($matches[1]);
 
-        return $testResult->getCleanTestCode();
+            return (new GeneratedTestResult($extractedCode))->getCleanTestCode();
+        }
+
+        // Fallback ultime : On passe rawContent au DTO
+        return (new GeneratedTestResult($rawContent))->getCleanTestCode();
     }
 }

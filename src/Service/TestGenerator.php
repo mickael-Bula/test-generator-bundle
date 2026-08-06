@@ -51,6 +51,7 @@ readonly class TestGenerator
         ?string $existingTestCode = null,
         ?string $specContent = null,
         string $type = 'unit',
+        ?string $provider = null,
     ): string {
         // Sélection du builder approprié
         $builder = $this->getPromptBuilder($type);
@@ -62,7 +63,8 @@ readonly class TestGenerator
             $className,
             $methodName,
             $existingTestCode,
-            $specContent
+            $specContent,
+            $provider
         );
 
         $messages = [

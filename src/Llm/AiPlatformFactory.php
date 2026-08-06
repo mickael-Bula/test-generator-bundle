@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Mika\TestGeneratorBundle\Service;
+namespace Mika\TestGeneratorBundle\Llm;
 
 use Symfony\AI\Platform\Bridge\Anthropic\Factory as AnthropicFactory;
 use Symfony\AI\Platform\Bridge\Gemini\Factory as GeminiFactory;
@@ -102,8 +102,20 @@ class AiPlatformFactory
      */
     public function createOllamaPlatform(): PlatformInterface
     {
-        return new Platform([
-            OllamaFactory::createProvider(endpoint: $this->ollamaUrl, httpClient: $this->httpClient),
-        ]);
+        $endpoint = !empty($this->ollamaUrl) ? $this->ollamaUrl : 'http://127.0.0.1:11434';
+
+        // On crée un client HTTP dédié avec un timeout de 600 secondes (10 minutes) pour la génération LLM
+        $customHttpClient = HttpClient::create(
+            [
+                'timeout' => 900,      // Timeout en secondes entre chaque bloc de données reçu (15 min)
+                'max_duration' => 900, // Durée maximale globale de la requête (15 min)
+            ]
+        );
+
+        return new Platform(
+            [
+                OllamaFactory::createProvider(endpoint: $endpoint, httpClient: $customHttpClient),
+            ]
+        );
     }
 }

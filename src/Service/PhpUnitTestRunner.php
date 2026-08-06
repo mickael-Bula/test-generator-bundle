@@ -42,6 +42,7 @@ readonly class PhpUnitTestRunner
         $process = new Process([
             $phpunitBin,
             $testFilePath,
+            '--colors=always',
         ], $this->projectDir, [
             'XDEBUG_MODE' => 'off',
             'XDEBUG_SESSION' => null,
