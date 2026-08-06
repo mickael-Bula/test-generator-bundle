@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Resolver;
 
-final readonly class TestPathResolver
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
+
+readonly class TestPathResolver
 {
     public function __construct(
-        private string $projectDir,
+        #[Autowire('%kernel.project_dir%')] private string $projectDir,
     ) {
     }
 

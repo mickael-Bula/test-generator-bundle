@@ -89,35 +89,10 @@ class SymfonyAiClient implements LlmClientInterface
             };
         }
 
+        // 1. Invocation de la plateforme (erreurs réseau/API uniquement)
         try {
-            // 1. Invocation de la plateforme
             $deferredResult = $platform->invoke($targetModel, $messageBag);
-
-            // 2. Extraction du texte brut avec la méthode asText()
             $rawContent = $deferredResult->asText();
-
-            // 3. Nettoyage du JSON
-            $jsonString = $this->jsonSanitizer->sanitizeLlmJsonResponse($rawContent);
-
-            // Tentative de désérialisation
-            try {
-                /** @var GeneratedTestResult $testResult */
-                $testResult = $this->serializer->deserialize($jsonString, GeneratedTestResult::class, 'json');
-
-                return $testResult->getCleanTestCode();
-            } catch (\Throwable) {
-                // Fallback direct si la désérialisation échoue
-                $data = json_decode($jsonString, true, 512, JSON_THROW_ON_ERROR);
-                if (is_array($data) && isset($data['test_code'])) {
-                    $testResult = new GeneratedTestResult((string) $data['test_code']);
-
-                    return $testResult->getCleanTestCode();
-                }
-
-                $testResult = new GeneratedTestResult($jsonString);
-
-                return $testResult->getCleanTestCode();
-            }
         } catch (\Throwable $e) {
             $message = sprintf(
                 'Erreur lors de la génération avec Symfony AI (%s/%s) : %s',
@@ -127,5 +102,33 @@ class SymfonyAiClient implements LlmClientInterface
             );
             throw new TestGenerationException($message, 0, $e);
         }
+
+        // 2. Traitement du contenu retourné sans bloquer le flux par une exception
+        $jsonString = $this->jsonSanitizer->sanitizeLlmJsonResponse($rawContent);
+
+        // Tentative 1 : Désérialisation via le Serializer Symfony
+        try {
+            /** @var GeneratedTestResult $testResult */
+            $testResult = $this->serializer->deserialize($jsonString, GeneratedTestResult::class, 'json');
+
+            return $testResult->getCleanTestCode();
+        } catch (\Throwable) {
+            // Ignoré, on tente le fallback manuel
+        }
+
+        // Tentative 2 : Décodage manuel via json_decode sans lever d'exception
+        $data = json_decode($jsonString, true);
+        if (is_array($data) && isset($data['test_code']) && is_string($data['test_code'])) {
+            $testResult = new GeneratedTestResult($data['test_code']);
+
+            return $testResult->getCleanTestCode();
+        }
+
+        // Tentative 3 : Fallback ultime si le JSON est complètement corrompu
+        // On passe la chaîne brute nettoyée au DTO pour laisser getCleanTestCode() extraire ce qu'il peut
+        // ou pour laisser TestGenerator valider le code PHP et déclencher la boucle de retry.
+        $testResult = new GeneratedTestResult($jsonString);
+
+        return $testResult->getCleanTestCode();
     }
 }

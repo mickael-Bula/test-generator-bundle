@@ -114,7 +114,17 @@ EXIGENCES STRICTES DE QUALITÉ ET STYLE :
    - INTERDICTION STRICTE d'utiliser des blocs PHPDoc (/** ... */) sur la classe ou les méthodes.
    - Pour les vérifications booléennes, utilise assertTrue($condition) ou assertFalse($condition) au lieu de assertSame(true, $condition).
 
-2. RÈGLES STRICTES SUR LES COMMENTAIRES ET ASSERTIONS :
+2. NETTOYAGE D'ENVIRONNEMENT ET MANIPULATION DU FILESYSTEM (tearDown) :
+   - Si des tests écrivent dans le système de fichiers réel ou créent un dépôt Git temporaire (via `git init`), la méthode `tearDown()` doit impérativement reconfigurer les permissions récursives avant la suppression pour éviter les blocages de droits sous Windows :
+     protected function tearDown(): void
+     {
+         if ($this->filesystem->exists($this->tempDir)) {
+             $this->filesystem->chmod($this->tempDir, 0777, 0000, true);
+             $this->filesystem->remove($this->tempDir);
+         }
+     }
+
+3. RÈGLES STRICTES SUR LES COMMENTAIRES ET ASSERTIONS :
    - AUCUN commentaire de texte libre ou explicatif n'est autorisé dans tout le fichier (ni dans setUp(), ni dans les méthodes de test).
    - Ne recopie JAMAIS les descriptions, phrases ou détails des scénarios BDD de l'invite dans le code PHP.
    - Les SEULES lignes de commentaire autorisées dans TOUT LE FICHIER sont STRICTEMENT ces 3 balises courtes, isolées sur leur propre ligne :
