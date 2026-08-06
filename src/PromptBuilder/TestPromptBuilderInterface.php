@@ -18,5 +18,6 @@ interface TestPromptBuilderInterface
         ?string $methodName = null,
         ?string $existingTestCode = null,
         ?string $specContent = null,
+        ?string $provider = null,
     ): array;
 }

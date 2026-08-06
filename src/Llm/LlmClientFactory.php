@@ -43,4 +43,9 @@ readonly class LlmClientFactory
     {
         return $this->defaultModel;
     }
+
+    public function getDefaultProvider(): string
+    {
+        return strtolower($this->defaultProvider);
+    }
 }
