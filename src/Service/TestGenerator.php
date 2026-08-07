@@ -58,13 +58,13 @@ readonly class TestGenerator
 
         // Construction des messages via le builder
         $prompts = $builder->buildPrompt(
-            $classCode,
-            $fqcn,
-            $className,
-            $methodName,
-            $existingTestCode,
-            $specContent,
-            $provider
+            classCode: $classCode,
+            fqcn: $fqcn,
+            className: $className,
+            methodName: $methodName,
+            existingTestCode: $existingTestCode,
+            specContent: $specContent,
+            provider: $provider
         );
 
         $messages = [
