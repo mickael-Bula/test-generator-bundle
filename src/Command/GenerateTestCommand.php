@@ -81,12 +81,21 @@ class GenerateTestCommand extends Command
         );
     }
 
+    /**
+     * @throws \DateInvalidTimeZoneException|\Exception
+     */
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        // On donne dix minutes d'exécution au script global (important pour le CPU en local).
-        set_time_limit(6000);
+        // Initialisation du chronomètre et de l'horodatage de début
+        $timezone = new \DateTimeZone(date_default_timezone_get());
+        $startTime = new \DateTimeImmutable('now', $timezone);
+        $startMicrotime = microtime(true);
 
         $this->io = new SymfonyStyle($input, $output);
+
+        // Affichage de l'heure de début dès le lancement
+        $this->io->text(sprintf('⏱️  Début d\'exécution : <info>%s</info>', $startTime->format('H:i:s')));
+
         $targetInput = $input->getArgument('class');
 
         // 1. Vérification de la présence du binaire PHPUnit
@@ -278,9 +287,15 @@ class GenerateTestCommand extends Command
                 );
             }
 
+            // Affichage de l'heure de fin à l'arrêt de la commande
+            $this->displayExecutionTime($startTime, $startMicrotime);
+
             return Command::SUCCESS;
         } catch (\Exception $e) {
             $this->io->error('Une erreur est survenue lors de la génération : ' . $e->getMessage());
+
+            // Affichage de l'heure de fin à l'arrêt de la commande
+            $this->displayExecutionTime($startTime, $startMicrotime);
 
             return Command::FAILURE;
         }
@@ -300,5 +315,27 @@ class GenerateTestCommand extends Command
         }
 
         return Command::SUCCESS;
+    }
+
+    private function displayExecutionTime(\DateTimeImmutable $startTime, float $startMicrotime): void
+    {
+        $endTime = new \DateTimeImmutable();
+        $durationInSeconds = round(microtime(true) - $startMicrotime, 2);
+
+        // Formate la durée (ex: "45.2s" ou "2m 15s")
+        if ($durationInSeconds >= 60) {
+            $minutes = (int) ($durationInSeconds / 60);
+            $seconds = round(fmod($durationInSeconds, 60), 1);
+            $formattedDuration = sprintf('%dm %ss', $minutes, $seconds);
+        } else {
+            $formattedDuration = sprintf('%.2fs', $durationInSeconds);
+        }
+
+        $this->io->newLine();
+        $this->io->definitionList(
+            ['Début' => $startTime->format('H:i:s')],
+            ['Fin' => $endTime->format('H:i:s')],
+            ['Durée totale' => $formattedDuration]
+        );
     }
 }
