@@ -30,6 +30,7 @@ readonly class UnitTestPromptBuilder implements TestPromptBuilderInterface
 
     public function buildPrompt(
         string $classCode,
+        string $filePath,
         string $fqcn,
         string $className,
         ?string $methodName = null,
@@ -45,6 +46,7 @@ readonly class UnitTestPromptBuilder implements TestPromptBuilderInterface
 
         return [
             'system' => $this->buildSystemMessage(
+                filePath: $filePath,
                 skillsPrompt: $skillsPrompt,
                 provider: $provider,
             ),
@@ -69,14 +71,19 @@ readonly class UnitTestPromptBuilder implements TestPromptBuilderInterface
      *
      * @throws \RuntimeException
      */
-    private function buildSystemMessage(?string $skillsPrompt = null, ?string $provider = null): string
-    {
+    private function buildSystemMessage(
+        ?string $filePath = null,
+        ?string $skillsPrompt = null,
+        ?string $provider = null,
+    ): string {
         $normalizedProvider = null !== $provider ? strtolower(trim($provider)) : null;
 
         $systemMessage = $this->getSystemMessage($normalizedProvider);
 
         try {
-            $repoMap = $this->repoMapBuilder->buildMap($this->projectDir . '/src');
+            // $repoMap = $this->repoMapBuilder->buildMap($this->projectDir . '/src');
+            // Génération de la repo-map dynamique ciblée sur le bon paquet
+            $repoMap = $this->repoMapBuilder->buildMapForFile($filePath);
         } catch (\InvalidArgumentException|InvalidArgumentException $e) {
             $message = sprintf(
                 "Impossible de générer le Repo-Map dans '%s' : %s",

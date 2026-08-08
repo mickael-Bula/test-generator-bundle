@@ -44,6 +44,7 @@ readonly class TestGenerator
      */
     public function generateForClass(
         string $classCode,
+        string $filePath,
         string $fqcn,
         string $className,
         ?string $model = null,
@@ -59,6 +60,7 @@ readonly class TestGenerator
         // Construction des messages via le builder
         $prompts = $builder->buildPrompt(
             classCode: $classCode,
+            filePath: $filePath,
             fqcn: $fqcn,
             className: $className,
             methodName: $methodName,

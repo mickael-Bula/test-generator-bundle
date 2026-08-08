@@ -39,9 +39,15 @@
 ### Cas 2.3 : Correction des apostrophes mal échappées (`\'`)
 - **Description** : Les apostrophes échappées par un antislash dans des chaînes délimitées par des simples quotes (`'n\'est'`) doivent être converties en guillemets doubles (`"n'est"`).
 - **Scénario** :
-  - **Étant donné** le code `$msg = 'L\'élément n\'est pas valide';`
+  - **Étant donné** le code PHP d'entrée sous forme de bloc Nowdoc (pour éviter toute confusion de guillemets) :
+    ```php
+    $msg = 'L\'élément n\'est pas valide';
+    ```
   - **Quand** on appelle `getCleanTestCode()`
-  - **Alors** le résultat renvoyé doit être `$msg = "L'élément n'est pas valide";`.
+  - **Alors** le résultat renvoyé doit être exactement :
+    ```php
+    $msg = "L'élément n'est pas valide";
+    ```
 
 ### Cas 2.4 : Conservation du code sain sans apostrophe échappée
 - **Description** : Si le code ne contient aucun motif `\'`, il ne doit pas subir de transformation inutile via le callback regex.

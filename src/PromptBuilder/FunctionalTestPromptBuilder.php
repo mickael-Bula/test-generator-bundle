@@ -19,6 +19,7 @@ final class FunctionalTestPromptBuilder implements TestPromptBuilderInterface
 
     public function buildPrompt(
         string $classCode,
+        string $filePath,
         string $fqcn,
         string $className,
         ?string $methodName = null,

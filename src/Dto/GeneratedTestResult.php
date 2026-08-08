@@ -25,7 +25,7 @@ final readonly class GeneratedTestResult
         // Gestion des doubles antislashs PHP (ex : \\InvalidArgumentException -> \InvalidArgumentException)
         $code = preg_replace('/\\\\\\\\([a-zA-Z_\x7f-\xff])/', '\\\\$1', $code);
 
-        // Correction automatique : '... n\'est ...' → "... n'est ..."
+        // Correction des apostrophes échappées dans des chaînes délimitées par des apostrophes (ex : : '... n\'est ...' → "... n'est ...")
         $code = preg_replace_callback("/'((?:[^'\\\\]|\\\\.)*?\\\\'[\s\S]*?)'/", static function (array $matches): string {
             $inner = str_replace("\\'", "'", $matches[1]);
 

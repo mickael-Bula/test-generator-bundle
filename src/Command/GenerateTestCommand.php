@@ -233,6 +233,7 @@ class GenerateTestCommand extends Command
             try {
                 $testCode = $this->testGenerator->generateForClass(
                     classCode: $classCode,
+                    filePath: $filePath,
                     fqcn: $fqcn,
                     className: $shortClassName,
                     model: $model,
