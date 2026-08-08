@@ -104,11 +104,11 @@ class AiPlatformFactory
     {
         $endpoint = !empty($this->ollamaUrl) ? $this->ollamaUrl : 'http://127.0.0.1:11434';
 
-        // On crée un client HTTP dédié avec un timeout de 900 secondes (15 minutes) pour la génération LLM
+        // On crée un client HTTP dédié avec un timeout de 900 secondes (30 minutes) pour la génération LLM
         $customHttpClient = HttpClient::create(
             [
-                'timeout' => 900,      // Timeout en secondes entre chaque bloc de données reçu
-                'max_duration' => 900, // Durée maximale globale de la requête
+                'timeout' => 1800,      // Timeout en secondes entre chaque bloc de données reçu
+                'max_duration' => 1800, // Durée maximale globale de la requête
             ]
         );
 
