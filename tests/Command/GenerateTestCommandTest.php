@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Tests\Command;
 
+use Random\RandomException;
 use Mika\TestGeneratorBundle\Command\GenerateTestCommand;
 use Mika\TestGeneratorBundle\Exception\TestCorrectionException;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
@@ -30,6 +31,9 @@ final class GenerateTestCommandTest extends TestCase
     private SpecResolver&MockObject $specResolver;
     private TestPathResolver&MockObject $pathResolver;
 
+    /**
+     * @throws RandomException
+     */
     protected function setUp(): void
     {
         $this->filesystem = new Filesystem();
@@ -168,6 +172,7 @@ final class GenerateTestCommandTest extends TestCase
             ->method('generateForClass')
             ->with(
                 '<?php class Foo {}',
+                $srcFile,
                 'App\Service\Foo',
                 'Foo',
                 'default-model',
@@ -250,6 +255,7 @@ final class GenerateTestCommandTest extends TestCase
             ->method('generateForClass')
             ->with(
                 '<?php class Foo {}',
+                $srcFile,
                 'App\Service\Foo',
                 'Foo',
                 'custom-model',
@@ -442,6 +448,7 @@ final class GenerateTestCommandTest extends TestCase
         $this->testGenerator->method('generateForClass')
             ->with(
                 '<?php class Foo {}',
+                $srcFile,
                 'App\Service\Foo',
                 'Foo',
                 'default-model',

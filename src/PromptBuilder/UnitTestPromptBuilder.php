@@ -30,6 +30,7 @@ readonly class UnitTestPromptBuilder implements TestPromptBuilderInterface
 
     public function buildPrompt(
         string $classCode,
+        string $filePath,
         string $fqcn,
         string $className,
         ?string $methodName = null,
@@ -38,16 +39,29 @@ readonly class UnitTestPromptBuilder implements TestPromptBuilderInterface
         ?string $provider = null,
     ): array {
         // 1. Résolution des skills applicables
-        $skillsPrompt = $this->skillResolver->resolveForClass($fqcn, $classCode);
+        $skillsPrompt = $this->skillResolver->resolveForClass(
+            fqcn: $fqcn,
+            classCode: $classCode,
+        );
 
         return [
-            'system' => $this->buildSystemMessage($skillsPrompt, $provider),
-            'user' => $this->buildUserMessage($classCode, $className, $methodName, $existingTestCode, $specContent),
+            'system' => $this->buildSystemMessage(
+                filePath: $filePath,
+                skillsPrompt: $skillsPrompt,
+                provider: $provider,
+            ),
+            'user' => $this->buildUserMessage(
+                classCode: $classCode,
+                className: $className,
+                methodName: $methodName,
+                existingTestCode: $existingTestCode,
+                specContent: $specContent,
+            ),
         ];
     }
 
     /**
-     * Construit le prompt système global en y injectant le Repo-Map et éventuellement les Guardrails Ollama.
+     * Construit le prompt système global en y injectant le Repo-Map et éventuellement les consignes pour Ollama.
      * Utilisation de <<<'TEXT' (NOWDOC) pour que PHP traite tout le bloc de texte
      * comme une chaîne de caractères strictement littérale : pas d'interprétation des variables.
      * Tout ce qui commence par un $ est ignoré par le parseur PHP.
@@ -57,39 +71,19 @@ readonly class UnitTestPromptBuilder implements TestPromptBuilderInterface
      *
      * @throws \RuntimeException
      */
-    private function buildSystemMessage(?string $skillsPrompt = null, ?string $provider = null): string
-    {
+    private function buildSystemMessage(
+        ?string $filePath = null,
+        ?string $skillsPrompt = null,
+        ?string $provider = null,
+    ): string {
         $normalizedProvider = null !== $provider ? strtolower(trim($provider)) : null;
 
-        if ('ollama' === $normalizedProvider) {
-            $systemMessage = <<<'TEXT'
-Tu es un expert PHPUnit 10+ et Symfony. Ton rôle est de générer un fichier de test unitaire complet, propre et exécutable.
-
-RÈGLES DE SORTIE STRICTES (MODE CODE PHP PUR) :
-1. Génère EXCLUSIVEMENT du code PHP valide et immédiatement exécutable par PHPUnit.
-2. Ta réponse DOIT commencer directement par la balise <?php (aucun texte de présentation avant).
-3. N'utilise AUCUN format JSON.
-4. N'ajoute AUCUN texte explicatif, AUCUNE introduction et AUCUNE balise Markdown (ne mets pas ```php ... ``` autour du code).
-
-RÈGLES D'IMPORTATION DES ATTRIBUTS (CRITIQUE) :
-1. Tu DOIS IMPÉRATIVEMENT inclure ces deux lignes d'import en haut du fichier avec les autres 'use' :
-   use PHPUnit\Framework\Attributes\CoversClass;
-   use PHPUnit\Framework\Attributes\Test;
-2. Ne laisse JAMAIS un attribut PHPUnit (#[CoversClass] ou #[Test]) sans son instruction 'use' correspondante.
-TEXT;
-        } else {
-            $systemMessage = <<<'TEXT'
-Tu es un expert PHPUnit 10+ et Symfony. Ton rôle est de générer un fichier de test unitaire complet, propre et exécutable.
-
-FORMAT DE RÉPONSE OBLIGATOIRE :
-- Réponds EXCLUSIVEMENT sous la forme d'un objet JSON valide contenant une seule clé nommée 'test_code'.
-- La valeur de 'test_code' doit être une chaîne de caractères contenant l'intégralité du code PHP (commençant par <?php).
-- Ne mets AUCUN balisage Markdown (ex : ```php) à l'intérieur de la valeur JSON.
-TEXT;
-        }
+        $systemMessage = $this->getSystemMessage($normalizedProvider);
 
         try {
-            $repoMap = $this->repoMapBuilder->buildMap($this->projectDir . '/src');
+            // $repoMap = $this->repoMapBuilder->buildMap($this->projectDir . '/src');
+            // Génération de la repo-map dynamique ciblée sur le bon paquet
+            $repoMap = $this->repoMapBuilder->buildMapForFile($filePath);
         } catch (\InvalidArgumentException|InvalidArgumentException $e) {
             $message = sprintf(
                 "Impossible de générer le Repo-Map dans '%s' : %s",
@@ -234,5 +228,35 @@ TEXT;
         }
 
         return $message;
+    }
+
+    private function getSystemMessage(string $normalizedProvider): string
+    {
+        if ('ollama' === $normalizedProvider) {
+            return <<<'TEXT'
+Tu es un expert PHPUnit 10+ et Symfony. Ton rôle est de générer un fichier de test unitaire complet, propre et exécutable.
+
+RÈGLES DE SORTIE STRICTES (MODE CODE PHP PUR) :
+1. Génère EXCLUSIVEMENT du code PHP valide et immédiatement exécutable par PHPUnit.
+2. Ta réponse DOIT commencer directement par la balise <?php (aucun texte de présentation avant).
+3. N'utilise AUCUN format JSON.
+4. N'ajoute AUCUN texte explicatif, AUCUNE introduction et AUCUNE balise Markdown (ne mets pas ```php ... ``` autour du code).
+
+RÈGLES D'IMPORTATION DES ATTRIBUTS (CRITIQUE) :
+1. Tu DOIS IMPÉRATIVEMENT inclure ces deux lignes d'import en haut du fichier avec les autres 'use' :
+   use PHPUnit\Framework\Attributes\CoversClass;
+   use PHPUnit\Framework\Attributes\Test;
+2. Ne laisse JAMAIS un attribut PHPUnit (#[CoversClass] ou #[Test]) sans son instruction 'use' correspondante.
+TEXT;
+        }
+
+        return <<<'TEXT'
+Tu es un expert PHPUnit 10+ et Symfony. Ton rôle est de générer un fichier de test unitaire complet, propre et exécutable.
+
+FORMAT DE RÉPONSE OBLIGATOIRE :
+- Réponds EXCLUSIVEMENT sous la forme d'un objet JSON valide contenant une seule clé nommée 'test_code'.
+- La valeur de 'test_code' doit être une chaîne de caractères contenant l'intégralité du code PHP (commençant par <?php).
+- Ne mets AUCUN balisage Markdown (ex : ```php) à l'intérieur de la valeur JSON.
+TEXT;
     }
 }

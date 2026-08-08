@@ -125,16 +125,11 @@ class GenerateTestCommand extends Command
         }
 
         try {
-            // Résolution automatique de l'entrée
-            $resolved = $this->classResolver->resolve($targetInput);
-
-            $fqcn = $resolved['className'];
-            $filePath = $resolved['filePath'];
-
+            // Traitement du type de test (unitaire ou fonctionnel)
             $isUnit = (bool) $input->getOption('unit');
             $isFunctional = (bool) $input->getOption('functional');
 
-            // Validation : empêcher d'activer les deux flags en même temps
+            // Validation pour empêcher d'activer les deux flags en même temps
             if ($isUnit && $isFunctional) {
                 $this->io->error('Vous ne pouvez pas spécifier à la fois --unit (-u) et --functional (-f).');
 
@@ -143,6 +138,12 @@ class GenerateTestCommand extends Command
 
             // Détermination du type (par défaut : UNIT).
             $testType = $isFunctional ? TestType::FUNCTIONAL : TestType::UNIT;
+
+            // Résolution automatique de l'entrée
+            $resolved = $this->classResolver->resolve($targetInput);
+
+            $fqcn = $resolved['className'];
+            $filePath = $resolved['filePath'];
 
             // Si le fichier n'existe pas, on arrête l'exécution de la commande.
             if (!file_exists($filePath)) {
@@ -232,6 +233,7 @@ class GenerateTestCommand extends Command
             try {
                 $testCode = $this->testGenerator->generateForClass(
                     classCode: $classCode,
+                    filePath: $filePath,
                     fqcn: $fqcn,
                     className: $shortClassName,
                     model: $model,

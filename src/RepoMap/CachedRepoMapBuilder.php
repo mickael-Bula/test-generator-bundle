@@ -6,17 +6,65 @@ namespace Mika\TestGeneratorBundle\RepoMap;
 
 use Psr\Cache\CacheItemPoolInterface;
 use Psr\Cache\InvalidArgumentException;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\Finder\Finder;
 
 class CachedRepoMapBuilder
 {
-    private const CACHE_KEY_MAP = 'repo_map_content';
-    private const CACHE_KEY_HASH = 'repo_map_hash';
+    private const CACHE_KEY_PREFIX = 'repo_map_';
 
     public function __construct(
         private readonly RepoMapBuilder $repoMapBuilder,
         private readonly CacheItemPoolInterface $cache,
+        #[Autowire('%kernel.project_dir%')] private readonly string $projectDir,
     ) {
+    }
+
+    /**
+     * Point d'entrée appelé par ton PromptBuilder avec le chemin du fichier cible ($filePath).
+     *
+     * @throws InvalidArgumentException
+     */
+    public function buildMapForFile(?string $filePath = null): string
+    {
+        $sourceDir = $this->resolveSourceDir($filePath);
+
+        return $this->buildMap($sourceDir);
+    }
+
+    /**
+     * Résout le répertoire source à scanner en fonction du fichier cible.
+     */
+    private function resolveSourceDir(?string $filePath): string
+    {
+        if (null === $filePath || !file_exists($filePath)) {
+            return $this->projectDir . '/src';
+        }
+
+        // Remonte au `composer.json` le plus proche
+        $packageRootDir = $this->findPackageRootDir($filePath);
+
+        // Si un sous-dossier src/ existe dans ce package, on scanne src/, sinon la racine du package
+        return file_exists($packageRootDir . '/src')
+            ? $packageRootDir . '/src'
+            : $packageRootDir;
+    }
+
+    /**
+     * Remonte les dossiers parents pour trouver le composer.json le plus proche.
+     */
+    private function findPackageRootDir(string $filePath): string
+    {
+        $dir = dirname($filePath);
+
+        while ($dir !== dirname($dir) && mb_strlen($dir) >= mb_strlen($this->projectDir)) {
+            if (file_exists($dir . DIRECTORY_SEPARATOR . 'composer.json')) {
+                return $dir;
+            }
+            $dir = dirname($dir);
+        }
+
+        return $this->projectDir . '/src';
     }
 
     /**
@@ -28,20 +76,30 @@ class CachedRepoMapBuilder
      */
     public function buildMap(string $sourceDir): string
     {
+        if (!is_dir($sourceDir)) {
+            return '';
+        }
+
+        // 1. Clé de cache unique pour ce dossier spécifique (basée sur md5 du chemin)
+        $dirKey = md5($sourceDir);
+        $cacheKeyMap = self::CACHE_KEY_PREFIX . 'content_' . $dirKey;
+        $cacheKeyHash = self::CACHE_KEY_PREFIX . 'hash_' . $dirKey;
+
+        // 2. Calcul du hash dynamique du dossier
         $currentHash = $this->calculateDirectoryHash($sourceDir);
 
-        $cachedHashItem = $this->cache->getItem(self::CACHE_KEY_HASH);
-        $cachedMapItem = $this->cache->getItem(self::CACHE_KEY_MAP);
+        $cachedHashItem = $this->cache->getItem($cacheKeyHash);
+        $cachedMapItem = $this->cache->getItem($cacheKeyMap);
 
-        // Si le cache existe et que le hash du dossier n'a pas changé
+        // 3. Si le cache existe et que le hash du dossier n'a pas changé
         if ($cachedHashItem->isHit() && $cachedMapItem->isHit() && $cachedHashItem->get() === $currentHash) {
             return (string) $cachedMapItem->get();
         }
 
-        // Sinon, on régénère le Repo-Map
+        // 4. Sinon, on régénère le Repo-Map via le vrai RepoMapBuilder
         $newMap = $this->repoMapBuilder->buildMap($sourceDir);
 
-        // Sauvegarde dans le cache
+        // 5. Sauvegarde dans le cache
         $cachedHashItem->set($currentHash);
         $cachedMapItem->set($newMap);
 
