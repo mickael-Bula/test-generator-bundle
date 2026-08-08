@@ -81,16 +81,19 @@ JSON;
         // QUAND
         $sanitizedJson = $this->sanitizer->sanitizeLlmJsonResponse($rawLlmResponse);
 
-        /** @var GeneratedTestResult $dto */$dto = $this->serializer->deserialize($sanitizedJson, GeneratedTestResult::class, 'json');
+        /** @var GeneratedTestResult $dto */
+        $dto = $this->serializer->deserialize($sanitizedJson, GeneratedTestResult::class, 'json');
 
-        $cleanCode =$dto->getCleanTestCode();
+        $cleanCode = $dto->getCleanTestCode();
 
-        // ALORS les chaînes délimitées par ' avec \' doivent être converties en guillemets doubles ".
+        // ALORS les apostrophes échappées dans les chaînes à guillemets simples sont conservées intactes
         $this->assertStringContainsString(
-            '$this->assertStringContainsString("PHPUnit n\'est pas installé sur le projet hôte.", $display);',$cleanCode
+            '$this->assertStringContainsString(\'PHPUnit n\\\'est pas installé sur le projet hôte.\', $display);',
+            $cleanCode
         );
         $this->assertStringContainsString(
-            '$this->assertStringContainsString(\'Vous ne pouvez pas spécifier à la fois --unit (-u) et --functional (-f).\', $display);',$cleanCode
+            '$this->assertStringContainsString(\'Vous ne pouvez pas spécifier à la fois --unit (-u) et --functional (-f).\', $display);',
+            $cleanCode
         );
     }
 

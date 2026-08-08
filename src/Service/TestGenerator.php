@@ -7,6 +7,7 @@ namespace Mika\TestGeneratorBundle\Service;
 use Mika\TestGeneratorBundle\Exception\TestCorrectionException;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\PromptBuilder\TestPromptBuilderInterface;
+use Mika\TestGeneratorBundle\Validator\PhpSyntaxValidator;
 use Symfony\Component\DependencyInjection\Attribute\AutowireIterator;
 
 readonly class TestGenerator
@@ -19,6 +20,7 @@ readonly class TestGenerator
     public function __construct(
         private LlmClientFactory $llmFactory,
         private PhpUnitTestRunner $testRunner,
+        private PhpSyntaxValidator $syntaxValidator,
         #[AutowireIterator('mika_test_generator.prompt_builder')] // Récupère toutes les classes portant ce tag
         private iterable $promptBuilders,
     ) {
@@ -85,21 +87,52 @@ readonly class TestGenerator
 
             $testCode = $client->call($messages, $targetModel);
 
-            // Exécution du test
+            // 1. Validation de la syntaxe PHP (nikic/php-parser)
+            $syntaxResult = $this->syntaxValidator->validate($testCode);
+
+            if (!$syntaxResult->isValid) {
+                // ÉCHEC SYNTAXIQUE : On informe le LLM directement sans appeler PHPUnit
+                $errorMessage = sprintf(
+                    "Une erreur de syntaxe PHP s'est produite à la ligne %d :\n%s\n\n" .
+                    "Règles d'anti-crash :\n" .
+                    "- N'échappe JAMAIS les variables avec des antislashs (écris \$this et non \\\$this).\n" .
+                    '- Vérifie la fermeture de toutes les chaînes de caractères.',
+                    $syntaxResult->errorLine ?? 0,
+                    $syntaxResult->errorMessage ?? 'Syntaxe PHP invalide'
+                );
+
+                $messages[] = ['role' => 'assistant', 'content' => $testCode];
+                $messages[] = [
+                    'role' => 'user',
+                    'content' => $errorMessage . "\n\nCorrige immédiatement la syntaxe et renvoie le code PHP complet corrigé.",
+                ];
+
+                continue;
+            }
+
+            // 2. Exécution du test PHPUnit (seulement si la syntaxe est OK)
             $result = $this->testRunner->runTest($testCode, $className);
 
             if ($result['success']) {
                 return $testCode;
             }
 
-            // ÉCHEC DU TEST (Erreur PHPUnit) : on prépare le message pour la tentative suivante
-            $errorMessage = sprintf("L'exécution de PHPUnit a échoué :\n\n%s", $result['output']);
+            // ÉCHEC DU TEST (Erreurs d'assertions ou d'exécution PHPUnit)
+            $errorMessage = sprintf(
+                "L'exécution de PHPUnit a ÉCHOUÉ avec l'erreur suivante :\n\n%s\n\n" .
+                " CONSIGNES DE CORRECTION :\n" .
+                "1. Analyse le diff PHPUnit (--- Expected vs +++ Actual).\n" .
+                "2. La valeur produite par la méthode de la classe (+ Actual) est la SEULE référence valide.\n" .
+                "3. Modifie la valeur attendue (\$expected) dans ton assertion pour qu'elle corresponde EXACTEMENT à la valeur réelle (+ Actual).\n" .
+                "4. Ne modifie pas la logique du test, juste les valeurs d'assertion pour qu'il passe au vert.",
+                $result['output']
+            );
 
             // 3. Enrichissement de l'historique (Partagé pour PHPUnit ET erreurs JSON).
             $messages[] = ['role' => 'assistant', 'content' => $testCode];
             $messages[] = [
                 'role' => 'user',
-                'content' => $errorMessage . "\n\nAnalyse ce problème, corrige ton code et renvoie le JSON attendu.",
+                'content' => $errorMessage . "\n\nAnalyse ce problème d'assertion, corrige ton code et renvoie le code corrigé.",
             ];
         }
 
