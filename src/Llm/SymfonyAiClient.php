@@ -109,16 +109,8 @@ class SymfonyAiClient implements LlmClientInterface
             return PhpCodeExtractor::extract($rawContent);
         }
 
-        // CAS SPÉCIAL : Si le LLM a renvoyé du PHP pur sans enveloppe JSON
-        if (str_starts_with($rawContent, '<?php') || str_contains($rawContent, 'namespace App\Tests')) {
-            // Si emballé dans du markdown ```php ... ```
-            $cleanPhp = preg_replace('/^```(?:php)?\s*/i', '', $rawContent);
-            $cleanPhp = preg_replace('/\s*```$/', '', (string) $cleanPhp);
+        // --- TRAITEMENT JSON (CAS NOMINAL) ---
 
-            return (new GeneratedTestResult(trim((string) $cleanPhp)))->getCleanTestCode();
-        }
-
-        // 2. Traitement du contenu retourné sans bloquer le flux par une exception
         $jsonString = $this->jsonSanitizer->sanitizeLlmJsonResponse($rawContent);
 
         // Tentative 1 : Désérialisation via le Serializer Symfony
@@ -128,10 +120,10 @@ class SymfonyAiClient implements LlmClientInterface
 
             return $testResult->getCleanTestCode();
         } catch (\Throwable) {
-            // Ignoré, on tente le fallback manuel
+            // Ignoré, on tente les fallbacks
         }
 
-        // Tentative 2 : Décodage manuel via json_decode sans lever d'exception (pas de JSON_THROW_ON_ERROR)
+        // Tentative 2 : Décodage manuel via json_decode
         try {
             $data = json_decode($jsonString, true, 512, JSON_THROW_ON_ERROR);
 
@@ -141,20 +133,34 @@ class SymfonyAiClient implements LlmClientInterface
                 return $testResult->getCleanTestCode();
             }
         } catch (\JsonException) {
-            // Le JSON est malformé : on ignore l'exception pour poursuivre vers le fallback
+            // Le JSON est malformé
         }
 
-        // Tentative 3 : Extraction de la valeur "test_code" dans le JSON corrompu.
-        // On extrait la valeur entre "test_code": "..." sans passer par json_decode().
+        // Tentative 3 : Extraction de la valeur "test_code" dans un JSON corrompu/tronqué
         if (preg_match('/"test_code"\s*:\s*"(.*)"\s*}\s*$/s', $jsonString, $matches)) {
-            // stripcslashes() transforme les \n littéraux du JSON en vrais sauts de ligne PHP
-            // et restaure les antislashs \ de namespace.
             $extractedCode = stripcslashes($matches[1]);
 
             return (new GeneratedTestResult($extractedCode))->getCleanTestCode();
         }
 
-        // Fallback ultime : On passe rawContent au DTO
+        // --- FALLBACK : CAS DU PHP PUR OU DU MARKDOWN SANS ENVELOPPE JSON ---
+
+        $trimmedContent = trim($rawContent);
+
+        // Si emballé dans du markdown ```php ... ```
+        if (str_starts_with($trimmedContent, '```')) {
+            $cleanPhp = preg_replace('/^```(?:php)?\s*/i', '', $trimmedContent);
+            $cleanPhp = preg_replace('/\s*```$/', '', (string) $cleanPhp);
+
+            return (new GeneratedTestResult(trim((string) $cleanPhp)))->getCleanTestCode();
+        }
+
+        // Vrai PHP pur (commence par <?php)
+        if (str_starts_with($trimmedContent, '<?php')) {
+            return (new GeneratedTestResult($trimmedContent))->getCleanTestCode();
+        }
+
+        // Fallback ultime
         return (new GeneratedTestResult($rawContent))->getCleanTestCode();
     }
 }
