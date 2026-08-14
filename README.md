@@ -28,6 +28,9 @@ Installez le bundle via Composer dans votre projet :
 composer require mika/test-generator-bundle --dev
 ```
 
+>TODO : Vérifier si le chargement des ponts est vraiment nécessaires : il semble que ce soit fait automatiquement.
+> Si c'est le cas, supprimer le paragraphe ci-dessous.
+
 Assurez-vous également d'installer le pont (bridge) **Symfony AI Platform**
 correspondant au fournisseur de LLM que vous souhaitez utiliser :
 

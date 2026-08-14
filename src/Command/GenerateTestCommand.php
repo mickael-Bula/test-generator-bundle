@@ -23,7 +23,7 @@ use Symfony\Component\Process\Process;
 
 #[AsCommand(
     name: 'app:generate-test',
-    description: 'Génère un test unitaire PHPUnit pour une classe donnée via le LLM configuré, avec validation automatique.',
+    description: 'Génèration de tests PHPUnit pour une classe donnée via le LLM configuré, avec validation automatique.',
 )]
 class GenerateTestCommand extends Command
 {
@@ -195,7 +195,8 @@ class GenerateTestCommand extends Command
         }
 
         try {
-            [$targetNamespace, $finalDisplayDir, $finalAbsoluteFilePath] = $this->pathResolver->resolve($fqcn, $shortClassName);
+            // On transmet $testType au PathResolver pour adapter le dossier (Unit / Functional) et le namespace
+            [$targetNamespace, $finalDisplayDir, $finalAbsoluteFilePath] = $this->pathResolver->resolve($fqcn, $shortClassName, $testType);
 
             if (!$input->getOption('method') && file_exists($finalAbsoluteFilePath)) {
                 $this->io->warning('Un fichier de test existe déjà pour cette classe : ' . basename($finalAbsoluteFilePath));
