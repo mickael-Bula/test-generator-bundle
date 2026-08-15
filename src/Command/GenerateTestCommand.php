@@ -22,7 +22,7 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\Process\Process;
 
 #[AsCommand(
-    name: 'app:generate-test',
+    name: 'app:generate:test',
     description: 'Génèration de tests PHPUnit pour une classe donnée via le LLM configuré, avec validation automatique.',
 )]
 class GenerateTestCommand extends Command

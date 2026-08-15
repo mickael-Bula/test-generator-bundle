@@ -14,7 +14,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 #[AsCommand(
-    name: 'app:test-spec',
+    name: 'app:generate:spec',
     description: 'Génère un fichier de spécification BDD pour orienter la génération d\'un test.',
 )]
 class MakeTestSpecCommand extends Command

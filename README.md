@@ -7,6 +7,13 @@ Il prend en compte le contexte global de votre projet (Repo-Map / AST),
 supporte la rédaction de spécifications en Markdown (BDD)
 et s'adapte à la nature de la classe testée grâce à un système de *Skills* dynamiques.
 
+Les tests générés sont déposés dans le dossier `tests` en répliquant la structure des sous-dossiers de `src/` (convention PSR4) 
+et en distinguant les tests unitaires et fonctionnels.
+
+Exemple :
+- `tests/Unit/Service/VatCalculatorTest.php`
+- `tests/Functional/Controller/InvoiceControllerTest.php`
+
 ---
 
 ## Prérequis
@@ -28,24 +35,6 @@ Installez le bundle via Composer dans votre projet :
 composer require mika/test-generator-bundle --dev
 ```
 
->TODO : Vérifier si le chargement des ponts est vraiment nécessaires : il semble que ce soit fait automatiquement.
-> Si c'est le cas, supprimer le paragraphe ci-dessous.
-
-Assurez-vous également d'installer le pont (bridge) **Symfony AI Platform**
-correspondant au fournisseur de LLM que vous souhaitez utiliser :
-
-```bash
-# Exemple pour Google Gemini
-composer require symfony/ai-gemini-platform
-
-# Ou pour Ollama (modèles locaux)
-composer require symfony/ai-ollama-platform
-
-# Ou pour Anthropic / OpenAI / OpenRouter
-composer require symfony/ai-anthropic-platform
-composer require symfony/ai-open-ai-platform
-```
-
 ---
 
 ## Configuration
@@ -55,7 +44,7 @@ Déclarer les variables d'environnement nécessaires dans votre fichier `.env` o
 ### Exemple avec Google Gemini
 ```env
 LLM_PROVIDER="gemini"
-LLM_MODEL="gemini-flash-latest"
+LLM_MODEL="gemini-flash-latest" # ou un modèle précis, par ex : "gemini-3.1-flash-lite"
 GEMINI_API_KEY="votre_cle_api"
 ```
 
@@ -92,22 +81,22 @@ mika_test_generator:
 
 ## Utilisation
 
-### 1. Génération automatique de tests (`app:generate-test`)
+### 1. Génération automatique de tests (`app:generate:test`)
 
 La commande s'utilise en fournissant la classe à tester (nom court, FQCN ou chemin relatif) :
 
 ```bash
 # Recherche automatique dans src/ par nom court :
-php bin/console app:generate-test VatCalculator
+php bin/console app:generate:test VatCalculator
 
 # Par FQCN :
-php bin/console app:generate-test "App\Service\VatCalculator"
+php bin/console app:generate:test "App\Service\VatCalculator"
 
 # Cibler une méthode spécifique :
-php bin/console app:generate-test VatCalculator -m calculateNetAmountFromGross
+php bin/console app:generate:test VatCalculator -m calculateNetAmountFromGross
 
 # Générer un test fonctionnel au lieu d'un test unitaire :
-php bin/console app:generate-test "App\Controller\InvoiceController" --functional
+php bin/console app:generate:test "App\Controller\InvoiceController" --functional
 ```
 
 > **Fonctionnement itératif :** Que ce soit pour la création d'un nouveau fichier ou l'injection d'une méthode dans un test existant,
@@ -122,7 +111,7 @@ Pour guider le LLM avec des exigences métiers précises (approche **Behavior Dr
 #### A. Générer le squelette Markdown
 
 ```bash
-php bin/console app:test-spec VatCalculator
+php bin/console app:generate:spec VatCalculator
 ```
 Un fichier `tests/Specs/VatCalculatorSpec.md` sera créé.
 
@@ -140,10 +129,10 @@ Remplissez la structure **BDD** en faisant correspondre vos exigences au pattern
 
 ```bash
 # Convention automatique (cherche tests/Specs/VatCalculatorSpec.md) :
-php bin/console app:generate-test VatCalculator --spec
+php bin/console app:generate:test VatCalculator --spec
 
 # Passer une consigne rapide directement en ligne de commande :
-php bin/console app:generate-test VatCalculator --spec="Lever une exception si le montant HT est négatif"
+php bin/console app:generate:test VatCalculator --spec="Lever une exception si le montant HT est négatif"
 ```
 
 ---
