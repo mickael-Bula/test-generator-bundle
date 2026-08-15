@@ -9,6 +9,7 @@ use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\Llm\SpecGeneratorAgent;
 use Mika\TestGeneratorBundle\Renderer\SpecMarkdownRenderer;
 use Mika\TestGeneratorBundle\Resolver\ClassResolver;
+use Mika\TestGeneratorBundle\Resolver\SpecPathResolver;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
@@ -16,7 +17,6 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
-use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\Filesystem\Filesystem;
 
 #[AsCommand(
@@ -31,7 +31,7 @@ class GenerateSpecCommand extends Command
         private readonly SpecGeneratorAgent $specGeneratorAgent,
         private readonly SpecMarkdownRenderer $markdownRenderer,
         private readonly Filesystem $filesystem,
-        #[Autowire('%kernel.project_dir%')] private readonly string $projectDir,
+        private readonly SpecPathResolver $specPathResolver,
     ) {
         parent::__construct();
     }
@@ -84,6 +84,12 @@ class GenerateSpecCommand extends Command
                 'f',
                 InputOption::VALUE_NONE,
                 'Générer un test fonctionnel'
+            )
+            ->addOption(
+                'force',
+                null,
+                InputOption::VALUE_NONE,
+                'Écrase le fichier de spécification s\'il existe déjà sans demander confirmation'
             );
     }
 
@@ -131,7 +137,7 @@ class GenerateSpecCommand extends Command
         $testType = $isFunctional ? TestType::FUNCTIONAL : TestType::UNIT;
 
         // Récupère le modèle passé en option, sinon celui déclaré par défaut dans les variables d'environnement
-        $model = $input->getOption('model') ?? $this->llmFactory->getDefaultModel();
+        $model = $model ?? $this->llmFactory->getDefaultModel();
 
         $fqcn = $resolved['className'];
         $filePath = $resolved['filePath'];
@@ -145,6 +151,25 @@ class GenerateSpecCommand extends Command
             $io->error(sprintf('Impossible de lire le fichier : %s', $filePath));
 
             return Command::FAILURE;
+        }
+
+        // Récupération du chemin de destination
+        $targetPath = $this->specPathResolver->resolve($outputDir, $shortClassName);
+
+        // Vérification de l'existence du fichier
+        if ($targetPath->fileExists() && !$input->getOption('force')) {
+            $io->warning(sprintf('Le fichier de spécification "%s" existe déjà.', $targetPath->getFilename()));
+
+            $shouldOverwrite = $io->confirm(
+                'Voulez-vous vraiment le remplacer ? L\'ancien contenu sera perdu.',
+                false // Valeur par défaut : Non (sécurise la saisie).
+            );
+
+            if (!$shouldOverwrite) {
+                $io->note('Génération annulée.');
+
+                return Command::SUCCESS;
+            }
         }
 
         $io->title(sprintf('Analyse de la classe : %s', $fqcn));
@@ -174,36 +199,26 @@ class GenerateSpecCommand extends Command
             return Command::FAILURE;
         }
 
-        // 3. Transformation en Markdown
+        // Transformation en Markdown
         $markdownContent = $this->markdownRenderer->render($specData);
 
-        // 4. Écriture du fichier Markdown
-        $normalizedProjectDir = rtrim(
-            str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $this->projectDir), DIRECTORY_SEPARATOR
-        );
+        // 3. Écriture du fichier Markdown
+        if (!$targetPath->dirExists()) {
+            $this->filesystem->mkdir($targetPath->targetDirectory);
+        }
 
-        $normalizedOutputDir = trim(
-            str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $outputDir), DIRECTORY_SEPARATOR
-        );
+        $this->filesystem->dumpFile($targetPath->mdFilePath, $markdownContent);
 
-        $targetDirectory = sprintf('%s%s%s', $normalizedProjectDir, DIRECTORY_SEPARATOR, $normalizedOutputDir);
-        $this->filesystem->mkdir($targetDirectory);
-
-        $baseFilename = sprintf('%sSpec.md', $shortClassName);
-        $mdFilePath = sprintf('%s%s%s', $targetDirectory, DIRECTORY_SEPARATOR, $baseFilename);
-
-        $this->filesystem->dumpFile($mdFilePath, $markdownContent);
-
-        $io->success(sprintf('Fichier de spécification généré avec succès : %s', $mdFilePath));
+        $io->success(sprintf('Fichier de spécification généré avec succès : %s', $targetPath->mdFilePath));
         $io->note(
-            'Complétez ce fichier avec vos scénarios "Étant donné / Lorsque / Alors" '
-            . 'puis passez-le à la commande de génération avec l\'option --spec.'
+            'Vous pouvez compléter ce fichier avec vos scénarios "Étant donné / Lorsque / Alors" '
+            . 'afin qu\'il soit passés à la commande de génération.'
         );
 
         // Sauvegarde optionnelle du JSON brut
         if ($dumpJson) {
             $jsonFilename = sprintf('%sSpec.json', $shortClassName);
-            $jsonFilePath = sprintf('%s%s%s', $targetDirectory, DIRECTORY_SEPARATOR, $jsonFilename);
+            $jsonFilePath = sprintf('%s%s%s', $targetPath->targetDirectory, DIRECTORY_SEPARATOR, $jsonFilename);
 
             try {
                 $jsonContent = json_encode(
