@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Mika\TestGeneratorBundle\Command;
 
 use Mika\TestGeneratorBundle\Enum\TestType;
+use Mika\TestGeneratorBundle\Exception\TestGenerationException;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
-use Mika\TestGeneratorBundle\Llm\SpecGeneratorAgent;
-use Mika\TestGeneratorBundle\Renderer\SpecMarkdownRenderer;
+use Mika\TestGeneratorBundle\Manager\SpecManager;
 use Mika\TestGeneratorBundle\Resolver\ClassResolver;
 use Mika\TestGeneratorBundle\Resolver\SpecPathResolver;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -17,7 +17,6 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
-use Symfony\Component\Filesystem\Filesystem;
 
 #[AsCommand(
     name: 'make:generate:spec',
@@ -28,10 +27,8 @@ class GenerateSpecCommand extends Command
     public function __construct(
         private readonly LlmClientFactory $llmFactory,
         private readonly ClassResolver $classResolver,
-        private readonly SpecGeneratorAgent $specGeneratorAgent,
-        private readonly SpecMarkdownRenderer $markdownRenderer,
-        private readonly Filesystem $filesystem,
         private readonly SpecPathResolver $specPathResolver,
+        private readonly SpecManager $specManager,
     ) {
         parent::__construct();
     }
@@ -157,15 +154,11 @@ class GenerateSpecCommand extends Command
         $targetPath = $this->specPathResolver->resolve($outputDir, $shortClassName);
 
         // Vérification de l'existence du fichier
-        if ($targetPath->fileExists() && !$input->getOption('force')) {
-            $io->warning(sprintf('Le fichier de spécification "%s" existe déjà.', $targetPath->getFilename()));
+        if ($this->specManager->hasSpec($shortClassName, $outputDir) && !$input->getOption('force')) {
+            $specFilePath = $this->specManager->getSpecFilePath($shortClassName, $outputDir);
+            $io->warning(sprintf('Le fichier de spécification "%s" existe déjà.', $specFilePath));
 
-            $shouldOverwrite = $io->confirm(
-                'Voulez-vous vraiment le remplacer ? L\'ancien contenu sera perdu.',
-                false // Valeur par défaut : Non (sécurise la saisie).
-            );
-
-            if (!$shouldOverwrite) {
+            if (!$io->confirm('Voulez-vous vraiment le remplacer ? L\'ancien contenu sera perdu.', false)) {
                 $io->note('Génération annulée.');
 
                 return Command::SUCCESS;
@@ -184,53 +177,46 @@ class GenerateSpecCommand extends Command
         // 2. Génération du JSON via SpecGeneratorAgent
         $io->section(sprintf('Génération de la matrice de spécification par le LLM (%s)...', $model));
 
+        // 5. Génération et écriture via SpecManager
         try {
-            $specData = $this->specGeneratorAgent->generateSpec(
+            $result = $this->specManager->generateAndSaveSpec(
+                shortClassName: $shortClassName,
                 classCode: $classCode,
                 fqcn: $fqcn,
                 methodName: $methodName,
-                type: $testType->value,
+                testType: $testType->value,
                 model: $model,
-                provider: $provider
+                provider: $provider,
+                outputDir: $outputDir,
+                dumpJson: $dumpJson
             );
-        } catch (\Throwable $e) {
-            $io->error(sprintf('Échec lors de la génération de la spec : %s', $e->getMessage()));
+
+            $io->success(
+                sprintf('Fichier de spécification généré avec succès : %s', $result->getMarkdownFilePath())
+            );
+            $io->note(
+                'Vous pouvez compléter ce fichier avec vos scénarios "Étant donné / Lorsque / Alors" '
+                . 'afin qu\'il soit passés à la commande de génération.'
+            );
+
+            if ($result->jsonFilePath) {
+                $io->info(sprintf('JSON brut sauvegardé dans : %s', $result->jsonFilePath));
+            }
+        } catch (TestGenerationException $e) {
+            // Erreur d'appel API / LLM
+            $io->error(sprintf('Erreur LLM lors de la génération : %s', $e->getMessage()));
 
             return Command::FAILURE;
-        }
+        } catch (\JsonException $e) {
+            // Erreur de formatage du JSON
+            $io->error(sprintf('Impossible de formater la spécification en JSON : %s', $e->getMessage()));
 
-        // Transformation en Markdown
-        $markdownContent = $this->markdownRenderer->render($specData);
+            return Command::FAILURE;
+        } catch (\Throwable $e) {
+            // Pour toute autre erreur
+            $io->error(sprintf('Échec lors de la génération de la spécification : %s', $e->getMessage()));
 
-        // 3. Écriture du fichier Markdown
-        if (!$targetPath->dirExists()) {
-            $this->filesystem->mkdir($targetPath->targetDirectory);
-        }
-
-        $this->filesystem->dumpFile($targetPath->mdFilePath, $markdownContent);
-
-        $io->success(sprintf('Fichier de spécification généré avec succès : %s', $targetPath->mdFilePath));
-        $io->note(
-            'Vous pouvez compléter ce fichier avec vos scénarios "Étant donné / Lorsque / Alors" '
-            . 'afin qu\'il soit passés à la commande de génération.'
-        );
-
-        // Sauvegarde optionnelle du JSON brut
-        if ($dumpJson) {
-            $jsonFilename = sprintf('%sSpec.json', $shortClassName);
-            $jsonFilePath = sprintf('%s%s%s', $targetPath->targetDirectory, DIRECTORY_SEPARATOR, $jsonFilename);
-
-            try {
-                $jsonContent = json_encode(
-                    $specData,
-                    JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
-                );
-
-                $this->filesystem->dumpFile($jsonFilePath, $jsonContent);
-                $io->info(sprintf('JSON brut sauvegardé dans : %s', $jsonFilePath));
-            } catch (\JsonException $e) {
-                $io->error(sprintf('Impossible de générer le JSON brut : %s', $e->getMessage()));
-            }
+            return Command::FAILURE;
         }
 
         return Command::SUCCESS;
