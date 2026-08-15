@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Command;
 
+use Mika\TestGeneratorBundle\Enum\TestType;
+use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\Llm\SpecGeneratorAgent;
 use Mika\TestGeneratorBundle\Renderer\SpecMarkdownRenderer;
 use Mika\TestGeneratorBundle\Resolver\ClassResolver;
@@ -24,6 +26,7 @@ use Symfony\Component\Filesystem\Filesystem;
 class GenerateSpecCommand extends Command
 {
     public function __construct(
+        private readonly LlmClientFactory $llmFactory,
         private readonly ClassResolver $classResolver,
         private readonly SpecGeneratorAgent $specGeneratorAgent,
         private readonly SpecMarkdownRenderer $markdownRenderer,
@@ -69,6 +72,18 @@ class GenerateSpecCommand extends Command
                 null,
                 InputOption::VALUE_NONE,
                 'Sauvegarde également le JSON brut généré par le LLM'
+            )
+            ->addOption(
+                'unit',
+                'u',
+                InputOption::VALUE_NONE,
+                'Générer un test unitaire (par défaut)'
+            )
+            ->addOption(
+                'functional',
+                'f',
+                InputOption::VALUE_NONE,
+                'Générer un test fonctionnel'
             );
     }
 
@@ -101,6 +116,23 @@ class GenerateSpecCommand extends Command
             return Command::FAILURE;
         }
 
+        // Traitement du type de test (unitaire ou fonctionnel)
+        $isUnit = (bool) $input->getOption('unit');
+        $isFunctional = (bool) $input->getOption('functional');
+
+        // Validation pour empêcher d'activer les deux flags en même temps
+        if ($isUnit && $isFunctional) {
+            $io->error('Vous ne pouvez pas spécifier à la fois --unit (-u) et --functional (-f).');
+
+            return Command::FAILURE;
+        }
+
+        // Détermination du type (par défaut : UNIT).
+        $testType = $isFunctional ? TestType::FUNCTIONAL : TestType::UNIT;
+
+        // Récupère le modèle passé en option, sinon celui déclaré par défaut dans les variables d'environnement
+        $model = $input->getOption('model') ?? $this->llmFactory->getDefaultModel();
+
         $fqcn = $resolved['className'];
         $filePath = $resolved['filePath'];
 
@@ -117,18 +149,22 @@ class GenerateSpecCommand extends Command
 
         $io->title(sprintf('Analyse de la classe : %s', $fqcn));
 
+        // Affichage du type de test
+        $io->comment(sprintf('Type de test : %s', $testType->label()));
+
         if ($methodName) {
             $io->note(sprintf('Ciblage prioritaire de la méthode : %s()', $methodName));
         }
 
         // 2. Génération du JSON via SpecGeneratorAgent
-        $io->section('Génération de la matrice de spécification par le LLM...');
+        $io->section(sprintf('Génération de la matrice de spécification par le LLM (%s)...', $model));
 
         try {
             $specData = $this->specGeneratorAgent->generateSpec(
                 classCode: $classCode,
                 fqcn: $fqcn,
                 methodName: $methodName,
+                type: $testType->value,
                 model: $model,
                 provider: $provider
             );
@@ -158,11 +194,16 @@ class GenerateSpecCommand extends Command
 
         $this->filesystem->dumpFile($mdFilePath, $markdownContent);
 
-        $io->success(sprintf('Spécification Markdown générée avec succès dans : %s', $mdFilePath));
+        $io->success(sprintf('Fichier de spécification généré avec succès : %s', $mdFilePath));
+        $io->note(
+            'Complétez ce fichier avec vos scénarios "Étant donné / Lorsque / Alors" '
+            . 'puis passez-le à la commande de génération avec l\'option --spec.'
+        );
 
         // Sauvegarde optionnelle du JSON brut
         if ($dumpJson) {
-            $jsonFilePath = sprintf('%s/%s.json', $targetDirectory, $baseFilename);
+            $jsonFilename = sprintf('%sSpec.json', $shortClassName);
+            $jsonFilePath = sprintf('%s%s%s', $targetDirectory, DIRECTORY_SEPARATOR, $jsonFilename);
 
             try {
                 $jsonContent = json_encode(

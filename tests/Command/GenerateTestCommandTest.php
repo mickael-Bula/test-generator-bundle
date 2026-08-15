@@ -161,6 +161,7 @@ final class GenerateTestCommandTest extends TestCase
             'filePath' => $srcFile,
         ]);
         $this->llmFactory->method('getDefaultModel')->willReturn('default-model');
+        $this->llmFactory->method('getDefaultProvider')->willReturn('default-provider');
         $this->specResolver->method('resolve')->willReturn(null);
         $this->pathResolver->method('resolve')->willReturn([
             'App\Tests\Service',
@@ -179,7 +180,8 @@ final class GenerateTestCommandTest extends TestCase
                 null,
                 null,
                 null,
-                'unit'
+                'unit',
+                'default-provider'
             )
             ->willReturn('<?php class FooTest {}');
 
@@ -262,7 +264,7 @@ final class GenerateTestCommandTest extends TestCase
                 'doSomething',
                 null,
                 'Spec details',
-                'unit'
+                'unit',
             )
             ->willReturn('<?php class FooTest {}');
 
@@ -306,6 +308,7 @@ final class GenerateTestCommandTest extends TestCase
             'filePath' => $srcFile,
         ]);
         $this->llmFactory->method('getDefaultModel')->willReturn('default-model');
+        $this->llmFactory->method('getDefaultProvider')->willReturn('default-provider');
         $this->pathResolver->method('resolve')->willReturn([
             'App\Tests\Service',
             dirname($testFile),
@@ -437,6 +440,7 @@ final class GenerateTestCommandTest extends TestCase
             'filePath' => $srcFile,
         ]);
         $this->llmFactory->method('getDefaultModel')->willReturn('default-model');
+        $this->llmFactory->method('getDefaultProvider')->willReturn('default-provider');
         $this->pathResolver->method('resolve')->willReturn([
             'App\Tests\Service',
             dirname($testFile),
@@ -455,7 +459,8 @@ final class GenerateTestCommandTest extends TestCase
                 null,
                 '<?php class PreparedExistingTest {}',
                 null,
-                'unit'
+                'unit',
+                'default-provider'
             )
             ->willReturn('<?php class MergedTest {}');
         $this->testGenerator->method('replaceDynamicHeadersInTestCode')
@@ -496,6 +501,7 @@ final class GenerateTestCommandTest extends TestCase
             'filePath' => $srcFile,
         ]);
         $this->llmFactory->method('getDefaultModel')->willReturn('default-model');
+        $this->llmFactory->method('getDefaultProvider')->willReturn('default-provider');
         $this->pathResolver->method('resolve')->willReturn([
             'App\Tests\Service',
             dirname($testFile),

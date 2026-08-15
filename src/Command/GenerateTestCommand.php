@@ -94,7 +94,7 @@ class GenerateTestCommand extends Command
         $this->io = new SymfonyStyle($input, $output);
 
         // Affichage de l'heure de début dès le lancement
-        $this->io->text(sprintf('⏱️  Début d\'exécution : <info>%s</info>', $startTime->format('H:i:s')));
+        $this->io->text(sprintf('Début d\'exécution : <info>%s</info>', $startTime->format('H:i:s')));
 
         $targetInput = $input->getArgument('class');
 

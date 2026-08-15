@@ -53,7 +53,7 @@ readonly class TestGenerator
         ?string $methodName = null,
         ?string $existingTestCode = null,
         ?string $specContent = null,
-        string $type = 'unit',
+        ?string $type = 'unit',
         ?string $provider = null,
     ): string {
         // Sélection du builder approprié

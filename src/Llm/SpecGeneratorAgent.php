@@ -31,6 +31,7 @@ readonly class SpecGeneratorAgent
         string $classCode,
         string $fqcn,
         ?string $methodName = null,
+        ?string $type = 'unit',
         ?string $model = null,
         ?string $provider = null,
     ): array {
@@ -39,8 +40,8 @@ readonly class SpecGeneratorAgent
         $targetModel = $model ?? $this->llmFactory->getDefaultModel();
 
         $messages = [
-            ['role' => 'system', 'content' => $this->buildSystemPrompt()],
-            ['role' => 'user', 'content' => $this->buildUserPrompt($classCode, $fqcn, $methodName)],
+            ['role' => 'system', 'content' => $this->buildSystemPrompt($type)],
+            ['role' => 'user', 'content' => $this->buildUserPrompt($classCode, $fqcn, $methodName, $type)],
         ];
 
         // Appel du LLM
@@ -50,8 +51,31 @@ readonly class SpecGeneratorAgent
     /**
      * Rédige le prompt système définissant le rôle de l'Agent Spec.
      */
-    private function buildSystemPrompt(): string
+    private function buildSystemPrompt(string $type = 'unit'): string
     {
+        $isFunctional = 'functional' === strtolower($type);
+        $testTypeLabel = $isFunctional ? 'Functional' : 'Unit';
+
+        $specificInstructions = $isFunctional
+            ? <<<INSTRUCTIONS
+3. **Analyse des flux HTTP / Intégration** :
+   - Identifie les routes, méthodes HTTP (GET, POST...), codes de statut (200, 400, 404, 500) et formats de réponse.
+   - Identifie les contrôles d'accès/sécurité (ex: rôles requis, authentification).
+   - Ne cherche PAS à mocker les services internes sauf les services tiers externes (ex : API de paiement, envoi d'emails).
+4. **Isolation et Mocks** :
+   - Dans un test fonctionnel, **ne mocke PAS** les services internes (base de données, services métier). Utilise le container de services réel.
+   - Indique UNIQUEMENT les services tiers externes dans `dependenciesToMock` (ex : passerelle de paiement API, service d'envoi de mail externe, API météo).
+INSTRUCTIONS
+            : <<<INSTRUCTIONS
+3. **Détection des Data Providers PHPUnit** :
+   - Identifie les méthodes qui exécutent la même logique sur des ensembles de données variés.
+   - Regroupe systématiquement ces cas répétitifs sous forme de **Data Provider** (`dataProviders`).
+   - **Règle de cohérence stricte** : Si un cas de test (`testCase`) indique un `dataProviderName` non nul (et `usesDataProvider: true`), l'objet Data Provider correspondant DOIT obligatoirement être déclaré et détaillé dans le tableau `dataProviders` de la même méthode. Inversement, si aucun Data Provider n'est défini, passe `usesDataProvider: false` et `dataProviderName: null`.
+4. **Isolation et Mocks** :
+   - Repère les dépendances injectées dans le constructeur ou les méthodes.
+   - Indique quelles dépendances doivent être mockées pour chaque cas de test (`mockExpectations`).
+INSTRUCTIONS;
+
         return <<<PROMPT
 Tu es un Agent Analyste de Tests PHP spécialisé dans l'architecture logicielle, le DDD et l'assurance qualité (QA).
 Ton unique rôle est d'analyser le code source d'une classe PHP et de concevoir une matrice de cas de test exhaustive sous la forme d'un objet JSON strict.
@@ -63,13 +87,7 @@ Ton unique rôle est d'analyser le code source d'une classe PHP et de concevoir 
    - Identifie les cas nominaux (*happy paths*).
    - Identifie les cas d'erreur (exceptions levées via `throw`).
    - Identifie les cas limites (*edge cases* : `null`, tableaux vides, chaînes vides, nombres négatifs/zéro).
-3. **Détection des Data Providers PHPUnit** :
-   - Identifie les méthodes qui exécutent la même logique sur des ensembles de données variés.
-   - Regroupe systématiquement ces cas répétitifs sous forme de **Data Provider** (`dataProviders`).
-   - **Règle de cohérence stricte** : Si un cas de test (`testCase`) indique un `dataProviderName` non nul (et `usesDataProvider: true`), l'objet Data Provider correspondant DOIT obligatoirement être déclaré et détaillé dans le tableau `dataProviders` de la même méthode. Inversement, si aucun Data Provider n'est défini, passe `usesDataProvider: false` et `dataProviderName: null`.
-4. **Isolation et Mocks** :
-   - Repère les dépendances injectées dans le constructeur ou les méthodes.
-   - Indique quelles dépendances doivent être mockées pour chaque cas de test (`mockExpectations`).
+{$specificInstructions}
 
 ### FORMAT DE SORTIE
 Tu DOIS répondre EXCLUSIVEMENT avec un objet JSON valide, sans aucun texte d'introduction, sans explications et sans balises Markdown (pas de ```json ... ```).
@@ -77,7 +95,7 @@ Tu DOIS répondre EXCLUSIVEMENT avec un objet JSON valide, sans aucun texte d'in
 ### SCHÉMA JSON OBLIGATOIRE
 {
   "targetClass": "Nom complet FQCN de la classe",
-  "testType": "Unit",
+  "testType": "{$testTypeLabel}",
   "dependenciesToMock": [
     {
       "class": "FQCN\\De\\La\\Dependance",
@@ -140,9 +158,14 @@ PROMPT;
     /**
      * Rédige le prompt utilisateur contenant le code PHP à analyser.
      */
-    private function buildUserPrompt(string $classCode, string $fqcn, ?string $methodName): string
+    private function buildUserPrompt(string $classCode, string $fqcn, ?string $methodName, string $type): string
     {
-        $prompt = sprintf("Voici le code source de la classe PHP à analyser (`%s`) :\n\n```php\n%s\n```", $fqcn, $classCode);
+        $prompt = sprintf(
+            "Voici le code source de la classe PHP à analyser (`%s`) pour générer une suite de tests de type **%s** :\n\n```php\n%s\n```",
+            $fqcn,
+            strtoupper($type),
+            $classCode
+        );
 
         if ($methodName) {
             $prompt .= sprintf(
