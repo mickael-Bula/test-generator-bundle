@@ -96,6 +96,8 @@ readonly class SpecManager
     /**
      * Récupère le contenu de la spec depuis un chemin personnalisé,
      * ou par convention (la spécification est créée si elle n'existe pas).
+     *
+     * @throws \JsonException|TestGenerationException
      */
     public function resolveOrGenerateSpecContent(
         string $shortClassName,

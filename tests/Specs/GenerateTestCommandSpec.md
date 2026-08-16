@@ -13,7 +13,7 @@ La commande `app:generate-test` permet de générer ou de fusionner des tests PH
 - **Alors** la commande affiche un message d'erreur explicatif et se termine avec le code de retour `Command::FAILURE`.
 
 ### 1.2. Absence de fichier de configuration PHPUnit
-- **Étant donné que** le binaire PHPUnit existe, mais qu'aucun fichier de configuration (`phpunit.xml`, `phpunit.xml.dist` ou `phpunit.dist.xml`) n'est présent à la racine du projet,
+- **Étant donné que** le binaire PHPUnit existe mais qu'aucun fichier de configuration (`phpunit.xml`, `phpunit.xml.dist` ou `phpunit.dist.xml`) n'est présent à la racine du projet,
 - **Quand** la commande est exécutée,
 - **Alors** la commande affiche une erreur listant les fichiers recherchés et se termine avec le code `Command::FAILURE`.
 
@@ -64,7 +64,7 @@ La commande `app:generate-test` permet de générer ou de fusionner des tests PH
 
 ### 4.1. Annulation de la fusion par confirmation utilisateur
 - **Étant donné que** le fichier de test de destination existe déjà et qu'aucune option `--method` n'a été spécifiée,
-- **Quand** l'utilisateur refuse la confirmation ("Voulez-vous lancer la fusion automatique… ?"),
+- **Quand** l'utilisateur refuse la confirmation ("Voulez-vous lancer la fusion automatique... ?"),
 - **Alors** la génération est annulée avec un message explicatif et la commande se termine avec `Command::SUCCESS`.
 
 ### 4.2. Annulation si le fichier existant a des modifications non commitées (Git dirty)

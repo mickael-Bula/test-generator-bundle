@@ -9,7 +9,6 @@ use Mika\TestGeneratorBundle\Exception\TestGenerationException;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\Manager\SpecManager;
 use Mika\TestGeneratorBundle\Resolver\ClassResolver;
-use Mika\TestGeneratorBundle\Resolver\SpecPathResolver;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
@@ -19,7 +18,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 #[AsCommand(
-    name: 'make:generate:spec',
+    name: 'llm:generate:spec',
     description: 'Génère une matrice de spécification de tests au format Markdown pour une classe PHP.'
 )]
 class GenerateSpecCommand extends Command
@@ -27,7 +26,6 @@ class GenerateSpecCommand extends Command
     public function __construct(
         private readonly LlmClientFactory $llmFactory,
         private readonly ClassResolver $classResolver,
-        private readonly SpecPathResolver $specPathResolver,
         private readonly SpecManager $specManager,
     ) {
         parent::__construct();
@@ -111,7 +109,6 @@ class GenerateSpecCommand extends Command
 
         // 1. Résolution de la classe ciblée
         try {
-            /** @var array{className: string, filePath: string} $resolved */
             $resolved = $this->classResolver->resolve($classInput);
         } catch (\InvalidArgumentException $e) {
             $io->error($e->getMessage());
@@ -136,24 +133,23 @@ class GenerateSpecCommand extends Command
         // Récupère le modèle passé en option, sinon celui déclaré par défaut dans les variables d'environnement
         $model = $model ?? $this->llmFactory->getDefaultModel();
 
-        $fqcn = $resolved['className'];
-        $filePath = $resolved['filePath'];
+        $fqcn = $resolved->className;
+        $filePath = $resolved->filePath;
 
         // Extraction du nom court (ex : App\Service\VatCalculator → VatCalculator)
         $shortClassName = basename(str_replace('\\', '/', $fqcn));
 
-        // Lecture du code source
-        $classCode = file_get_contents($filePath);
-        if (false === $classCode) {
+        // Vérification de l'existance du fichier source
+        if (!is_file($filePath) || !is_readable($filePath)) {
             $io->error(sprintf('Impossible de lire le fichier : %s', $filePath));
 
             return Command::FAILURE;
         }
 
-        // Récupération du chemin de destination
-        $targetPath = $this->specPathResolver->resolve($outputDir, $shortClassName);
+        // Lecture du fichier source
+        $classCode = file_get_contents($filePath);
 
-        // Vérification de l'existence du fichier
+        // Vérification de l'existence du fichier de spécification
         if ($this->specManager->hasSpec($shortClassName, $outputDir) && !$input->getOption('force')) {
             $specFilePath = $this->specManager->getSpecFilePath($shortClassName, $outputDir);
             $io->warning(sprintf('Le fichier de spécification "%s" existe déjà.', $specFilePath));
