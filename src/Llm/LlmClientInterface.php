@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Llm;
 
+use Mika\TestGeneratorBundle\Exception\TestGenerationException;
+
 interface LlmClientInterface
 {
     /**
@@ -15,4 +17,15 @@ interface LlmClientInterface
      * @param array<int, array{role: string, content: string}> $messages
      */
     public function call(array $messages, string $model): string;
+
+    /**
+     * Effectue un appel LLM dédié à la génération d'une matrice de spécification (JSON).
+     *
+     * @param array<int, array{role: string, content: string}> $messages
+     *
+     * @return array<string, mixed>
+     *
+     * @throws TestGenerationException
+     */
+    public function callForSpec(array $messages, string $model): array;
 }

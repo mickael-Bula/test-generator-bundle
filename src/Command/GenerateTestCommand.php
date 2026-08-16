@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Command;
 
+use Mika\TestGeneratorBundle\Dto\TestTargetPath;
 use Mika\TestGeneratorBundle\Enum\TestType;
-use Mika\TestGeneratorBundle\Exception\TestCorrectionException;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
+use Mika\TestGeneratorBundle\Manager\SpecManager;
 use Mika\TestGeneratorBundle\Resolver\ClassResolver;
-use Mika\TestGeneratorBundle\Resolver\SpecResolver;
 use Mika\TestGeneratorBundle\Resolver\TestPathResolver;
 use Mika\TestGeneratorBundle\Service\TestGenerator;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -22,63 +22,67 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\Process\Process;
 
 #[AsCommand(
-    name: 'app:generate-test',
-    description: 'Génèration de tests PHPUnit pour une classe donnée via le LLM configuré, avec validation automatique.',
+    name: 'llm:generate:test',
+    description: 'Génération de tests PHPUnit pour une classe donnée via le LLM configuré, avec validation automatique.',
 )]
 class GenerateTestCommand extends Command
 {
     private SymfonyStyle $io;
+    private string $normalizedProjectDir;
 
     public function __construct(
         private readonly TestGenerator $testGenerator,
-        private readonly LlmClientFactory $llmFactory, // Injecte la factory qui récupère le client et le modèle.
+        private readonly LlmClientFactory $llmFactory,
         #[Autowire('%kernel.project_dir%')] private readonly string $projectDir,
         private readonly ClassResolver $classResolver,
-        private readonly SpecResolver $specResolver,
         private readonly TestPathResolver $pathResolver,
+        private readonly SpecManager $specManager,
     ) {
         parent::__construct();
+
+        $this->normalizedProjectDir = rtrim(str_replace('\\', '/', $this->projectDir), '/');
     }
 
     protected function configure(): void
     {
-        $this->addArgument(
-            'class',
-            InputArgument::REQUIRED,
-            'Le nom de la classe à tester, '
+        $this
+            ->addArgument(
+                'class',
+                InputArgument::REQUIRED,
+                'Le nom de la classe à tester, '
                 . 'ou son chemin (ex: src/Service/CalculatorService.php) '
                 . 'ou encore son namespace (ex : \\App\\Service\\Calculator)'
-        )->addOption(
-            'method',
-            'm',
-            InputOption::VALUE_REQUIRED,
-            'Cibler une méthode spécifique de la classe à tester'
-        )->addOption(
-            'model',
-            null,
-            InputOption::VALUE_OPTIONAL,
-            'Modèle LLM spécifique à utiliser (ex: qwen2.5-coder:14b ou un modèle OpenRouter)',
-        )
-        ->addOption(
-            'spec',
-            's',
-            InputOption::VALUE_OPTIONAL,
-            'Fichier de spécification (.md), texte libre ou convention automatique '
-                . '(<SpecDir>/<ClassName>Spec.md) si aucun argument n\'est fourni.',
-            false // Valeur par défaut quand l'option --spec n'est pas présente dasn la commande
-        )
-        ->addOption(
-            'unit',
-            'u',
-            InputOption::VALUE_NONE,
-            'Générer un test unitaire (par défaut)'
-        )
-        ->addOption(
-            'functional',
-            'f',
-            InputOption::VALUE_NONE,
-            'Générer un test fonctionnel'
-        );
+            )
+            ->addOption(
+                'method',
+                'm',
+                InputOption::VALUE_REQUIRED,
+                'Cibler une méthode spécifique de la classe à tester'
+            )
+            ->addOption(
+                'model',
+                null,
+                InputOption::VALUE_OPTIONAL,
+                'Modèle LLM spécifique à utiliser (ex: qwen2.5-coder:14b ou un modèle OpenRouter)',
+            )
+            ->addOption(
+                'spec',
+                's',
+                InputOption::VALUE_REQUIRED,
+                'Chemin vers un fichier de spécification (.md) spécifique. Si absent, le fichier par défaut sera lu ou créé.'
+            )
+            ->addOption(
+                'unit',
+                'u',
+                InputOption::VALUE_NONE,
+                'Générer un test unitaire (par défaut)'
+            )
+            ->addOption(
+                'functional',
+                'f',
+                InputOption::VALUE_NONE,
+                'Générer un test fonctionnel'
+            );
     }
 
     /**
@@ -86,23 +90,17 @@ class GenerateTestCommand extends Command
      */
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        // Initialisation du chronomètre et de l'horodatage de début
         $timezone = new \DateTimeZone(date_default_timezone_get());
         $startTime = new \DateTimeImmutable('now', $timezone);
         $startMicrotime = microtime(true);
 
         $this->io = new SymfonyStyle($input, $output);
-
-        // Affichage de l'heure de début dès le lancement
-        $this->io->text(sprintf('⏱️  Début d\'exécution : <info>%s</info>', $startTime->format('H:i:s')));
+        $this->io->text(sprintf('Début d\'exécution : <info>%s</info>', $startTime->format('H:i:s')));
 
         $targetInput = $input->getArgument('class');
 
         // 1. Vérification de la présence du binaire PHPUnit
-        $phpunitBinary = $this->projectDir
-            . DIRECTORY_SEPARATOR . 'vendor'
-            . DIRECTORY_SEPARATOR . 'bin'
-            . DIRECTORY_SEPARATOR . 'phpunit';
+        $phpunitBinary = $this->projectDir . '/vendor/bin/phpunit';
 
         if (!file_exists($phpunitBinary) && !file_exists($phpunitBinary . '.bat')) {
             $this->io->error('PHPUnit n\'est pas installé sur le projet hôte.');
@@ -111,50 +109,43 @@ class GenerateTestCommand extends Command
             return Command::FAILURE;
         }
 
-        // 2. Vérification de la présence du fichier de configuration de PHPUnit
+        // 2. Vérification de la config PHPUnit
         $configFiles = ['phpunit.xml', 'phpunit.xml.dist', 'phpunit.dist.xml'];
-
         $hasConfig = (bool) array_filter(
             $configFiles,
-            fn ($file) => file_exists($this->projectDir . DIRECTORY_SEPARATOR . $file)
+            fn ($file) => file_exists($this->projectDir . '/' . $file)
         );
 
         if (!$hasConfig) {
-            // Formate les premiers éléments séparés par des virgules et le dernier par "ou".
             $lastFile = array_pop($configFiles);
             $formattedList = implode(', ', $configFiles) . ' ou ' . $lastFile;
 
-            $this->io->error(sprintf(
-                'Aucun fichier de configuration PHPUnit (%s) n\'a été trouvé à la racine du projet.',
-                $formattedList)
+            $this->io->error(
+                sprintf(
+                    'Aucun fichier de configuration PHPUnit (%s) n\'a été trouvé à la racine du projet.',
+                    $formattedList
+                )
             );
-            $this->io->note('Vous pouvez en générer un en exécutant : composer require --dev symfony/test-pack');
 
             return Command::FAILURE;
         }
 
         try {
-            // Traitement du type de test (unitaire ou fonctionnel)
             $isUnit = (bool) $input->getOption('unit');
             $isFunctional = (bool) $input->getOption('functional');
 
-            // Validation pour empêcher d'activer les deux flags en même temps
             if ($isUnit && $isFunctional) {
                 $this->io->error('Vous ne pouvez pas spécifier à la fois --unit (-u) et --functional (-f).');
 
                 return Command::FAILURE;
             }
 
-            // Détermination du type (par défaut : UNIT).
             $testType = $isFunctional ? TestType::FUNCTIONAL : TestType::UNIT;
 
-            // Résolution automatique de l'entrée
             $resolved = $this->classResolver->resolve($targetInput);
+            $fqcn = $resolved->className;
+            $filePath = $resolved->filePath;
 
-            $fqcn = $resolved['className'];
-            $filePath = $resolved['filePath'];
-
-            // Si le fichier n'existe pas, on arrête l'exécution de la commande.
             if (!file_exists($filePath)) {
                 $this->io->error(sprintf('Le fichier "%s" n\'existe pas.', $filePath));
 
@@ -162,7 +153,6 @@ class GenerateTestCommand extends Command
             }
 
             $classCode = file_get_contents($filePath);
-
             $this->io->note(sprintf('Classe ciblée : %s (%s)', $fqcn, $filePath));
         } catch (\InvalidArgumentException|\RuntimeException $e) {
             $this->io->error($e->getMessage());
@@ -170,36 +160,67 @@ class GenerateTestCommand extends Command
             return Command::FAILURE;
         }
 
-        // On extrait le nom court de la classe (ex : "CalculatorService") depuis le FQCN
         $shortClassName = basename(str_replace('\\', '/', $fqcn));
-
-        // Récupère le modèle passé en option, sinon celui déclaré par défaut dans les variables d'environnement
         $model = $input->getOption('model') ?? $this->llmFactory->getDefaultModel();
-
-        // Récupère le provider
         $provider = $this->llmFactory->getDefaultProvider();
 
-        // Récupération du contenu de la spécification
-        $specOption = $input->getOption('spec');
+        /** @var string|null $customSpecPath */
+        $customSpecPath = $input->getOption('spec');
 
-        // Résolution du contenu de la spécification
-        $specContent = $this->specResolver->resolve($specOption, $shortClassName, $this->io);
+        // Information utilisateur avant génération si la spec par défaut n'existe pas encore
+        if (null === $customSpecPath && !$this->specManager->hasSpec($shortClassName)) {
+            $expectedPath = $this->specManager->getSpecFilePath($shortClassName);
+            $this->io->note(
+                sprintf('Aucune spécification trouvée. Génération automatique dans : %s', $expectedPath)
+            );
+        }
+
+        // Chargement ou génération de la spec
+        try {
+            $specContent = $this->specManager->resolveOrGenerateSpecContent(
+                shortClassName: $shortClassName,
+                classCode: $classCode,
+                fqcn: $fqcn,
+                methodName: $input->getOption('method'),
+                testType: $testType->value,
+                model: $model,
+                provider: $provider,
+                customPath: $customSpecPath
+            );
+
+            if ($specContent) {
+                $this->io->info('Une spécification métier a été injectée dans le contexte du LLM.');
+            }
+        } catch (\InvalidArgumentException $e) {
+            $this->io->error($e->getMessage());
+
+            return Command::FAILURE;
+        } catch (\Throwable $e) {
+            $this->io->warning(
+                sprintf('Impossible de générer ou charger la spec : %s. Poursuite sans spec.', $e->getMessage())
+            );
+            $specContent = null;
+        }
 
         /** @var string|null $methodName */
         $methodName = $input->getOption('method');
 
-        $this->io->title(sprintf('Analyse et génération de test %s pour : %s', $testType->label(), $shortClassName));
+        $this->io->title(
+            sprintf('Analyse et génération de test %s pour : %s', $testType->label(), $shortClassName)
+        );
 
         if ($methodName) {
             $this->io->text(sprintf('Cible spécifique : la méthode <info>%s()</info>', $methodName));
         }
 
         try {
-            // On transmet $testType au PathResolver pour adapter le dossier (Unit / Functional) et le namespace
-            [$targetNamespace, $finalDisplayDir, $finalAbsoluteFilePath] = $this->pathResolver->resolve($fqcn, $shortClassName, $testType);
+            // On transmet $testType au Resolver pour adapter le dossier (Unit / Functional) et le namespace
+            $testTargetPath = $this->pathResolver->resolve($fqcn, $shortClassName, $testType);
 
-            if (!$input->getOption('method') && file_exists($finalAbsoluteFilePath)) {
-                $this->io->warning('Un fichier de test existe déjà pour cette classe : ' . basename($finalAbsoluteFilePath));
+            if (!$input->getOption('method') && file_exists($testTargetPath->filePath)) {
+                $this->io->warning(
+                    'Un fichier de test existe déjà pour cette classe : ' . basename($testTargetPath->filePath)
+                );
 
                 $confirm = $this->io->confirm(
                     'Voulez-vous lancer la fusion automatique par le LLM sur ce fichier existant ?',
@@ -213,89 +234,60 @@ class GenerateTestCommand extends Command
                 }
             }
 
-            if (!is_dir($finalDisplayDir) && !mkdir($finalDisplayDir, 0777, true) && !is_dir($finalDisplayDir)) {
-                throw new \RuntimeException(sprintf('Le dossier "%s" n\'a pas été créé', $finalDisplayDir));
+            if (
+                !is_dir($testTargetPath->targetDirectory)
+                && !mkdir($testTargetPath->targetDirectory, 0777, true)
+                && !is_dir($testTargetPath->targetDirectory)
+            ) {
+                throw new \RuntimeException(sprintf('Le dossier "%s" n\'a pas été créé', $testTargetPath->targetDirectory));
             }
 
             $existingTestCode = null;
-            $testFileExisted = file_exists($finalAbsoluteFilePath);
+            $testFileExisted = file_exists($testTargetPath->filePath);
             if ($testFileExisted) {
-                if (Command::FAILURE === $this->checkTestFileIsClean($finalAbsoluteFilePath)) {
+                if (Command::FAILURE === $this->checkTestFileIsClean($testTargetPath->filePath)) {
                     return Command::FAILURE;
                 }
 
                 $this->io->note('Un fichier de test existant a été détecté. Il va être transmis au LLM pour fusion.');
-                $existingTestCode = file_get_contents($finalAbsoluteFilePath);
+                $existingTestCode = file_get_contents($testTargetPath->filePath);
                 $existingTestCode = $this->testGenerator->replaceDynamicHeadersInExistingTestCode(
                     existingTestCode: $existingTestCode,
-                    targetNamespace: $targetNamespace,
+                    targetNamespace: $testTargetPath->targetNamespace,
                     className: $shortClassName,
                 );
             }
 
             $this->io->comment(sprintf('Envoi du code au LLM (%s)...', $model));
 
-            if ($specContent) {
-                $this->io->info('Une spécification métier a été injectée dans le contexte du LLM.');
-            }
-
-            // Appel du LLM
-            try {
-                $testCode = $this->testGenerator->generateForClass(
-                    classCode: $classCode,
-                    filePath: $filePath,
-                    fqcn: $fqcn,
-                    className: $shortClassName,
-                    model: $model,
-                    methodName: $methodName,
-                    existingTestCode: $existingTestCode,
-                    specContent: $specContent,
-                    type: $testType->value,
-                    provider: $provider
-                );
-            } catch (\RuntimeException|TestCorrectionException $e) {
-                // Intercepte les erreurs de Repo-Map ainsi que l'échec de correction PHPUnit
-                $this->io->error($e->getMessage());
-
-                return Command::FAILURE;
-            }
+            $testCode = $this->testGenerator->generateForClass(
+                classCode: $classCode,
+                filePath: $filePath,
+                fqcn: $fqcn,
+                className: $shortClassName,
+                model: $model,
+                methodName: $methodName,
+                existingTestCode: $existingTestCode,
+                specContent: $specContent,
+                type: $testType->value,
+                provider: $provider
+            );
 
             $testCode = $this->testGenerator->replaceDynamicHeadersInTestCode(
                 testCode: $testCode,
-                targetNamespace: $targetNamespace,
+                targetNamespace: $testTargetPath->targetNamespace,
                 className: $shortClassName,
             );
 
-            file_put_contents($finalAbsoluteFilePath, $testCode);
+            file_put_contents($testTargetPath->filePath, $testCode);
 
-            if ($testFileExisted) {
-                $this->io->success('Le fichier de test existant a été mis à jour et fusionné par le LLM !');
-                $this->io->section('🔍 Sécurité & Revue de code');
-                $this->io->info([
-                    'Le code existant a été préservé et enrichi.',
-                    "Utilisez votre IDE ou la commande 'git diff' pour inspecter les ajouts de l'IA.",
-                    "Si le résultat ne vous convient pas, vous pouvez l'annuler à tout moment avec :",
-                    '👉 git restore ' . str_replace($this->projectDir . '/', '', $finalAbsoluteFilePath),
-                ]);
-            } else {
-                $relativeLogPath = str_replace($this->projectDir . '/', '', $finalAbsoluteFilePath);
-                $this->io->success(
-                    sprintf(
-                        'Le fichier de test %s a été généré avec succès dans : %s',
-                        $testType->label(),
-                        $relativeLogPath
-                    )
-                );
-            }
+            $this->displayFinalMessage($testFileExisted, $testTargetPath, $testType);
 
-            // Affichage de l'heure de fin à l'arrêt de la commande
             $this->displayExecutionTime($startTime, $startMicrotime);
 
             return Command::SUCCESS;
         } catch (\Exception $e) {
             $this->io->error('Une erreur est survenue lors de la génération : ' . $e->getMessage());
-
-            // Affichage de l'heure de fin à l'arrêt de la commande
             $this->displayExecutionTime($startTime, $startMicrotime);
 
             return Command::FAILURE;
@@ -318,12 +310,44 @@ class GenerateTestCommand extends Command
         return Command::SUCCESS;
     }
 
+    /**
+     * Affiche le message final.
+     *
+     * Si un fichier de test a été mis à jour par le LLM, on affiche une procédure de restauration.
+     * Sinon, on indique simplement le chemin versv le fichier généré.
+     */
+    private function displayFinalMessage(bool $testFileExisted, TestTargetPath $testTargetPath, TestType $testType): void
+    {
+        $relativeLogPath = str_replace($this->normalizedProjectDir . '/', '', $testTargetPath->filePath);
+
+        if ($testFileExisted) {
+            $this->io->success('Le fichier de test existant a été mis à jour et fusionné par le LLM !');
+            $this->io->section('Sécurité & Revue de code');
+            $this->io->info(
+                [
+                    'Le code existant a été préservé et enrichi.',
+                    "Utilisez votre IDE ou la commande 'git diff' pour inspecter les ajouts de l'IA.",
+                    "Si le résultat ne vous convient pas, vous pouvez l'annuler à tout moment avec : ",
+                    'git restore ' . $relativeLogPath,
+                ]
+            );
+
+            return;
+        }
+        $this->io->success(
+            sprintf(
+                'Le fichier de test %s a été généré avec succès dans : %s',
+                $testType->label(),
+                $relativeLogPath
+            )
+        );
+    }
+
     private function displayExecutionTime(\DateTimeImmutable $startTime, float $startMicrotime): void
     {
         $endTime = new \DateTimeImmutable();
         $durationInSeconds = round(microtime(true) - $startMicrotime, 2);
 
-        // Formate la durée (ex: "45.2s" ou "2m 15s")
         if ($durationInSeconds >= 60) {
             $minutes = (int) ($durationInSeconds / 60);
             $seconds = round(fmod($durationInSeconds, 60), 1);

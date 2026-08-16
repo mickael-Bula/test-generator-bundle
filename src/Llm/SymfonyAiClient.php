@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Mika\TestGeneratorBundle\Llm;
 
 use Mika\TestGeneratorBundle\Dto\GeneratedTestResult;
+use Mika\TestGeneratorBundle\Dto\SpecResultDto;
 use Mika\TestGeneratorBundle\Exception\TestGenerationException;
 use Mika\TestGeneratorBundle\Util\JsonSanitizer;
 use Mika\TestGeneratorBundle\Util\PhpCodeExtractor;
@@ -59,11 +60,13 @@ class SymfonyAiClient implements LlmClientInterface
     }
 
     /**
-     * @param array<array{role: string, content: string}> $messages
+     * Méthode privée factorisée : Prépare la requête Symfony AI et exécute l'appel LLM.
+     *
+     * @param array<int, array{role: string, content: string}> $messages
      *
      * @throws TestGenerationException
      */
-    public function call(array $messages, string $model): string
+    private function executeLlmCall(array $messages, string $model): string
     {
         $provider = strtolower($this->defaultProvider);
         $targetModel = '' !== trim($model) ? $model : $this->defaultModel;
@@ -92,8 +95,8 @@ class SymfonyAiClient implements LlmClientInterface
 
         // 1. Invocation de la plateforme (erreurs réseau/API uniquement)
         try {
-            $deferredResult = $platform->invoke($targetModel, $messageBag);
-            $rawContent = $deferredResult->asText();
+            return $platform->invoke($targetModel, $messageBag)
+                ->asText();
         } catch (\Throwable $e) {
             $message = sprintf(
                 'Erreur lors de la génération avec Symfony AI (%s/%s) : %s',
@@ -103,6 +106,23 @@ class SymfonyAiClient implements LlmClientInterface
             );
             throw new TestGenerationException($message, 0, $e);
         }
+    }
+
+    /**
+     * @param array<array{role: string, content: string}> $messages
+     *
+     * @throws TestGenerationException
+     */
+    public function call(array $messages, string $model): string
+    {
+        $provider = strtolower($this->defaultProvider);
+
+        if (!$this->platforms->has($provider)) {
+            throw new TestGenerationException(sprintf('Le fournisseur "%s" n\'est pas configuré dans Symfony AI.', $provider));
+        }
+
+        // Exécution de l'appel LLM brut
+        $rawContent = $this->executeLlmCall($messages, $model);
 
         // Pour Ollama, on extrait directement le code PHP sans chercher à parser du JSON (demandé dans le prompt).
         if ('ollama' === $provider) {
@@ -162,5 +182,59 @@ class SymfonyAiClient implements LlmClientInterface
 
         // Fallback ultime
         return (new GeneratedTestResult($rawContent))->getCleanTestCode();
+    }
+
+    /**
+     * Traitement dédié à la génération de matrice de spécification (JSON).
+     *
+     * @param array<int, array{role: string, content: string}> $messages
+     *
+     * @return array<string, mixed>
+     *
+     * @throws TestGenerationException
+     */
+    public function callForSpec(array $messages, string $model): array
+    {
+        // Exécution de l'appel LLM brut
+        $rawContent = $this->executeLlmCall($messages, $model);
+
+        // Nettoyage et assainissement du JSON
+        $jsonString = $this->jsonSanitizer->sanitizeLlmJsonResponse($rawContent);
+
+        // Correction spécifique pour les namespaces PHP (ex: "App\Service\Foo" -> "App\\Service\\Foo")
+        $jsonString = $this->fixPhpNamespacesInJson($jsonString);
+
+        // Tentative 1 : Désérialisation vers SpecResultDto via le Serializer Symfony
+        try {
+            /** @var SpecResultDto $specDto */
+            $specDto = $this->serializer->deserialize($jsonString, SpecResultDto::class, 'json');
+
+            return $specDto->toArray();
+        } catch (\Throwable) {
+            // Ignoré, on passe à la tentative manuelle
+        }
+
+        // Tentative 2 : Décodage manuel via json_decode
+        try {
+            /** @var array<string, mixed> $data */
+            $data = json_decode($jsonString, true, 512, JSON_THROW_ON_ERROR);
+
+            if (isset($data['targetClass'], $data['methods']) && is_array($data['methods'])) {
+                return $data;
+            }
+        } catch (\JsonException $e) {
+            throw new TestGenerationException(sprintf("L'Agent Spec a retourné un JSON invalide : %s\nRéponse brute du LLM :\n%s", $e->getMessage(), $rawContent), 0, $e);
+        }
+
+        throw new TestGenerationException(sprintf("La réponse du LLM ne contient pas la structure de spec attendue.\nRéponse brute :\n%s", $rawContent));
+    }
+
+    /**
+     * Corrige les simples backslashes dans les chaînes JSON (fréquent avec les namespaces PHP).
+     */
+    private function fixPhpNamespacesInJson(string $json): string
+    {
+        // Remplacement des \ qui ne font pas partie d'une séquence d'échappement JSON valide (\", \\, \/, \b, \f, \n, \r, \t, \u)
+        return preg_replace('/(?<!\\\\)\\\\(?!["\\\\\/bfnrtu])/', '\\\\\\\\', $json);
     }
 }

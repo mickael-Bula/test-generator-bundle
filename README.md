@@ -7,6 +7,13 @@ Il prend en compte le contexte global de votre projet (Repo-Map / AST),
 supporte la rédaction de spécifications en Markdown (BDD)
 et s'adapte à la nature de la classe testée grâce à un système de *Skills* dynamiques.
 
+Les tests générés sont déposés dans le dossier `tests` en répliquant la structure des sous-dossiers de `src/` (convention PSR4) 
+et en distinguant les tests unitaires et fonctionnels.
+
+Exemple :
+- `tests/Unit/Service/VatCalculatorTest.php`
+- `tests/Functional/Controller/InvoiceControllerTest.php`
+
 ---
 
 ## Prérequis
@@ -28,24 +35,6 @@ Installez le bundle via Composer dans votre projet :
 composer require mika/test-generator-bundle --dev
 ```
 
->TODO : Vérifier si le chargement des ponts est vraiment nécessaires : il semble que ce soit fait automatiquement.
-> Si c'est le cas, supprimer le paragraphe ci-dessous.
-
-Assurez-vous également d'installer le pont (bridge) **Symfony AI Platform**
-correspondant au fournisseur de LLM que vous souhaitez utiliser :
-
-```bash
-# Exemple pour Google Gemini
-composer require symfony/ai-gemini-platform
-
-# Ou pour Ollama (modèles locaux)
-composer require symfony/ai-ollama-platform
-
-# Ou pour Anthropic / OpenAI / OpenRouter
-composer require symfony/ai-anthropic-platform
-composer require symfony/ai-open-ai-platform
-```
-
 ---
 
 ## Configuration
@@ -55,7 +44,7 @@ Déclarer les variables d'environnement nécessaires dans votre fichier `.env` o
 ### Exemple avec Google Gemini
 ```env
 LLM_PROVIDER="gemini"
-LLM_MODEL="gemini-flash-latest"
+LLM_MODEL="gemini-flash-latest" # ou un modèle précis, par ex : "gemini-3.1-flash-lite"
 GEMINI_API_KEY="votre_cle_api"
 ```
 
@@ -92,43 +81,30 @@ mika_test_generator:
 
 ## Utilisation
 
-### 1. Génération automatique de tests (`app:generate-test`)
+### 1. Spécifications BDD Métier (`llm:generate:spec`)
 
-La commande s'utilise en fournissant la classe à tester (nom court, FQCN ou chemin relatif) :
+Afin d'orienter le LLM vers des exigences métiers précises (**Behavior Driven Development** / **Given-When-Then**), 
+vous pouvez créer ou générer (via un LLM) un fichier de spécification Markdown (`tests/Specs/NomDeClasseSpec.md`).
 
-```bash
-# Recherche automatique dans src/ par nom court :
-php bin/console app:generate-test VatCalculator
+#### A. Génération automatique de la spécification par le LLM
 
-# Par FQCN :
-php bin/console app:generate-test "App\Service\VatCalculator"
-
-# Cibler une méthode spécifique :
-php bin/console app:generate-test VatCalculator -m calculateNetAmountFromGross
-
-# Générer un test fonctionnel au lieu d'un test unitaire :
-php bin/console app:generate-test "App\Controller\InvoiceController" --functional
-```
-
-> **Fonctionnement itératif :** Que ce soit pour la création d'un nouveau fichier ou l'injection d'une méthode dans un test existant,
-> la commande exécute PHPUnit et réinjecte automatiquement les erreurs au LLM jusqu'à l'obtention d'un test passant.
-
----
-
-### 2. Guide des spécifications BDD (`app:test-spec`)
-
-Pour guider le LLM avec des exigences métiers précises (approche **Behavior Driven Development** (BDD) / **Given-When-Then**) :
-
-#### A. Générer le squelette Markdown
+La commande `llm:generate:spec` fait analyser le code source de la classe par le LLM 
+pour rédiger automatiquement une spécification fonctionnelle complète au format **Markdown** :
 
 ```bash
-php bin/console app:test-spec VatCalculator
+# Génère automatiquement tests/Specs/VatCalculatorSpec.md à partir de la classe
+php bin/console llm:generate:spec VatCalculator
+
+# Générer une spec ciblée uniquement sur une méthode
+php bin/console llm:generate:spec VatCalculator -m calculateNetAmountFromGross
+
+# Forcer la régénération si un fichier de spec existe déjà
+php bin/console llm:generate:spec VatCalculator --force
 ```
-Un fichier `tests/Specs/VatCalculatorSpec.md` sera créé.
 
-#### B. Rédiger le scénario
+#### B. Structure BDD générée et éditable
 
-Remplissez la structure **BDD** en faisant correspondre vos exigences au pattern **AAA (Arrange-Act-Assert)** :
+Le fichier créé suit la structure **BDD** basée sur le pattern **AAA (Arrange-Act-Assert)** :
 
 | BDD                     | Pattern Test                                  |
 |-------------------------|-----------------------------------------------|
@@ -136,15 +112,42 @@ Remplissez la structure **BDD** en faisant correspondre vos exigences au pattern
 | **When** (Lorsque)      | Exécution de la méthode (**Act**)             |
 | **Then** (Alors)        | Vérification des assertions (**Assert**)      |
 
-#### C. Lancer la génération basée sur la spécification
+Vous pouvez librement repasser sur ce fichier Markdown pour ajuster, 
+ajouter ou supprimer des scénarios métiers avant de lancer la génération du test.
+
+### 2. Génération automatique de tests (`llm:generate:test`)
+
+La commande s'utilise en fournissant la classe à tester (nom court, FQCN ou chemin relatif) :
 
 ```bash
-# Convention automatique (cherche tests/Specs/VatCalculatorSpec.md) :
-php bin/console app:generate-test VatCalculator --spec
+# Recherche automatique dans src/ par nom court :
+php bin/console llm:generate:test VatCalculator
 
-# Passer une consigne rapide directement en ligne de commande :
-php bin/console app:generate-test VatCalculator --spec="Lever une exception si le montant HT est négatif"
+# Par FQCN :
+php bin/console llm:generate:test "App\Service\VatCalculator"
+
+# Cibler une méthode spécifique :
+php bin/console llm:generate:test VatCalculator -m calculateNetAmountFromGross
+
+# Générer un test fonctionnel au lieu d'un test unitaire :
+php bin/console llm:generate:test "App\Controller\InvoiceController" --functional
+
+# Utiliser un fichier de spec sur mesure :
+php bin/console llm:generate:test VatCalculator -s tests/Specs/CustomVatSpec.md
 ```
+
+## Resolution automatique de la spécification
+
+Lors du lancement de `llm:generate:test` :
+1. Si un fichier `tests/Specs/<Classe>Spec.md` existe déjà, il est automatiquement chargé et injecté dans le contexte du LLM.
+2. Si aucune spécification n'existe, le bundle la génère automatiquement à la volée via le LLM, 
+   la sauvegarde dans `tests/Specs/`, puis l'injecte pour générer le test.
+3. Si vous spécifiez une option `-s` / `--spec`, le fichier désigné est directement utilisé.
+
+> **Fusion et mise à jour itérative** : Si un fichier de test existe déjà pour la classe, 
+> le bundle vous propose d'effectuer une fusion intelligente via le LLM. 
+> De plus, les tests générés sont exécutés automatiquement avec PHPUnit 
+> et les erreurs éventuelles sont réinjectées au LLM jusqu'à l'obtention d'un test passant.
 
 ---
 

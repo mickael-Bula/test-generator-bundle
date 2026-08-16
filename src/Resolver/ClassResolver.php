@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Resolver;
 
+use Mika\TestGeneratorBundle\Dto\ResolvedClass;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\Finder\Finder;
 
@@ -18,11 +19,9 @@ readonly class ClassResolver
      * Résout l'entrée utilisateur (chemin Windows/Linux, FQCN, ou nom court)
      * pour retourner le FQCN exact et le chemin absolu du fichier.
      *
-     * @return array{className: string, filePath: string}
-     *
      * @throws \InvalidArgumentException Si la classe ne peut pas être résolue ou en cas d'ambigüité
      */
-    public function resolve(string $input): array
+    public function resolve(string $input): ResolvedClass
     {
         $input = trim($input);
 
@@ -59,10 +58,8 @@ readonly class ClassResolver
 
     /**
      * Cas 1 : Chemin de fichier (ex : "src/Service/VatCalculator.php").
-     *
-     * @return array{className: string, filePath: string}|null
      */
-    private function resolveByFilePath(string $input, string $normalizedPath): ?array
+    private function resolveByFilePath(string $input, string $normalizedPath): ?ResolvedClass
     {
         $realPath = realpath($input);
 
@@ -71,10 +68,10 @@ readonly class ClassResolver
         }
 
         if ($realPath && is_file($realPath)) {
-            return [
-                'className' => $this->extractFqcnFromFile($realPath),
-                'filePath' => $realPath,
-            ];
+            return new ResolvedClass(
+                className: $this->extractFqcnFromFile($realPath),
+                filePath: $realPath,
+            );
         }
 
         return null;
@@ -82,10 +79,8 @@ readonly class ClassResolver
 
     /**
      * Cas 2 : Namespace / FQCN complet (ex : "App\Service\VatCalculator").
-     *
-     * @return array{className: string, filePath: string}|null
      */
-    private function resolveByFqcn(string $input): ?array
+    private function resolveByFqcn(string $input): ?ResolvedClass
     {
         $fqcnInput = ltrim(str_replace('/', '\\', $input), '\\');
 
@@ -94,10 +89,10 @@ readonly class ClassResolver
             $fileName = $reflection->getFileName();
 
             if ($fileName && is_file($fileName)) {
-                return [
-                    'className' => $reflection->getName(),
-                    'filePath' => $fileName,
-                ];
+                return new ResolvedClass(
+                    className: $reflection->getName(),
+                    filePath: $fileName,
+                );
             }
         }
 
@@ -106,10 +101,8 @@ readonly class ClassResolver
 
     /**
      * Cas 3 : Nom court de classe (ex : "VatCalculator").
-     *
-     * @return array{className: string, filePath: string}|null
      */
-    private function resolveByShortName(string $normalizedPath): ?array
+    private function resolveByShortName(string $normalizedPath): ?ResolvedClass
     {
         $shortName = basename($normalizedPath);
         $shortName = preg_replace('/\.php$/i', '', $shortName) ?? $shortName;
@@ -121,7 +114,7 @@ readonly class ClassResolver
         }
 
         if (\count($matches) > 1) {
-            $foundFqcn = array_column($matches, 'className');
+            $foundFqcn = array_map(static fn (ResolvedClass $resolved) => $resolved->className, $matches);
 
             $message = sprintf(
                 'Ambigüité : plusieurs classes correspondent au nom "%s" : %s. '
@@ -138,7 +131,7 @@ readonly class ClassResolver
     /**
      * Recherche une classe par son nom court dans le dossier src/.
      *
-     * @return array<int, array{className: string, filePath: string}>
+     * @return array<int, ResolvedClass>
      */
     private function findClassInProject(string $shortClassName): array
     {
@@ -163,10 +156,10 @@ readonly class ClassResolver
             $fqcn = $this->extractFqcnFromFile($filePath);
 
             if ($fqcn === $shortClassName || str_ends_with($fqcn, $suffix)) {
-                $results[] = [
-                    'className' => $fqcn,
-                    'filePath' => $filePath,
-                ];
+                $results[] = new ResolvedClass(
+                    className: $fqcn,
+                    filePath: $filePath,
+                );
             }
         }
 
