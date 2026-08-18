@@ -117,23 +117,25 @@ readonly class TestGenerator
                 return $testCode;
             }
 
-            // ÉCHEC DU TEST (Erreurs d'assertions ou d'exécution PHPUnit)
-            $errorMessage = sprintf(
-                "L'exécution de PHPUnit a ÉCHOUÉ avec l'erreur suivante :\n\n%s\n\n" .
-                " CONSIGNES DE CORRECTION :\n" .
-                "1. Analyse le diff PHPUnit (--- Expected vs +++ Actual).\n" .
-                "2. La valeur produite par la méthode de la classe (+ Actual) est la SEULE référence valide.\n" .
-                "3. Modifie la valeur attendue (\$expected) dans ton assertion pour qu'elle corresponde EXACTEMENT à la valeur réelle (+ Actual).\n" .
-                "4. Ne modifie pas la logique du test, juste les valeurs d'assertion pour qu'il passe au vert.",
-                $result['output']
+            // 3. ÉCHEC DU TEST (Erreurs d'assertions ou d'exécution PHPUnit) : on appelle le Fixer PHPUnit
+            $fixerBuilder = $this->getPromptBuilder('fixer');
+
+            $fixerPrompts = $fixerBuilder->buildPrompt(
+                classCode: $classCode,
+                filePath: $filePath,
+                fqcn: $fqcn,
+                className: $className,
+                existingTestCode: $testCode,    // On transmet le test qui a échoué
+                specContent: $result['output'], // On transmet le rapport PHPUnit
+                provider: $provider
             );
 
-            // 3. Enrichissement de l'historique (Partagé pour PHPUnit ET erreurs JSON).
+            // On bascule l'instruction système globale en mode "Fixer PHPUnit".
+            $messages[0] = ['role' => 'system', 'content' => $fixerPrompts['system']];
+
+            // On conserve l'historique et on ajoute la tentative du LLM et les consignes du Fixer.
             $messages[] = ['role' => 'assistant', 'content' => $testCode];
-            $messages[] = [
-                'role' => 'user',
-                'content' => $errorMessage . "\n\nAnalyse ce problème d'assertion, corrige ton code et renvoie le code corrigé.",
-            ];
+            $messages[] = ['role' => 'user', 'content' => $fixerPrompts['user']];
         }
 
         $message = sprintf(

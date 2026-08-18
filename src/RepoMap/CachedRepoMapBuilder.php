@@ -21,7 +21,7 @@ class CachedRepoMapBuilder
     }
 
     /**
-     * Point d'entrée appelé par ton PromptBuilder avec le chemin du fichier cible ($filePath).
+     * Point d'entrée appelé par le PromptBuilder avec le chemin du fichier cible ($filePath).
      *
      * @throws InvalidArgumentException
      */
