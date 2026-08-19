@@ -6,7 +6,7 @@ namespace Mika\TestGeneratorBundle\PromptBuilder;
 
 use Mika\TestGeneratorBundle\Attribute\AsTestPromptBuilder;
 use Mika\TestGeneratorBundle\RepoMap\CachedRepoMapBuilder;
-use Mika\TestGeneratorBundle\Resolver\SkillResolver;
+use Mika\TestGeneratorBundle\Resolver\FixerSkillResolver;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 /**
@@ -21,7 +21,7 @@ readonly class PhpUnitFixerPromptBuilder implements TestPromptBuilderInterface
 
     public function __construct(
         private CachedRepoMapBuilder $repoMapBuilder,
-        private SkillResolver $skillResolver,
+        private FixerSkillResolver $fixerSkillResolver,
         #[Autowire('%kernel.project_dir%')] private string $projectDir,
     ) {
     }
@@ -51,16 +51,15 @@ readonly class PhpUnitFixerPromptBuilder implements TestPromptBuilderInterface
         ?string $specContent = null,
         ?string $provider = null,
     ): array {
-        // 1. Résolution des skills applicables au code
-        $skillsPrompt = $this->skillResolver->resolveForClass(
-            fqcn: $fqcn,
-            classCode: $classCode,
-        );
+        $phpUnitOutput = $specContent ?? 'Aucune sortie d\'erreur fournie.';
+
+        // Résolution des skills applicables au code.
+        $fixerSkills = $this->fixerSkillResolver->resolveFromPhpUnitOutput($phpUnitOutput);
 
         return [
             'system' => $this->buildSystemMessage(
                 filePath: $filePath,
-                skillsPrompt: $skillsPrompt,
+                skillsPrompt: $fixerSkills,
                 provider: $provider,
             ),
             'user' => $this->buildUserMessage(
@@ -116,25 +115,6 @@ EXIGENCES STRICTES DE QUALITÉ ET STYLE :
      // ALORS
    - Il est STRICTEMENT INTERDIT d'écrire quoi que ce soit sur la même ligne après ces balises.
    - N'ajoute AUCUN message d'erreur personnalisé en 3e argument de assertSame().
-
-3. GESTION ABSOLUE DES CLASSES FINALES (ClassIsFinalException) :
-   - Si une classe est déclarée "final" dans la Repo-Map (ex: SpecPathResolver) ou si le rapport indique "Class ... is declared 'final' and cannot be doubled" :
-     a. RÈGLE D'OR : Ne réintroduis JAMAIS un mock sur cette classe au tour suivant, même pour corriger une autre erreur !
-     b. Tu ES AUTORISÉ à modifier le typage des propriétés de la classe de test et l'initialisation dans setUp().
-     c. Supprime STRICTEMENT $this->createMock() pour cette classe finale.
-     d. Instancie TOUJOURS la vraie classe (ex: new LaClasseFinale(...)) dans setUp() ou dans le test avec ses dépendances réelles ou mockées.
-
-4. ERREURS DE TYPE DE RETOUR VOID (IncompatibleReturnValueException) :
-   - Si le rapport indique "Method ... may not return value of type ..., its declared return type is 'void'" :
-     1. Vérifie dans la Repo-Map le type de retour de la méthode concernée.
-     2. Supprime TOUT appel à ->willReturn(...) ou ->willReturnCallback(...) sur cette méthode mockée.
-     3. Utilise uniquement la vérification d'appel : $this->mock->expects($this->once())->method('nomDeLaMethode')->with(...);
-
-5. ERREURS D'INSTANCIATION, DE CHEMINS ET D'ASSERTIONS (IOException / Fails / InvalidPath) :
-   - Lorsqu'une classe manipulant des fichiers/dossiers (`SpecPathResolver`, `SpecManager`, etc.) est testée ou instanciée :
-     a. Crée un dossier temporaire isolé dans `setUp()` : `$this->tempDir = sys_get_temp_dir() . '/test_' . uniqid();` et nettoie-le dans `tearDown()` via `(new Filesystem())->remove($this->tempDir);`.
-     b. Passe TOUJOURS un nom de sous-dossier RELATIF simple en argument de méthode (ex: `$outputDir = 'specs'`), et NE CONCATÈNE JAMAIS deux chemins absolus (ex: NE FAIS JAMAIS `$this->tempDir . '/specs'` comme `$outputDir`).
-     c. Si le test vérifie l'existence d'un fichier (ex: `hasSpec()`), tu DOIS créer physiquement le dossier et le fichier de test dans `$this->tempDir` AVANT de jouer l'assertion.
 TEXT;
 
         if (null !== $skillsPrompt) {

@@ -7,6 +7,7 @@ namespace Mika\TestGeneratorBundle\Tests\Service;
 use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
+use Symfony\Component\Filesystem\Filesystem;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\Service\TestGenerator;
@@ -32,12 +33,16 @@ class TestGeneratorTest extends TestCase
         $this->testRunner = $this->createMock(PhpUnitTestRunner::class);
         $this->syntaxValidator = $this->createMock(PhpSyntaxValidator::class);
         $this->promptBuilders = [$this->createMock(TestPromptBuilderInterface::class)];
+
+        $tempDir = sys_get_temp_dir();
         
         $this->generator = new TestGenerator(
             $this->llmFactory,
             $this->testRunner,
             $this->syntaxValidator,
-            $this->promptBuilders
+            $this->promptBuilders,
+            new Filesystem(),
+            $tempDir,
         );
     }
 
@@ -106,5 +111,29 @@ class TestGeneratorTest extends TestCase
 
         // ALORS
         $this->assertSame('namespace App\Tests\Dynamic; class FooDynamicTest {}', $result);
+    }
+
+    #[Test]
+    public function testGenerateForClassSavesFailedTestOnMaxAttempts(): void
+    {
+        // ÉTANT DONNÉ
+        $client = $this->createMock(LlmClientInterface::class);
+        $this->llmFactory->method('getClient')->willReturn($client);
+        $this->llmFactory->method('getDefaultModel')->willReturn('gpt-4');
+
+        // Configurer le builder pour qu'il gère les types 'unit' et 'fixer'
+        $this->promptBuilders[0]->method('supports')->willReturn(true);
+        $this->promptBuilders[0]->method('buildPrompt')->willReturn(['system' => '', 'user' => '']);
+
+        $client->method('call')->willReturn('class FooTest {}');
+        $this->syntaxValidator->method('validate')->willReturn(SyntaxValidationResult::success());
+        $this->testRunner->method('runTest')->willReturn(['success' => false, 'output' => 'PHPUnit error']);
+
+        // ALORS
+        $this->expectException(TestCorrectionException::class);
+        $this->expectExceptionMessageMatches('/Impossible de générer un test valide.*conservé dans/s');
+
+        // QUAND
+        $this->generator->generateForClass('class Foo {}', 'src/Foo.php', 'App\Foo', 'Foo');
     }
 }

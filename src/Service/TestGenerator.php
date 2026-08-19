@@ -8,7 +8,9 @@ use Mika\TestGeneratorBundle\Exception\TestCorrectionException;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\PromptBuilder\TestPromptBuilderInterface;
 use Mika\TestGeneratorBundle\Validator\PhpSyntaxValidator;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\DependencyInjection\Attribute\AutowireIterator;
+use Symfony\Component\Filesystem\Filesystem;
 
 readonly class TestGenerator
 {
@@ -23,6 +25,8 @@ readonly class TestGenerator
         private PhpSyntaxValidator $syntaxValidator,
         #[AutowireIterator('mika_test_generator.prompt_builder')] // Récupère toutes les classes portant ce tag
         private iterable $promptBuilders,
+        private Filesystem $filesystem = new Filesystem(),
+        #[Autowire('%kernel.project_dir%/var/failed_tests')] private string $failedTestsDir = '',
     ) {
     }
 
@@ -80,7 +84,10 @@ readonly class TestGenerator
         $client = $this->llmFactory->getClient();
         $targetModel = $model ?? $this->llmFactory->getDefaultModel();
 
+        // Initialisation des variables d'état pour la persistance en cas d'échec
         $attempt = 0;
+        $testCode = '';
+        $lastOutput = 'Aucun rapport PHPUnit généré (échec avant l\'exécution des tests).';
 
         while ($attempt < self::MAX_ATTEMPT) {
             ++$attempt;
@@ -101,6 +108,9 @@ readonly class TestGenerator
                     $syntaxResult->errorMessage ?? 'Syntaxe PHP invalide'
                 );
 
+                // On conserve la dernière erreur de syntaxe comme rapport en cas d'échec final
+                $lastOutput = "ERREUR DE SYNTAXE PHP :\n" . $errorMessage;
+
                 $messages[] = ['role' => 'assistant', 'content' => $testCode];
                 $messages[] = [
                     'role' => 'user',
@@ -112,6 +122,7 @@ readonly class TestGenerator
 
             // 2. Exécution du test PHPUnit (seulement si la syntaxe est OK)
             $result = $this->testRunner->runTest($testCode, $className);
+            $lastOutput = '' !== $result['output'] ? $result['output'] : 'Aucune sortie reçue de PHPUnit.';
 
             if ($result['success']) {
                 return $testCode;
@@ -126,7 +137,7 @@ readonly class TestGenerator
                 fqcn: $fqcn,
                 className: $className,
                 existingTestCode: $testCode,    // On transmet le test qui a échoué
-                specContent: $result['output'], // On transmet le rapport PHPUnit
+                specContent: $lastOutput, // On transmet le rapport PHPUnit
                 provider: $provider
             );
 
@@ -138,10 +149,14 @@ readonly class TestGenerator
             $messages[] = ['role' => 'user', 'content' => $fixerPrompts['user']];
         }
 
+        // ÉCHEC APRÈS 3 TENTATIVES : On sauvegarde le fichier dans le répertoire dédié.
+        $savedPath = $this->saveFailedTest($className, $testCode, $lastOutput);
+
         $message = sprintf(
-            'Impossible de générer un test valide pour %s après %d tentatives.',
+            'Impossible de générer un test valide pour %s après %d tentatives. Le test défaillant a été conservé dans : %s',
             $className,
-            self::MAX_ATTEMPT
+            self::MAX_ATTEMPT,
+            $savedPath
         );
         throw new TestCorrectionException($message);
     }
@@ -177,5 +192,35 @@ readonly class TestGenerator
             ],
             $testCode
         );
+    }
+
+    /**
+     * Sauvegarde le test défaillant et du rapport d'erreur PHPUnit.
+     */
+    private function saveFailedTest(string $className, string $testCode, ?string $failureOutput): string
+    {
+        // Formatage du nom de fichier avec Horodatage
+        $date = (new \DateTimeImmutable())->format('Y-m-d_H-i-s');
+        $filename = sprintf('%s_%sFailedTest.php', $date, $className);
+        $logFilename = sprintf('%s_%sFailedTest.log', $date, $className);
+
+        // Normalisation des séparateurs de dossiers selon l'OS (DIRECTORY_SEPARATOR)
+        $normalizedDir = rtrim(
+            str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $this->failedTestsDir),
+            DIRECTORY_SEPARATOR
+        );
+
+        $targetPath = $normalizedDir . DIRECTORY_SEPARATOR . $filename;
+        $logPath = $normalizedDir . DIRECTORY_SEPARATOR . $logFilename;
+
+        // Écriture du fichier de test non fonctionnel
+        $this->filesystem->dumpFile($targetPath, $testCode);
+
+        // Écriture du rapport PHPUnit correspondant pour consultation rapide
+        if (null !== $failureOutput) {
+            $this->filesystem->dumpFile($logPath, $failureOutput);
+        }
+
+        return $targetPath;
     }
 }
