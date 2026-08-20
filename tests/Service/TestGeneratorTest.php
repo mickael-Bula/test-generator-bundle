@@ -46,6 +46,9 @@ class TestGeneratorTest extends TestCase
         );
     }
 
+    /**
+     * @throws \ReflectionException
+     */
     #[Test]
     public function testReturnsBuilderWhenTypeIsSupported(): void
     {
@@ -55,13 +58,15 @@ class TestGeneratorTest extends TestCase
         // QUAND
         $reflection = new \ReflectionClass(TestGenerator::class);
         $method = $reflection->getMethod('getPromptBuilder');
-        $method->setAccessible(true);
         $result = $method->invoke($this->generator, 'unit');
 
         // ALORS
         $this->assertSame($this->promptBuilders[0], $result);
     }
 
+    /**
+     * @throws \ReflectionException
+     */
     #[Test]
     public function testThrowsExceptionWhenNoBuilderSupportsType(): void
     {
@@ -75,7 +80,6 @@ class TestGeneratorTest extends TestCase
         // QUAND
         $reflection = new \ReflectionClass(TestGenerator::class);
         $method = $reflection->getMethod('getPromptBuilder');
-        $method->setAccessible(true);
         $method->invoke($this->generator, 'unknown');
     }
 

@@ -44,6 +44,15 @@ final readonly class FixerSkillResolver
             $skillsToLoad[] = 'filepath_and_assertions.md';
         }
 
+        // Détection ciblée de ReflectionMethod / ReflectionProperty::setAccessible()
+        if (
+            str_contains($phpUnitOutput, 'setAccessible')
+            || str_contains($phpUnitOutput, 'ReflectionMethod::setAccessible')
+            || str_contains($phpUnitOutput, 'ReflectionProperty::setAccessible')
+        ) {
+            $skillsToLoad[] = 'reflection_php81.md';
+        }
+
         $loadedSkills = [];
         foreach ($skillsToLoad as $file) {
             $path = $this->skillsDir . '/' . $file;
