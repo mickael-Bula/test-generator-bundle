@@ -6,6 +6,7 @@ namespace Mika\TestGeneratorBundle\Command;
 
 use Mika\TestGeneratorBundle\Dto\TestTargetPath;
 use Mika\TestGeneratorBundle\Enum\TestType;
+use Mika\TestGeneratorBundle\Exception\TestCorrectionException;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\Manager\SpecManager;
 use Mika\TestGeneratorBundle\Resolver\ClassResolver;
@@ -286,8 +287,23 @@ class GenerateTestCommand extends Command
             $this->displayExecutionTime($startTime, $startMicrotime);
 
             return Command::SUCCESS;
+        } catch (TestCorrectionException $e) {
+            // Échec Métier : Le LLM n'a pas réussi à corriger le test après les tentatives configurées.
+            $this->io->error('Échec de la génération automatique :');
+            $this->io->writeln($e->getMessage());
+            $this->displayExecutionTime($startTime, $startMicrotime);
+
+            return Command::FAILURE;
+        } catch (\JsonException $e) {
+            // Échec Technique : La sortie de PHPStan ou du client LLM n'est pas du JSON valide
+            $this->io->error('Erreur d\'analyse de la réponse JSON (PHPStan ou LLM) : ' . $e->getMessage());
+            $this->io->note('Vérifiez que PHPStan fonctionne correctement en exécutant manuellement la commande sur le projet.');
+            $this->displayExecutionTime($startTime, $startMicrotime);
+
+            return Command::FAILURE;
         } catch (\Exception $e) {
-            $this->io->error('Une erreur est survenue lors de la génération : ' . $e->getMessage());
+            // Toutes les autres exceptions inattendues
+            $this->io->error('Une erreur inattendue est survenue : ' . $e->getMessage());
             $this->displayExecutionTime($startTime, $startMicrotime);
 
             return Command::FAILURE;

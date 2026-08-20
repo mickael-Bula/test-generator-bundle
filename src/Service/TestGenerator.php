@@ -12,7 +12,7 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\DependencyInjection\Attribute\AutowireIterator;
 use Symfony\Component\Filesystem\Filesystem;
 
-readonly class TestGenerator
+class TestGenerator
 {
     private const MAX_ATTEMPT = 3;
 
@@ -20,14 +20,18 @@ readonly class TestGenerator
      * @param iterable<TestPromptBuilderInterface> $promptBuilders
      */
     public function __construct(
-        private LlmClientFactory $llmFactory,
-        private PhpUnitTestRunner $testRunner,
-        private PhpSyntaxValidator $syntaxValidator,
+        private readonly LlmClientFactory $llmFactory,
+        private readonly PhpUnitTestRunner $testRunner,
+        private readonly PhpSyntaxValidator $syntaxValidator,
         #[AutowireIterator('mika_test_generator.prompt_builder')] // Récupère toutes les classes portant ce tag
-        private iterable $promptBuilders,
-        private Filesystem $filesystem = new Filesystem(),
+        private readonly iterable $promptBuilders,
+        private readonly PhpStanRunner $phpStanRunner,
+        private readonly Filesystem $filesystem = new Filesystem(),
         #[Autowire('%kernel.project_dir%/var/failed_tests')] private string $failedTestsDir = '',
     ) {
+        if ('' === $this->failedTestsDir) {
+            $this->failedTestsDir = sys_get_temp_dir();
+        }
     }
 
     /**
@@ -45,8 +49,7 @@ readonly class TestGenerator
     }
 
     /**
-     * @throws TestCorrectionException
-     * @throws \RuntimeException
+     * @throws TestCorrectionException|\RuntimeException|\JsonException
      */
     public function generateForClass(
         string $classCode,
@@ -117,36 +120,67 @@ readonly class TestGenerator
                     'content' => $errorMessage . "\n\nCorrige immédiatement la syntaxe et renvoie le code PHP complet corrigé.",
                 ];
 
+                // On relance la boucle pour la correction de la syntaxe.
                 continue;
             }
 
-            // 2. Exécution du test PHPUnit (seulement si la syntaxe est OK)
-            $result = $this->testRunner->runTest($testCode, $className);
-            $lastOutput = '' !== $result['output'] ? $result['output'] : 'Aucune sortie reçue de PHPUnit.';
-
-            if ($result['success']) {
-                return $testCode;
-            }
-
-            // 3. ÉCHEC DU TEST (Erreurs d'assertions ou d'exécution PHPUnit) : on appelle le Fixer PHPUnit
-            $fixerBuilder = $this->getPromptBuilder('fixer');
-
-            $fixerPrompts = $fixerBuilder->buildPrompt(
-                classCode: $classCode,
-                filePath: $filePath,
-                fqcn: $fqcn,
-                className: $className,
-                existingTestCode: $testCode,    // On transmet le test qui a échoué
-                specContent: $lastOutput, // On transmet le rapport PHPUnit
-                provider: $provider
+            // Écriture du code dans un fichier temporaire pour analyse et test
+            $tempFilePath = sprintf(
+                '%s/%s_TempTest_%s.php',
+                rtrim(sys_get_temp_dir(), '/\\'),
+                $className,
+                uniqid('', true)
             );
 
-            // On bascule l'instruction système globale en mode "Fixer PHPUnit".
-            $messages[0] = ['role' => 'system', 'content' => $fixerPrompts['system']];
+            try {
+                $this->filesystem->dumpFile($tempFilePath, $testCode);
 
-            // On conserve l'historique et on ajoute la tentative du LLM et les consignes du Fixer.
-            $messages[] = ['role' => 'assistant', 'content' => $testCode];
-            $messages[] = ['role' => 'user', 'content' => $fixerPrompts['user']];
+                // Analyse statique PHPStan
+                $phpStanResult = $this->phpStanRunner->analyze($tempFilePath);
+
+                if (!$phpStanResult['success']) {
+                    $lastOutput = "ERREUR D'ANALYSE STATIQUE (PHPStan) :\n" . $phpStanResult['output'];
+
+                    $this->prepareFixerIteration(
+                        $messages,
+                        $testCode,
+                        $lastOutput,
+                        $classCode,
+                        $filePath,
+                        $fqcn,
+                        $className,
+                        $provider
+                    );
+
+                    // On relance la boucle pour la correction de PHPStan.
+                    continue;
+                }
+
+                // Exécution du test PHPUnit (seulement si la syntaxe et PHPStan sont OK)
+                $result = $this->testRunner->runTest($testCode, $className);
+                $lastOutput = '' !== $result['output'] ? $result['output'] : 'Aucune sortie reçue de PHPUnit.';
+
+                if ($result['success']) {
+                    return $testCode;
+                }
+
+                // ÉCHEC DU TEST (Erreurs d'assertions ou d'exécution PHPUnit) : on appelle le Fixer PHPUnit
+                $this->prepareFixerIteration(
+                    $messages,
+                    $testCode,
+                    $lastOutput,
+                    $classCode,
+                    $filePath,
+                    $fqcn,
+                    $className,
+                    $provider
+                );
+            } finally {
+                // Nettoyage systématique du fichier temporaire après chaque tentative
+                if ($this->filesystem->exists($tempFilePath)) {
+                    $this->filesystem->remove($tempFilePath);
+                }
+            }
         }
 
         // ÉCHEC APRÈS 3 TENTATIVES : On sauvegarde le fichier dans le répertoire dédié.
@@ -159,6 +193,40 @@ readonly class TestGenerator
             $savedPath
         );
         throw new TestCorrectionException($message);
+    }
+
+    /**
+     * Récupération du prompt du Fixer.
+     * Le tableau $messages étant passé par référence, les modifications y sont directement appliquées.
+     *
+     * @param array<int, array{role: string, content: string}> $messages
+     */
+    private function prepareFixerIteration(
+        array &$messages,
+        string $testCode,
+        string $lastOutput,
+        string $classCode,
+        string $filePath,
+        string $fqcn,
+        string $className,
+        ?string $provider,
+    ): void {
+        $fixerBuilder = $this->getPromptBuilder('fixer');
+
+        $fixerPrompts = $fixerBuilder->buildPrompt(
+            classCode: $classCode,
+            filePath: $filePath,
+            fqcn: $fqcn,
+            className: $className,
+            existingTestCode: $testCode,
+            specContent: $lastOutput,
+            provider: $provider
+        );
+
+        // Mettre à jour le prompt système et enrichir l'historique
+        $messages[0] = ['role' => 'system', 'content' => $fixerPrompts['system']];
+        $messages[] = ['role' => 'assistant', 'content' => $testCode];
+        $messages[] = ['role' => 'user', 'content' => $fixerPrompts['user']];
     }
 
     public function replaceDynamicHeadersInExistingTestCode(

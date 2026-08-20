@@ -11,6 +11,7 @@ use Symfony\Component\Filesystem\Filesystem;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\Service\TestGenerator;
+use Mika\TestGeneratorBundle\Service\PhpStanRunner;
 use Mika\TestGeneratorBundle\Llm\LlmClientInterface;
 use Mika\TestGeneratorBundle\Service\PhpUnitTestRunner;
 use Mika\TestGeneratorBundle\Validator\PhpSyntaxValidator;
@@ -33,6 +34,8 @@ class TestGeneratorTest extends TestCase
         $this->testRunner = $this->createMock(PhpUnitTestRunner::class);
         $this->syntaxValidator = $this->createMock(PhpSyntaxValidator::class);
         $this->promptBuilders = [$this->createMock(TestPromptBuilderInterface::class)];
+        $phpStanRunner = $this->createMock(PhpStanRunner::class);
+        $phpStanRunner->method('analyze')->willReturn(['success' => true, 'output' => '']);
 
         $tempDir = sys_get_temp_dir();
         
@@ -41,6 +44,7 @@ class TestGeneratorTest extends TestCase
             $this->testRunner,
             $this->syntaxValidator,
             $this->promptBuilders,
+            $phpStanRunner,
             new Filesystem(),
             $tempDir,
         );
@@ -83,6 +87,9 @@ class TestGeneratorTest extends TestCase
         $method->invoke($this->generator, 'unknown');
     }
 
+    /**
+     * @throws \JsonException
+     */
     #[Test]
     public function testGenerateForClassThrowsExceptionOnMaxAttempts(): void
     {
@@ -117,6 +124,9 @@ class TestGeneratorTest extends TestCase
         $this->assertSame('namespace App\Tests\Dynamic; class FooDynamicTest {}', $result);
     }
 
+    /**
+     * @throws \JsonException
+     */
     #[Test]
     public function testGenerateForClassSavesFailedTestOnMaxAttempts(): void
     {
