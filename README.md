@@ -18,12 +18,28 @@ Exemple :
 
 ## Prérequis
 
+Pour générer et valider automatiquement les tests unitaires via le LLM, ce bundle s'appuie sur la présence de **PHPUnit** et **PHPStan** dans les dépendances de développement du projet hôte.
+
+### Dépendances requises
+
 - **PHP** 8.2 ou supérieur
 - **Symfony** 6.4 ou 7.x
-- **PHPUnit** 10.0 ou supérieur configuré sur le projet hôte,
-  avec la présence d'un fichier `phpunit.xml` ou `phpunit.xml.dist` à sa racine
+- **PHPUnit** 10.0 ou supérieur (avec un fichier `phpunit.xml` ou `phpunit.xml.dist` à la racine de l'application)
+- **PHPStan** 1.10 ou supérieur
 
-  (facilement généré via `composer require --dev symfony/test-pack`).
+### Installation rapide des outils de développement
+
+Si votre projet ne dispose pas encore de ces outils, installez-les via Composer :
+
+```bash
+composer require --dev phpunit/phpunit phpstan/phpstan
+```
+
+*(Optionnel) Si vous souhaitez configurer rapidement la suite de tests avec l'écosystème Symfony :*
+
+```bash
+composer require --dev symfony/test-pack
+```
 
 ---
 
@@ -32,7 +48,7 @@ Exemple :
 Installez le bundle via Composer dans votre projet :
 
 ```bash
-composer require mika/test-generator-bundle --dev
+composer require --dev mika/test-generator-bundle
 ```
 
 ---
@@ -161,3 +177,7 @@ Lors du lancement de `llm:generate:test` :
   Détection automatique du type de classe à tester (ex : `Command` Symfony, manipulation de fichiers)
   afin d'injecter uniquement les directives de test appropriées
   (utilisation de `CommandTester`, nettoyage dans `tearDown()`, etc.).
+- **Boucle d'auto-correction (PHPStan & PHPUnit) :**
+  Chaque test généré est exécuté en réel (PHPUnit) puis soumis à une analyse statique (PHPStan).
+  En cas d'assertion échouée, d'erreur de typage ou de méthode inexistante, 
+  le rapport d'erreur est immédiatement réinjecté dans le LLM pour corriger le code jusqu'à obtention d'un test valide.

@@ -7,7 +7,6 @@ namespace Mika\TestGeneratorBundle\PromptBuilder;
 use Mika\TestGeneratorBundle\Attribute\AsTestPromptBuilder;
 use Mika\TestGeneratorBundle\RepoMap\CachedRepoMapBuilder;
 use Mika\TestGeneratorBundle\Resolver\SkillResolver;
-use Psr\Cache\InvalidArgumentException;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 /**
@@ -16,6 +15,8 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
 #[AsTestPromptBuilder(type: 'unit')]
 readonly class UnitTestPromptBuilder implements TestPromptBuilderInterface
 {
+    use RepoMapSystemMessageTrait;
+
     public function __construct(
         private CachedRepoMapBuilder $repoMapBuilder,
         private SkillResolver $skillResolver,
@@ -76,38 +77,17 @@ readonly class UnitTestPromptBuilder implements TestPromptBuilderInterface
         ?string $skillsPrompt = null,
         ?string $provider = null,
     ): string {
-        $normalizedProvider = null !== $provider ? strtolower(trim($provider)) : null;
-
-        $systemMessage = $this->getSystemMessage($normalizedProvider);
-
-        try {
-            // $repoMap = $this->repoMapBuilder->buildMap($this->projectDir . '/src');
-            // Génération de la repo-map dynamique ciblée sur le bon paquet
-            $repoMap = $this->repoMapBuilder->buildMapForFile($filePath);
-        } catch (\InvalidArgumentException|InvalidArgumentException $e) {
-            $message = sprintf(
-                "Impossible de générer le Repo-Map dans '%s' : %s",
-                $this->projectDir . '/src', $e->getMessage()
-            );
-            throw new \RuntimeException($message, previous: $e);
-        }
-
-        if (!empty($repoMap)) {
-            $systemMessage .= "\n\n"
-                . "STRUCTURE DU PROJET (REPO-MAP) :\n"
-                . "```text\n" . $repoMap . "\n```\n\n"
-                . "CONSIGNES SUR LA REPO-MAP :\n"
-                . "- Utilise obligatoirement cette cartographie pour vérifier les namespaces exacts, les méthodes et les types de retour des classes dépendantes lors de la création de mocks.\n"
-                . '- Ne devine pas les signatures des méthodes externes si elles sont présentes dans la repo-map.';
-        }
+        $systemMessage = $this->initializeSystemMessage($filePath, $provider);
 
         $systemMessage .= "\n\n" . <<<'TEXT'
 RÈGLE D'INFÉRENCE DES DÉPENDANCES ET MOCKS :
-- Analyse le constructeur (__construct) de la classe cible présente dans la Repo-Map.
+- Analyse le constructeur (__construct) de la classe cible et ses dépendances dans la Repo-Map.
 - Si le constructeur requiert des services ou interfaces :
-  1. Instancie automatiquement les mocks PHPUnit ($this->createMock(...)) dans la méthode setUp().
-  2. Injecte ces mocks lors de l'instanciation de la classe à tester dans setUp().
-  3. Dans chaque scénario BDD, configure les comportements de ces mocks (expects(), willReturn()) selon les besoins du test.
+  1. Pour chaque dépendance, vérifie si elle est modélisable avec PHPUnit :
+     - Si la dépendance est une Interface ou une classe classique non finale : crée un mock PHPUnit ($this->createMock(...)) dans la méthode setUp().
+     - Si la dépendance est déclarée 'final', est un DTO / Value Object, ou ne peut pas être mockée : N'UTILISE PAS $this->createMock(). Instancie directement une véritable instance de la dépendance (ou utilise un Stub concret / classe anonyme si nécessaire).
+  2. Injecte ces mocks/instances réelles lors de l'instanciation de la classe à tester dans setUp().
+  3. Dans chaque scénario BDD, configure les comportements des mocks ($mock->method('...')->willReturn(...)) selon les besoins du test.
 - Si la classe à tester ne requiert aucun mock (ou uniquement des scalaires/primitifs) :
   - Si la classe conserve un état constant (ex: Service, Calculator), tu peux l'instancier dans la méthode setUp().
   - POUR LES DTO, VALUE OBJECTS ET MODÈLES SANS DÉPENDANCES : N'écris NI propriété de classe, NI méthode setUp().
@@ -230,7 +210,7 @@ TEXT;
         return $message;
     }
 
-    private function getSystemMessage(string $normalizedProvider): string
+    private function getSystemMessage(?string $normalizedProvider): string
     {
         if ('ollama' === $normalizedProvider) {
             return <<<'TEXT'

@@ -5,8 +5,12 @@ declare(strict_types=1);
 namespace Mika\TestGeneratorBundle\RepoMap;
 
 use PhpParser\Node;
+use PhpParser\Node\Stmt\Class_;
 use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\ClassMethod;
+use PhpParser\Node\Stmt\Enum_;
+use PhpParser\Node\Stmt\Interface_;
+use PhpParser\Node\Stmt\Trait_;
 use PhpParser\NodeVisitorAbstract;
 use PhpParser\PrettyPrinter\Standard;
 
@@ -27,7 +31,29 @@ class RepoMapVisitor extends NodeVisitorAbstract
     public function enterNode(Node $node): int|Node|array|null
     {
         if ($node instanceof ClassLike && isset($node->namespacedName)) {
-            $this->currentClass = $node->namespacedName->toString();
+            $prefix = '';
+            $kind = 'class';
+
+            if ($node instanceof Class_) {
+                if ($node->isFinal()) {
+                    $prefix .= 'final ';
+                } elseif ($node->isAbstract()) {
+                    $prefix .= 'abstract ';
+                }
+
+                if ($node->isReadonly()) {
+                    $prefix .= 'readonly ';
+                }
+            } elseif ($node instanceof Interface_) {
+                $kind = 'interface';
+            } elseif ($node instanceof Trait_) {
+                $kind = 'trait';
+            } elseif ($node instanceof Enum_) {
+                $kind = 'enum';
+            }
+
+            // Ex : "final class Mika\TestGeneratorBundle\Resolver\SpecPathResolver"
+            $this->currentClass = sprintf('%s%s %s', $prefix, $kind, $node->namespacedName->toString());
             $this->signatures[$this->currentClass] = [];
         }
 

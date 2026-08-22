@@ -8,9 +8,11 @@ use Mika\TestGeneratorBundle\Exception\TestCorrectionException;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\PromptBuilder\TestPromptBuilderInterface;
 use Mika\TestGeneratorBundle\Validator\PhpSyntaxValidator;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\DependencyInjection\Attribute\AutowireIterator;
+use Symfony\Component\Filesystem\Filesystem;
 
-readonly class TestGenerator
+class TestGenerator
 {
     private const MAX_ATTEMPT = 3;
 
@@ -18,12 +20,23 @@ readonly class TestGenerator
      * @param iterable<TestPromptBuilderInterface> $promptBuilders
      */
     public function __construct(
-        private LlmClientFactory $llmFactory,
-        private PhpUnitTestRunner $testRunner,
-        private PhpSyntaxValidator $syntaxValidator,
+        private readonly LlmClientFactory $llmFactory,
+        private readonly PhpUnitTestRunner $testRunner,
+        private readonly PhpSyntaxValidator $syntaxValidator,
         #[AutowireIterator('mika_test_generator.prompt_builder')] // Récupère toutes les classes portant ce tag
-        private iterable $promptBuilders,
+        private readonly iterable $promptBuilders,
+        private readonly PhpStanRunner $phpStanRunner,
+        private readonly Filesystem $filesystem = new Filesystem(),
+        #[Autowire('%kernel.project_dir%/var/failed_tests')] private string $failedTestsDir = '',
+        #[Autowire('%kernel.project_dir%/var/tmp')] private string $tmpDir = '',
     ) {
+        if ('' === $this->failedTestsDir) {
+            $this->failedTestsDir = sys_get_temp_dir();
+        }
+
+        if ('' === $this->tmpDir) {
+            $this->tmpDir = sys_get_temp_dir();
+        }
     }
 
     /**
@@ -41,8 +54,7 @@ readonly class TestGenerator
     }
 
     /**
-     * @throws TestCorrectionException
-     * @throws \RuntimeException
+     * @throws TestCorrectionException|\RuntimeException|\JsonException
      */
     public function generateForClass(
         string $classCode,
@@ -80,7 +92,10 @@ readonly class TestGenerator
         $client = $this->llmFactory->getClient();
         $targetModel = $model ?? $this->llmFactory->getDefaultModel();
 
+        // Initialisation des variables d'état pour la persistance en cas d'échec
         $attempt = 0;
+        $testCode = '';
+        $lastOutput = 'Aucun rapport PHPUnit généré (échec avant l\'exécution des tests).';
 
         while ($attempt < self::MAX_ATTEMPT) {
             ++$attempt;
@@ -101,47 +116,126 @@ readonly class TestGenerator
                     $syntaxResult->errorMessage ?? 'Syntaxe PHP invalide'
                 );
 
+                // On conserve la dernière erreur de syntaxe comme rapport en cas d'échec final
+                $lastOutput = "ERREUR DE SYNTAXE PHP :\n" . $errorMessage;
+
                 $messages[] = ['role' => 'assistant', 'content' => $testCode];
                 $messages[] = [
                     'role' => 'user',
                     'content' => $errorMessage . "\n\nCorrige immédiatement la syntaxe et renvoie le code PHP complet corrigé.",
                 ];
 
+                // On relance la boucle pour la correction de la syntaxe.
                 continue;
             }
 
-            // 2. Exécution du test PHPUnit (seulement si la syntaxe est OK)
+            // Exécution du test PHPUnit
             $result = $this->testRunner->runTest($testCode, $className);
+            $lastOutput = '' !== $result['output'] ? $result['output'] : 'Aucune sortie reçue de PHPUnit.';
 
-            if ($result['success']) {
-                return $testCode;
+            if (!$result['success']) {
+                $this->prepareFixerIteration(
+                    $messages,
+                    $testCode,
+                    $lastOutput,
+                    $classCode,
+                    $filePath,
+                    $fqcn,
+                    $className,
+                    $provider
+                );
+
+                // On relance la boucle pour la correction de PHPStan.
+                continue;
             }
 
-            // ÉCHEC DU TEST (Erreurs d'assertions ou d'exécution PHPUnit)
-            $errorMessage = sprintf(
-                "L'exécution de PHPUnit a ÉCHOUÉ avec l'erreur suivante :\n\n%s\n\n" .
-                " CONSIGNES DE CORRECTION :\n" .
-                "1. Analyse le diff PHPUnit (--- Expected vs +++ Actual).\n" .
-                "2. La valeur produite par la méthode de la classe (+ Actual) est la SEULE référence valide.\n" .
-                "3. Modifie la valeur attendue (\$expected) dans ton assertion pour qu'elle corresponde EXACTEMENT à la valeur réelle (+ Actual).\n" .
-                "4. Ne modifie pas la logique du test, juste les valeurs d'assertion pour qu'il passe au vert.",
-                $result['output']
+            // Écriture du code dans un fichier temporaire pour analyse et test
+            $tempFilePath = sprintf(
+                '%s' . DIRECTORY_SEPARATOR . '%s_TempTest_%s.php',
+                rtrim($this->tmpDir, '/\\'),
+                $className,
+                uniqid('', true)
             );
 
-            // 3. Enrichissement de l'historique (Partagé pour PHPUnit ET erreurs JSON).
-            $messages[] = ['role' => 'assistant', 'content' => $testCode];
-            $messages[] = [
-                'role' => 'user',
-                'content' => $errorMessage . "\n\nAnalyse ce problème d'assertion, corrige ton code et renvoie le code corrigé.",
-            ];
+            try {
+                $this->filesystem->dumpFile($tempFilePath, $testCode);
+
+                // Analyse statique de PHPStan (seulement si la syntaxe et PHPUnit sont OK)
+                $phpStanResult = $this->phpStanRunner->analyze($tempFilePath);
+
+                if (!$phpStanResult['success']) {
+                    $lastOutput = "ERREUR D'ANALYSE STATIQUE (PHPStan) :\n" . $phpStanResult['output'];
+
+                    // ÉCHEC DE L'ANALYSE (PHPSTAN) : on appelle le Fixer PHPUnit
+                    $this->prepareFixerIteration(
+                        $messages,
+                        $testCode,
+                        $lastOutput,
+                        $classCode,
+                        $filePath,
+                        $fqcn,
+                        $className,
+                        $provider
+                    );
+
+                    // On relance la boucle pour corriger les signalements de PHPStan.
+                    continue;
+                }
+            } finally {
+                // Nettoyage systématique du fichier temporaire après chaque tentative initiée par PHPStan
+                if ($this->filesystem->exists($tempFilePath)) {
+                    $this->filesystem->remove($tempFilePath);
+                }
+            }
+
+            // Succès global : Syntaxe OK, PHPUnit OK et PHPStan OK
+            return $testCode;
         }
 
+        // ÉCHEC APRÈS 3 TENTATIVES : On sauvegarde le fichier dans le répertoire dédié.
+        $savedPath = $this->saveFailedTest($className, $testCode, $lastOutput);
+
         $message = sprintf(
-            'Impossible de générer un test valide pour %s après %d tentatives.',
+            "Impossible de générer un test valide pour %s après %d tentatives. Le test défaillant a été conservé dans :\n %s",
             $className,
-            self::MAX_ATTEMPT
+            self::MAX_ATTEMPT,
+            $savedPath
         );
         throw new TestCorrectionException($message);
+    }
+
+    /**
+     * Récupération du prompt du Fixer.
+     * Le tableau $messages étant passé par référence, les modifications y sont directement appliquées.
+     *
+     * @param array<int, array{role: string, content: string}> $messages
+     */
+    private function prepareFixerIteration(
+        array &$messages,
+        string $testCode,
+        string $lastOutput,
+        string $classCode,
+        string $filePath,
+        string $fqcn,
+        string $className,
+        ?string $provider,
+    ): void {
+        $fixerBuilder = $this->getPromptBuilder('fixer');
+
+        $fixerPrompts = $fixerBuilder->buildPrompt(
+            classCode: $classCode,
+            filePath: $filePath,
+            fqcn: $fqcn,
+            className: $className,
+            existingTestCode: $testCode,
+            specContent: $lastOutput,
+            provider: $provider
+        );
+
+        // Mettre à jour le prompt système et enrichir l'historique
+        $messages[0] = ['role' => 'system', 'content' => $fixerPrompts['system']];
+        $messages[] = ['role' => 'assistant', 'content' => $testCode];
+        $messages[] = ['role' => 'user', 'content' => $fixerPrompts['user']];
     }
 
     public function replaceDynamicHeadersInExistingTestCode(
@@ -175,5 +269,35 @@ readonly class TestGenerator
             ],
             $testCode
         );
+    }
+
+    /**
+     * Sauvegarde le test défaillant et du rapport d'erreur PHPUnit.
+     */
+    private function saveFailedTest(string $className, string $testCode, ?string $failureOutput): string
+    {
+        // Formatage du nom de fichier avec Horodatage
+        $date = (new \DateTimeImmutable())->format('Y-m-d_H-i-s');
+        $filename = sprintf('%s_%sFailedTest.php', $date, $className);
+        $logFilename = sprintf('%s_%sFailedTest.log', $date, $className);
+
+        // Normalisation des séparateurs de dossiers selon l'OS (DIRECTORY_SEPARATOR)
+        $normalizedDir = rtrim(
+            str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $this->failedTestsDir),
+            DIRECTORY_SEPARATOR
+        );
+
+        $targetPath = $normalizedDir . DIRECTORY_SEPARATOR . $filename;
+        $logPath = $normalizedDir . DIRECTORY_SEPARATOR . $logFilename;
+
+        // Écriture du fichier de test non fonctionnel
+        $this->filesystem->dumpFile($targetPath, $testCode);
+
+        // Écriture du rapport PHPUnit correspondant pour consultation rapide
+        if (null !== $failureOutput) {
+            $this->filesystem->dumpFile($logPath, $failureOutput);
+        }
+
+        return $targetPath;
     }
 }
