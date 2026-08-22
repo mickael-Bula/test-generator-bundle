@@ -60,22 +60,14 @@ readonly class PhpStanRunner
 
         // 1. En cas d'échec d'exécution du processus (crash binaire, erreur système)
         if ('' === $rawOutput) {
-            throw new \RuntimeException(
-                'Erreur système d\'exécution PHPStan : ' . ($errorOutput ?: 'Aucune réponse retournée.')
-            );
+            throw new \RuntimeException('Erreur système d\'exécution PHPStan : ' . ($errorOutput ?: 'Aucune réponse retournée.'));
         }
 
         // 2. Décodage sécurisé de la réponse JSON
         try {
             $data = json_decode($rawOutput, true, 512, JSON_THROW_ON_ERROR);
         } catch (\JsonException $e) {
-            throw new \RuntimeException(
-                sprintf(
-                    "Impossible de lire le rapport JSON de PHPStan (%s).\nSortie brute :\n%s",
-                    $e->getMessage(),
-                    $rawOutput
-                )
-            );
+            throw new \RuntimeException(sprintf("Impossible de lire le rapport JSON de PHPStan (%s).\nSortie brute :\n%s", $e->getMessage(), $rawOutput));
         }
 
         // 3. Normalisation de la réponse pour la boucle agentique

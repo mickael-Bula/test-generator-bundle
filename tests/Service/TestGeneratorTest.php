@@ -105,7 +105,9 @@ class TestGeneratorTest extends TestCase
 
         // ALORS
         $this->expectException(TestCorrectionException::class);
-        $this->expectExceptionMessage('Impossible de générer un test valide pour Foo après 3 tentatives.');
+        $this->expectExceptionMessageMatches(
+            '/Impossible de générer un test valide \(PHPUnit\) pour Foo après 3 tentatives\./'
+        );
 
         // QUAND
         $this->generator->generateForClass('class Foo {}', 'src/Foo.php', 'App\Foo', 'Foo');
@@ -118,7 +120,11 @@ class TestGeneratorTest extends TestCase
         $existing = 'namespace App\Tests; class FooTest {}';
 
         // QUAND
-        $result = $this->generator->replaceDynamicHeadersInExistingTestCode($existing, 'App\Tests', 'Foo');
+        $result = $this->generator->replaceDynamicHeadersInExistingTestCode(
+            $existing,
+            'App\Tests',
+            'Foo'
+        );
 
         // ALORS
         $this->assertSame('namespace App\Tests\Dynamic; class FooDynamicTest {}', $result);
@@ -145,7 +151,9 @@ class TestGeneratorTest extends TestCase
 
         // ALORS
         $this->expectException(TestCorrectionException::class);
-        $this->expectExceptionMessageMatches('/Impossible de générer un test valide.*conservé dans/s');
+        $this->expectExceptionMessageMatches(
+            '/Impossible de générer un test valide \(PHPUnit\) pour Foo après 3 tentatives. Sauvegardé dans :/'
+        );
 
         // QUAND
         $this->generator->generateForClass('class Foo {}', 'src/Foo.php', 'App\Foo', 'Foo');
