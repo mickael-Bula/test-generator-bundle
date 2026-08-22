@@ -28,9 +28,14 @@ class TestGenerator
         private readonly PhpStanRunner $phpStanRunner,
         private readonly Filesystem $filesystem = new Filesystem(),
         #[Autowire('%kernel.project_dir%/var/failed_tests')] private string $failedTestsDir = '',
+        #[Autowire('%kernel.project_dir%/var/tmp')] private string $tmpDir = '',
     ) {
         if ('' === $this->failedTestsDir) {
             $this->failedTestsDir = sys_get_temp_dir();
+        }
+
+        if ('' === $this->tmpDir) {
+            $this->tmpDir = sys_get_temp_dir();
         }
     }
 
@@ -124,10 +129,30 @@ class TestGenerator
                 continue;
             }
 
+            // Exécution du test PHPUnit
+            $result = $this->testRunner->runTest($testCode, $className);
+            $lastOutput = '' !== $result['output'] ? $result['output'] : 'Aucune sortie reçue de PHPUnit.';
+
+            if (!$result['success']) {
+                $this->prepareFixerIteration(
+                    $messages,
+                    $testCode,
+                    $lastOutput,
+                    $classCode,
+                    $filePath,
+                    $fqcn,
+                    $className,
+                    $provider
+                );
+
+                // On relance la boucle pour la correction de PHPStan.
+                continue;
+            }
+
             // Écriture du code dans un fichier temporaire pour analyse et test
             $tempFilePath = sprintf(
-                '%s/%s_TempTest_%s.php',
-                rtrim(sys_get_temp_dir(), '/\\'),
+                '%s' . DIRECTORY_SEPARATOR . '%s_TempTest_%s.php',
+                rtrim($this->tmpDir, '/\\'),
                 $className,
                 uniqid('', true)
             );
@@ -135,12 +160,13 @@ class TestGenerator
             try {
                 $this->filesystem->dumpFile($tempFilePath, $testCode);
 
-                // Analyse statique PHPStan
+                // Analyse statique de PHPStan (seulement si la syntaxe et PHPUnit sont OK)
                 $phpStanResult = $this->phpStanRunner->analyze($tempFilePath);
 
                 if (!$phpStanResult['success']) {
                     $lastOutput = "ERREUR D'ANALYSE STATIQUE (PHPStan) :\n" . $phpStanResult['output'];
 
+                    // ÉCHEC DE L'ANALYSE (PHPSTAN) : on appelle le Fixer PHPUnit
                     $this->prepareFixerIteration(
                         $messages,
                         $testCode,
@@ -152,42 +178,25 @@ class TestGenerator
                         $provider
                     );
 
-                    // On relance la boucle pour la correction de PHPStan.
+                    // On relance la boucle pour corriger les signalements de PHPStan.
                     continue;
                 }
-
-                // Exécution du test PHPUnit (seulement si la syntaxe et PHPStan sont OK)
-                $result = $this->testRunner->runTest($testCode, $className);
-                $lastOutput = '' !== $result['output'] ? $result['output'] : 'Aucune sortie reçue de PHPUnit.';
-
-                if ($result['success']) {
-                    return $testCode;
-                }
-
-                // ÉCHEC DU TEST (Erreurs d'assertions ou d'exécution PHPUnit) : on appelle le Fixer PHPUnit
-                $this->prepareFixerIteration(
-                    $messages,
-                    $testCode,
-                    $lastOutput,
-                    $classCode,
-                    $filePath,
-                    $fqcn,
-                    $className,
-                    $provider
-                );
             } finally {
-                // Nettoyage systématique du fichier temporaire après chaque tentative
+                // Nettoyage systématique du fichier temporaire après chaque tentative initiée par PHPStan
                 if ($this->filesystem->exists($tempFilePath)) {
                     $this->filesystem->remove($tempFilePath);
                 }
             }
+
+            // Succès global : Syntaxe OK, PHPUnit OK et PHPStan OK
+            return $testCode;
         }
 
         // ÉCHEC APRÈS 3 TENTATIVES : On sauvegarde le fichier dans le répertoire dédié.
         $savedPath = $this->saveFailedTest($className, $testCode, $lastOutput);
 
         $message = sprintf(
-            'Impossible de générer un test valide pour %s après %d tentatives. Le test défaillant a été conservé dans : %s',
+            "Impossible de générer un test valide pour %s après %d tentatives. Le test défaillant a été conservé dans :\n %s",
             $className,
             self::MAX_ATTEMPT,
             $savedPath

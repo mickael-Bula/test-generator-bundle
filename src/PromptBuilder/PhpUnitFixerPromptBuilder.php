@@ -54,7 +54,7 @@ readonly class PhpUnitFixerPromptBuilder implements TestPromptBuilderInterface
         $phpUnitOutput = $specContent ?? 'Aucune sortie d\'erreur fournie.';
 
         // Résolution des skills applicables au code.
-        $fixerSkills = $this->fixerSkillResolver->resolveFromPhpUnitOutput($phpUnitOutput);
+        $fixerSkills = $this->fixerSkillResolver->resolveFromErrorOutput($phpUnitOutput);
 
         return [
             'system' => $this->buildSystemMessage(

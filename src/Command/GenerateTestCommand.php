@@ -6,6 +6,7 @@ namespace Mika\TestGeneratorBundle\Command;
 
 use Mika\TestGeneratorBundle\Dto\TestTargetPath;
 use Mika\TestGeneratorBundle\Enum\TestType;
+use Mika\TestGeneratorBundle\Exception\PhpStanNotFoundException;
 use Mika\TestGeneratorBundle\Exception\TestCorrectionException;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\Manager\SpecManager;
@@ -294,6 +295,14 @@ class GenerateTestCommand extends Command
             $this->displayExecutionTime($startTime, $startMicrotime);
 
             return Command::FAILURE;
+        } catch (PhpStanNotFoundException $e) {
+            // Prise en charge explicite du prérequis PHPStan
+            $this->io->error($e->getMessage());
+            $this->io->note('Pour activer la validation statique lors de la génération, exécutez :');
+            $this->io->comment('composer require --dev phpstan/phpstan');
+            $this->displayExecutionTime($startTime, $startMicrotime);
+
+            return Command::FAILURE;
         } catch (\JsonException $e) {
             // Échec Technique : La sortie de PHPStan ou du client LLM n'est pas du JSON valide
             $this->io->error('Erreur d\'analyse de la réponse JSON (PHPStan ou LLM) : ' . $e->getMessage());
@@ -338,6 +347,7 @@ class GenerateTestCommand extends Command
 
         if ($testFileExisted) {
             $this->io->success('Le fichier de test existant a été mis à jour et fusionné par le LLM !');
+            $this->io->success('Fichier généré dans : ' . $relativeLogPath);
             $this->io->section('Sécurité & Revue de code');
             $this->io->info(
                 [
