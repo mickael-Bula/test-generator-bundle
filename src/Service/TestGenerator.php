@@ -14,7 +14,8 @@ use Symfony\Component\Filesystem\Filesystem;
 
 class TestGenerator
 {
-    private const MAX_ATTEMPT = 3;
+    private const MAX_PHPUNIT_ATTEMPTS = 3;
+    private const MAX_PHPSTAN_ATTEMPTS = 2;
 
     /**
      * @param iterable<TestPromptBuilderInterface> $promptBuilders
@@ -27,15 +28,15 @@ class TestGenerator
         private readonly iterable $promptBuilders,
         private readonly PhpStanRunner $phpStanRunner,
         private readonly Filesystem $filesystem = new Filesystem(),
-        #[Autowire('%kernel.project_dir%/var/failed_tests')] private string $failedTestsDir = '',
-        #[Autowire('%kernel.project_dir%/var/tmp')] private string $tmpDir = '',
+        #[Autowire('%kernel.project_dir%/var/failed_tests')] private string $failedTestsDir = 'var/failed_tests',
+        #[Autowire('%kernel.project_dir%/var/tmp')] private string $tmpDir = 'var/tmp',
     ) {
-        if ('' === $this->failedTestsDir) {
-            $this->failedTestsDir = sys_get_temp_dir();
+        // Création automatique des dossiers s'ils n'existent pas encore sur l'hôte
+        if (!$this->filesystem->exists($this->tmpDir)) {
+            $this->filesystem->mkdir($this->tmpDir);
         }
-
-        if ('' === $this->tmpDir) {
-            $this->tmpDir = sys_get_temp_dir();
+        if (!$this->filesystem->exists($this->failedTestsDir)) {
+            $this->filesystem->mkdir($this->failedTestsDir);
         }
     }
 
@@ -93,16 +94,21 @@ class TestGenerator
         $targetModel = $model ?? $this->llmFactory->getDefaultModel();
 
         // Initialisation des variables d'état pour la persistance en cas d'échec
-        $attempt = 0;
         $testCode = '';
         $lastOutput = 'Aucun rapport PHPUnit généré (échec avant l\'exécution des tests).';
 
-        while ($attempt < self::MAX_ATTEMPT) {
-            ++$attempt;
+        // ==========================================
+        // PHASE 1 : SYNTAXE + RUNNER PHPUNIT
+        // ==========================================
+        $phpunitAttempt = 0;
+        $isPhpUnitValid = false;
+
+        while ($phpunitAttempt < self::MAX_PHPUNIT_ATTEMPTS) {
+            ++$phpunitAttempt;
 
             $testCode = $client->call($messages, $targetModel);
 
-            // 1. Validation de la syntaxe PHP (nikic/php-parser)
+            // Validation de la syntaxe PHP (nikic/php-parser)
             $syntaxResult = $this->syntaxValidator->validate($testCode);
 
             if (!$syntaxResult->isValid) {
@@ -133,19 +139,53 @@ class TestGenerator
             $result = $this->testRunner->runTest($testCode, $className);
             $lastOutput = '' !== $result['output'] ? $result['output'] : 'Aucune sortie reçue de PHPUnit.';
 
-            if (!$result['success']) {
-                $this->prepareFixerIteration(
-                    $messages,
-                    $testCode,
-                    $lastOutput,
-                    $classCode,
-                    $filePath,
-                    $fqcn,
-                    $className,
-                    $provider
+            if ($result['success']) {
+                $isPhpUnitValid = true;
+                break; // PHPUnit passe, on peut avancer vers PHPStan
+            }
+
+            $this->prepareFixerIteration(
+                $messages,
+                $testCode,
+                $lastOutput,
+                $classCode,
+                $filePath,
+                $fqcn,
+                $className,
+                $provider
+            );
+        }
+
+        // Si PHPUnit n'a pas réussi à valider en 3 tentatives
+        if (!$isPhpUnitValid) {
+            $savedPath = $this->saveFailedTest($className, $testCode, $lastOutput);
+            throw new TestCorrectionException(sprintf('Impossible de générer un test valide (PHPUnit) pour %s après %d tentatives. Sauvegardé dans : %s', $className, self::MAX_PHPUNIT_ATTEMPTS, $savedPath));
+        }
+
+        // ==========================================
+        // PHASE 2 : ANALYSE STATIQUE PHPSTAN
+        // ==========================================
+        $phpstanAttempt = 0;
+
+        while ($phpstanAttempt < self::MAX_PHPSTAN_ATTEMPTS) {
+            ++$phpstanAttempt;
+
+            // 2.1 Validation de la syntaxe avant d'écrire sur le disque
+            $syntaxResult = $this->syntaxValidator->validate($testCode);
+            if (!$syntaxResult->isValid) {
+                $lastOutput = sprintf(
+                    "ERREUR DE SYNTAXE PHP (pendant la phase PHPStan, ligne %d) :\n%s",
+                    $syntaxResult->errorLine ?? 0,
+                    $syntaxResult->errorMessage ?? 'Syntaxe invalide'
                 );
 
-                // On relance la boucle pour la correction de PHPStan.
+                $messages[] = ['role' => 'assistant', 'content' => $testCode];
+                $messages[] = [
+                    'role' => 'user',
+                    'content' => $lastOutput . "\n\nCorrige immédiatement la syntaxe et renvoie le code PHP complet corrigé.",
+                ];
+
+                $testCode = $client->call($messages, $targetModel);
                 continue;
             }
 
@@ -163,24 +203,11 @@ class TestGenerator
                 // Analyse statique de PHPStan (seulement si la syntaxe et PHPUnit sont OK)
                 $phpStanResult = $this->phpStanRunner->analyze($tempFilePath);
 
-                if (!$phpStanResult['success']) {
-                    $lastOutput = "ERREUR D'ANALYSE STATIQUE (PHPStan) :\n" . $phpStanResult['output'];
-
-                    // ÉCHEC DE L'ANALYSE (PHPSTAN) : on appelle le Fixer PHPUnit
-                    $this->prepareFixerIteration(
-                        $messages,
-                        $testCode,
-                        $lastOutput,
-                        $classCode,
-                        $filePath,
-                        $fqcn,
-                        $className,
-                        $provider
-                    );
-
-                    // On relance la boucle pour corriger les signalements de PHPStan.
-                    continue;
+                if ($phpStanResult['success']) {
+                    // Tout est vert !
+                    return $testCode;
                 }
+                $lastOutput = "ERREUR D'ANALYSE STATIQUE (PHPStan) :\n" . $phpStanResult['output'];
             } finally {
                 // Nettoyage systématique du fichier temporaire après chaque tentative initiée par PHPStan
                 if ($this->filesystem->exists($tempFilePath)) {
@@ -188,8 +215,20 @@ class TestGenerator
                 }
             }
 
-            // Succès global : Syntaxe OK, PHPUnit OK et PHPStan OK
-            return $testCode;
+            // ÉCHEC DE L'ANALYSE (PHPSTAN) : on appelle le Fixer PHPUnit
+            $this->prepareFixerIteration(
+                $messages,
+                $testCode,
+                $lastOutput,
+                $classCode,
+                $filePath,
+                $fqcn,
+                $className,
+                $provider
+            );
+
+            // Génération de la version corrigée pour la tentative PHPStan suivante
+            $testCode = $client->call($messages, $targetModel);
         }
 
         // ÉCHEC APRÈS 3 TENTATIVES : On sauvegarde le fichier dans le répertoire dédié.
@@ -198,7 +237,7 @@ class TestGenerator
         $message = sprintf(
             "Impossible de générer un test valide pour %s après %d tentatives. Le test défaillant a été conservé dans :\n %s",
             $className,
-            self::MAX_ATTEMPT,
+            self::MAX_PHPSTAN_ATTEMPTS,
             $savedPath
         );
         throw new TestCorrectionException($message);
