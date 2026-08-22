@@ -28,15 +28,15 @@ class TestGenerator
         private readonly iterable $promptBuilders,
         private readonly PhpStanRunner $phpStanRunner,
         private readonly Filesystem $filesystem = new Filesystem(),
-        #[Autowire('%kernel.project_dir%/var/failed_tests')] private string $failedTestsDir = '',
-        #[Autowire('%kernel.project_dir%/var/tmp')] private string $tmpDir = '',
+        #[Autowire('%kernel.project_dir%/var/failed_tests')] private string $failedTestsDir = 'var/failed_tests',
+        #[Autowire('%kernel.project_dir%/var/tmp')] private string $tmpDir = 'var/tmp',
     ) {
-        if ('' === $this->failedTestsDir) {
-            $this->failedTestsDir = sys_get_temp_dir();
+        // Création automatique des dossiers s'ils n'existent pas encore sur l'hôte
+        if (!$this->filesystem->exists($this->tmpDir)) {
+            $this->filesystem->mkdir($this->tmpDir);
         }
-
-        if ('' === $this->tmpDir) {
-            $this->tmpDir = sys_get_temp_dir();
+        if (!$this->filesystem->exists($this->failedTestsDir)) {
+            $this->filesystem->mkdir($this->failedTestsDir);
         }
     }
 
