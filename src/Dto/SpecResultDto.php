@@ -4,15 +4,18 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Dto;
 
+/**
+ * Représente les valeurs pour générer un fichier de spécification.
+ */
 readonly class SpecResultDto
 {
     /**
-     * @param array<string, mixed>             $dependenciesToMock
-     * @param array<int, array<string, mixed>> $methods
+     * @param array<int, DependencyMockDto> $dependenciesToMock
+     * @param array<int, MethodSpecDto>     $methods
      */
     public function __construct(
         private string $targetClass,
-        private string $testType,
+        private string $testType = 'Unit',
         private array $dependenciesToMock = [],
         private array $methods = [],
     ) {
@@ -29,7 +32,7 @@ readonly class SpecResultDto
     }
 
     /**
-     * @return array<string, mixed>
+     * @return array<int, DependencyMockDto>
      */
     public function getDependenciesToMock(): array
     {
@@ -37,25 +40,10 @@ readonly class SpecResultDto
     }
 
     /**
-     * @return array<int, array<string, mixed>>
+     * @return array<int, MethodSpecDto>
      */
     public function getMethods(): array
     {
         return $this->methods;
-    }
-
-    /**
-     * Reconvertit le DTO sous forme de tableau associatif pour le SpecMarkdownRenderer.
-     *
-     * @return array<string, mixed>
-     */
-    public function toArray(): array
-    {
-        return [
-            'targetClass' => $this->targetClass,
-            'testType' => $this->testType,
-            'dependenciesToMock' => $this->dependenciesToMock,
-            'methods' => $this->methods,
-        ];
     }
 }

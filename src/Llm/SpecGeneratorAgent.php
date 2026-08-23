@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Llm;
 
+use Mika\TestGeneratorBundle\Dto\SpecResultDto;
 use Mika\TestGeneratorBundle\Exception\TestGenerationException;
 
 readonly class SpecGeneratorAgent
@@ -22,8 +23,6 @@ readonly class SpecGeneratorAgent
      * @param string|null $model      Le modèle LLM à utiliser (null pour le modèle par défaut)
      * @param string|null $provider   Le provider LLM à utiliser (null pour le provider par défaut)
      *
-     * @return array<string, mixed> Les spécifications structurées sous forme de tableau associatif
-     *
      * @throws \RuntimeException       Si le LLM échoue ou si le JSON retourné est invalide
      * @throws TestGenerationException
      */
@@ -34,7 +33,7 @@ readonly class SpecGeneratorAgent
         ?string $type = 'unit',
         ?string $model = null,
         ?string $provider = null,
-    ): array {
+    ): SpecResultDto {
         // Résolution du client et du modèle via la factory du bundle
         $client = $this->llmFactory->getClient($provider);
         $targetModel = $model ?? $this->llmFactory->getDefaultModel();
@@ -60,7 +59,7 @@ readonly class SpecGeneratorAgent
             ? <<<INSTRUCTIONS
 3. **Analyse des flux HTTP / Intégration** :
    - Identifie les routes, méthodes HTTP (GET, POST...), codes de statut (200, 400, 404, 500) et formats de réponse.
-   - Identifie les contrôles d'accès/sécurité (ex: rôles requis, authentification).
+   - Identifie les contrôles d'accès/sécurité (ex : rôles requis, authentification).
    - Ne cherche PAS à mocker les services internes sauf les services tiers externes (ex : API de paiement, envoi d'emails).
 4. **Isolation et Mocks** :
    - Dans un test fonctionnel, **ne mocke PAS** les services internes (base de données, services métier). Utilise le container de services réel.
@@ -70,7 +69,9 @@ INSTRUCTIONS
 3. **Détection des Data Providers PHPUnit** :
    - Identifie les méthodes qui exécutent la même logique sur des ensembles de données variés.
    - Regroupe systématiquement ces cas répétitifs sous forme de **Data Provider** (`dataProviders`).
-   - **Règle de cohérence stricte** : Si un cas de test (`testCase`) indique un `dataProviderName` non nul (et `usesDataProvider: true`), l'objet Data Provider correspondant DOIT obligatoirement être déclaré et détaillé dans le tableau `dataProviders` de la même méthode. Inversement, si aucun Data Provider n'est défini, passe `usesDataProvider: false` et `dataProviderName: null`.
+   - **Règle de cohérence stricte** : Si un cas de test (`testCase`) indique un `dataProviderName` non nul (et `usesDataProvider: true`), 
+     l'objet Data Provider correspondant DOIT obligatoirement être déclaré et détaillé dans le tableau `dataProviders` de la même méthode. 
+     Inversement, si aucun Data Provider n'est défini, passe `usesDataProvider: false` et `dataProviderName: null`.
 4. **Isolation et Mocks** :
    - Repère les dépendances injectées dans le constructeur ou les méthodes.
    - Indique quelles dépendances doivent être mockées pour chaque cas de test (`mockExpectations`).
@@ -91,6 +92,14 @@ Ton unique rôle est d'analyser le code source d'une classe PHP et de concevoir 
 
 ### FORMAT DE SORTIE
 Tu DOIS répondre EXCLUSIVEMENT avec un objet JSON valide, sans aucun texte d'introduction, sans explications et sans balises Markdown (pas de ```json ... ```).
+
+### RÈGLES STRICTES DE FORMATTAGE JSON (CRITIQUE)
+- **AUCUNE SYNTAXE PHP DANS LE JSON** : N'utilise JAMAIS d'opérateurs d'association PHP `=>`, ni de tableaux PHP `['key' => 'val']`. 
+  Tout doit être du JSON valide (ex : `{"key": "val"}`).
+- **Structure des objets et tableaux** : Les tableaux associatifs PHP doivent TOUJOURS être traduits en objets JSON (`{"clé": "valeur"}`).
+- **Encadrement strict des clés et valeurs string** : N'oublie jamais les guillemets doubles autour des clés JSON.
+- **Strict RAW JSON Output** : Réponds EXCLUSIVEMENT par l'objet JSON brut. 
+  N'inclus AUCUN bloc de code Markdown (PAS de ```json ... ```), AUCUN texte d'introduction ni d'explication.
 
 ### SCHÉMA JSON OBLIGATOIRE
 {

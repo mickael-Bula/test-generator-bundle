@@ -4,21 +4,21 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Renderer;
 
+use Mika\TestGeneratorBundle\Dto\SpecResultDto;
+
 class SpecMarkdownRenderer
 {
     /**
-     * Convertit le tableau de données de spécification JSON en un document Markdown structuré.
-     *
-     * @param array<string, mixed> $specData Le tableau issu du JSON parsé par SpecGeneratorAgent
+     * Convertit l'objet SpecResultDto en un document Markdown structuré.
      *
      * @throws \JsonException
      */
-    public function render(array $specData): string
+    public function render(SpecResultDto $specDto): string
     {
-        $targetClass = $specData['targetClass'] ?? 'ClasseInconnue';
-        $testType = $specData['testType'] ?? 'Unit';
-        $dependencies = $specData['dependenciesToMock'] ?? [];
-        $methods = $specData['methods'] ?? [];
+        $targetClass = trim($specDto->getTargetClass()) ?: 'ClasseInconnue';
+        $testType = $specDto->getTestType();
+        $dependencies = $specDto->getDependenciesToMock();
+        $methods = $specDto->getMethods();
 
         $md = [];
 
@@ -38,8 +38,8 @@ class SpecMarkdownRenderer
             $md[] = '_Aucune dépendance externe à mocker._';
         } else {
             foreach ($dependencies as $dep) {
-                $class = $dep['class'] ?? 'FQCN\\Inconnu';
-                $prop = $dep['propertyName'] ?? 'propriete';
+                $class = trim($dep->getClass()) ?: 'FQCN\\Inconnu';
+                $prop = trim($dep->getPropertyName()) ?: 'propriete';
                 $md[] = sprintf('- `%s` (`$%s`)', $class, $prop);
             }
         }
@@ -49,9 +49,9 @@ class SpecMarkdownRenderer
 
         // 3. Spécifications par méthode
         foreach ($methods as $method) {
-            $methodName = $method['name'] ?? 'methodeAnonyme';
-            $dataProviders = $method['dataProviders'] ?? [];
-            $testCases = $method['testCases'] ?? [];
+            $methodName = trim($method->getName()) ?: 'methodeAnonyme';
+            $dataProviders = $method->getDataProviders();
+            $testCases = $method->getTestCases();
 
             $md[] = sprintf('## Méthode `%s()`', $methodName);
             $md[] = '';
@@ -59,29 +59,33 @@ class SpecMarkdownRenderer
             // A. Rendu des Data Providers s'il y en a
             if (!empty($dataProviders)) {
                 foreach ($dataProviders as $provider) {
-                    $md[] = sprintf('### Data Provider : `%s`', $provider['providerName'] ?? 'provideData');
-                    if (!empty($provider['description'])) {
-                        $md[] = sprintf('> %s', $provider['description']);
+                    $providerName = trim($provider->getProviderName()) ?: 'provideData';
+                    $md[] = sprintf('### Data Provider : `%s`', $providerName);
+                    if ('' !== trim($provider->getDescription())) {
+                        $md[] = sprintf('> %s', $provider->getDescription());
                     }
                     $md[] = '';
 
-                    $keys = $provider['dataSetKeys'] ?? [];
-                    $dataSets = $provider['dataSets'] ?? [];
+                    $keys = $provider->getDataSetKeys();
+                    $dataSets = $provider->getDataSets();
 
                     if (!empty($keys) && !empty($dataSets)) {
                         // Génération de la table Markdown
-                        $headers = array_merge(['Label / Description'], array_map(static fn ($k) => sprintf('`$%s`', $k), $keys));
+                        $headers = array_merge(
+                            ['Label / Description'],
+                            array_map(static fn (string $k) => sprintf('`$%s`', $k), $keys)
+                        );
                         $md[] = '| ' . implode(' | ', $headers) . ' |';
 
                         $separators = array_fill(0, count($headers), ':---');
                         $md[] = '| ' . implode(' | ', $separators) . ' |';
 
                         foreach ($dataSets as $dataSet) {
-                            $row = [sprintf('**%s**', $dataSet['label'] ?? 'Cas')];
-                            $providedValues = $dataSet['providedValues'] ?? [];
+                            $row = [sprintf('**%s**', trim($dataSet->getLabel()) ?: 'Cas')];
+                            $providedValues = $dataSet->getProvidedValues();
 
                             foreach ($keys as $key) {
-                                $val = $providedValues[$key] ?? 'null';
+                                $val = $providedValues[$key] ?? null;
                                 $row[] = sprintf('`%s`', $this->formatValue($val));
                             }
 
@@ -98,23 +102,23 @@ class SpecMarkdownRenderer
                 $md[] = '';
 
                 foreach ($testCases as $tc) {
-                    $title = $tc['title'] ?? $tc['id'] ?? 'testAnonyme';
-                    $type = strtoupper($tc['type'] ?? 'NOMINAL');
-                    $description = $tc['description'] ?? '';
-                    $usesDp = $tc['usesDataProvider'] ?? false;
-                    $dpName = $tc['dataProviderName'] ?? null;
+                    $title = trim($tc->getTitle()) ?: 'testAnonyme';
+                    $type = strtoupper($tc->getType());
+                    $description = $tc->getDescription();
+                    $usesDp = $tc->isUsesDataProvider();
+                    $dpName = $tc->getDataProviderName();
 
                     $md[] = sprintf('#### `%s`', $title);
                     $md[] = sprintf('* **Type** : `%s`', $type);
-                    if ($description) {
+                    if ('' !== trim($description)) {
                         $md[] = sprintf('* **Description** : %s', $description);
                     }
-                    if ($usesDp && $dpName) {
+                    if ($usesDp && null !== $dpName && '' !== trim($dpName)) {
                         $md[] = sprintf('* **Data Provider associé** : `%s`', $dpName);
                     }
 
                     // Entrées isolées
-                    $inputs = $tc['inputs'] ?? [];
+                    $inputs = $tc->getInputs();
                     if (!$usesDp && !empty($inputs)) {
                         $formattedInputs = [];
                         foreach ($inputs as $k => $v) {
@@ -123,19 +127,20 @@ class SpecMarkdownRenderer
                         $md[] = sprintf('* **Entrées** : %s', implode(', ', $formattedInputs));
                     }
 
-                    // Attentes sur Mocks
-                    $mockExpectations = $tc['mockExpectations'] ?? [];
+                    // Attentes sur les Mocks
+                    $mockExpectations = $tc->getMockExpectations();
                     if (!empty($mockExpectations)) {
                         $md[] = '* **Attentes Mocks** :';
                         foreach ($mockExpectations as $mock) {
-                            $depClass = $mock['dependency'] ?? 'Class';
-                            $mName = $mock['method'] ?? 'method';
-                            $willRet = isset($mock['willReturns'])
-                                ? sprintf(' ➔ retourne `%s`', $this->formatValue($mock['willReturns']))
+                            $depClass = trim($mock->getDependency()) ?: 'Class';
+                            $mName = trim($mock->getMethod()) ?: 'method';
+
+                            $willRet = null !== $mock->getWillReturns()
+                                ? sprintf(' ➔ retourne `%s`', $this->formatValue($mock->getWillReturns()))
                                 : '';
 
-                            $willThrow = !empty($mock['willThrow'])
-                                ? sprintf(' ➔ lève `%s`', $mock['willThrow'])
+                            $willThrow = null !== $mock->getWillThrow() && '' !== trim($mock->getWillThrow())
+                                ? sprintf(' ➔ lève `%s`', $mock->getWillThrow())
                                 : '';
 
                             $md[] = sprintf('  - `%s::%s()`%s%s', $depClass, $mName, $willRet, $willThrow);
@@ -143,15 +148,15 @@ class SpecMarkdownRenderer
                     }
 
                     // Comportement attendu
-                    $expected = $tc['expectedBehavior'] ?? [];
-                    if (!empty($expected)) {
-                        if (!empty($expected['throwsException'])) {
-                            $md[] = sprintf('* **Exception attendue** : `%s`', $expected['throwsException']);
-                            if (!empty($expected['exceptionMessage'])) {
-                                $md[] = sprintf('  - Message : *"%s"*', $expected['exceptionMessage']);
+                    $expected = $tc->getExpectedBehavior();
+                    if (null !== $expected) {
+                        if (null !== $expected->getThrowsException() && '' !== trim($expected->getThrowsException())) {
+                            $md[] = sprintf('* **Exception attendue** : `%s`', $expected->getThrowsException());
+                            if (null !== $expected->getExceptionMessage() && '' !== trim($expected->getExceptionMessage())) {
+                                $md[] = sprintf('  - Message : *"%s"*', $expected->getExceptionMessage());
                             }
-                        } elseif (array_key_exists('returnValue', $expected) && null !== $expected['returnValue']) {
-                            $md[] = sprintf('* **Retour attendu** : `%s`', $this->formatValue($expected['returnValue']));
+                        } elseif (null !== $expected->getReturnValue()) {
+                            $md[] = sprintf('* **Retour attendu** : `%s`', $this->formatValue($expected->getReturnValue()));
                         }
                     }
 

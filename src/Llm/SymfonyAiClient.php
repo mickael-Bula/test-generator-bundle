@@ -7,6 +7,7 @@ namespace Mika\TestGeneratorBundle\Llm;
 use Mika\TestGeneratorBundle\Dto\GeneratedTestResult;
 use Mika\TestGeneratorBundle\Dto\SpecResultDto;
 use Mika\TestGeneratorBundle\Exception\TestGenerationException;
+use Mika\TestGeneratorBundle\Serializer\SpecSerializerFactory;
 use Mika\TestGeneratorBundle\Util\JsonSanitizer;
 use Mika\TestGeneratorBundle\Util\PhpCodeExtractor;
 use Symfony\AI\Platform\Message\Message;
@@ -14,12 +15,8 @@ use Symfony\AI\Platform\Message\MessageBag;
 use Symfony\AI\Platform\PlatformInterface;
 use Symfony\Component\DependencyInjection\Attribute\AutowireLocator;
 use Symfony\Component\DependencyInjection\ServiceLocator;
-use Symfony\Component\Serializer\Encoder\JsonEncoder;
-use Symfony\Component\Serializer\Mapping\Factory\ClassMetadataFactory;
-use Symfony\Component\Serializer\Mapping\Loader\AttributeLoader;
-use Symfony\Component\Serializer\NameConverter\MetadataAwareNameConverter;
-use Symfony\Component\Serializer\Normalizer\ObjectNormalizer;
-use Symfony\Component\Serializer\Serializer;
+use Symfony\Component\Serializer\Exception\ExceptionInterface;
+use Symfony\Component\Serializer\Normalizer\DenormalizerInterface;
 use Symfony\Component\Serializer\SerializerInterface;
 
 /**
@@ -35,23 +32,12 @@ class SymfonyAiClient implements LlmClientInterface
         #[AutowireLocator('mika_test_generator.ai_platform', indexAttribute: 'index')]
         private readonly ServiceLocator $platforms,
         private readonly JsonSanitizer $jsonSanitizer,
-        private ?SerializerInterface $serializer = null,
+        private (SerializerInterface&DenormalizerInterface)|null $serializer = null,
         private readonly string $defaultProvider = 'gemini',
-        private readonly string $defaultModel = 'gemini-2.5-flash-lite',
+        private readonly string $defaultModel = 'gemini-3.1-flash-lite',
     ) {
-        // Fallback autonome : instanciation manuelle d'un Serializer compatible avec les attributs PHP
-        // au cas où l'application hôte n'enregistre pas de SerializerInterface dans le conteneur DI.
-        if (null === $this->serializer) {
-            $classMetadataFactory = new ClassMetadataFactory(new AttributeLoader());
-            $metadataAwareNameConverter = new MetadataAwareNameConverter($classMetadataFactory);
-
-            $normalizer = new ObjectNormalizer(
-                classMetadataFactory: $classMetadataFactory,
-                nameConverter: $metadataAwareNameConverter
-            );
-
-            $this->serializer = new Serializer([$normalizer], [new JsonEncoder()]);
-        }
+        // Si l'application hôte n'enregistre pas de Serializer, on en crée un compatible avec les attributs PHP
+        $this->serializer ??= SpecSerializerFactory::create();
     }
 
     public function supports(string $provider): bool
@@ -189,11 +175,9 @@ class SymfonyAiClient implements LlmClientInterface
      *
      * @param array<int, array{role: string, content: string}> $messages
      *
-     * @return array<string, mixed>
-     *
-     * @throws TestGenerationException
+     * @throws TestGenerationException|ExceptionInterface
      */
-    public function callForSpec(array $messages, string $model): array
+    public function callForSpec(array $messages, string $model): SpecResultDto
     {
         // Exécution de l'appel LLM brut
         $rawContent = $this->executeLlmCall($messages, $model);
@@ -201,7 +185,7 @@ class SymfonyAiClient implements LlmClientInterface
         // Nettoyage et assainissement du JSON
         $jsonString = $this->jsonSanitizer->sanitizeLlmJsonResponse($rawContent);
 
-        // Correction spécifique pour les namespaces PHP (ex: "App\Service\Foo" -> "App\\Service\\Foo")
+        // Correction spécifique pour les namespaces PHP (ex : "App\Service\Foo" -> "App\\Service\\Foo")
         $jsonString = $this->fixPhpNamespacesInJson($jsonString);
 
         // Tentative 1 : Désérialisation vers SpecResultDto via le Serializer Symfony
@@ -209,18 +193,21 @@ class SymfonyAiClient implements LlmClientInterface
             /** @var SpecResultDto $specDto */
             $specDto = $this->serializer->deserialize($jsonString, SpecResultDto::class, 'json');
 
-            return $specDto->toArray();
+            return $specDto;
         } catch (\Throwable) {
             // Ignoré, on passe à la tentative manuelle
         }
 
-        // Tentative 2 : Décodage manuel via json_decode
+        // Tentative 2 : Décodage manuel via json_decode et désérialisation manuelle depuis le tableau
         try {
             /** @var array<string, mixed> $data */
             $data = json_decode($jsonString, true, 512, JSON_THROW_ON_ERROR);
 
             if (isset($data['targetClass'], $data['methods']) && is_array($data['methods'])) {
-                return $data;
+                /** @var SpecResultDto $specDto */
+                $specDto = $this->serializer->denormalize($data, SpecResultDto::class);
+
+                return $specDto;
             }
         } catch (\JsonException $e) {
             throw new TestGenerationException(sprintf("L'Agent Spec a retourné un JSON invalide : %s\nRéponse brute du LLM :\n%s", $e->getMessage(), $rawContent), 0, $e);
