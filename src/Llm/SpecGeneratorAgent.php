@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Llm;
 
+use Mika\TestGeneratorBundle\Dto\SpecResultDto;
 use Mika\TestGeneratorBundle\Exception\TestGenerationException;
 
 readonly class SpecGeneratorAgent
@@ -22,8 +23,6 @@ readonly class SpecGeneratorAgent
      * @param string|null $model      Le modèle LLM à utiliser (null pour le modèle par défaut)
      * @param string|null $provider   Le provider LLM à utiliser (null pour le provider par défaut)
      *
-     * @return array<string, mixed> Les spécifications structurées sous forme de tableau associatif
-     *
      * @throws \RuntimeException       Si le LLM échoue ou si le JSON retourné est invalide
      * @throws TestGenerationException
      */
@@ -34,7 +33,7 @@ readonly class SpecGeneratorAgent
         ?string $type = 'unit',
         ?string $model = null,
         ?string $provider = null,
-    ): array {
+    ): SpecResultDto {
         // Résolution du client et du modèle via la factory du bundle
         $client = $this->llmFactory->getClient($provider);
         $targetModel = $model ?? $this->llmFactory->getDefaultModel();

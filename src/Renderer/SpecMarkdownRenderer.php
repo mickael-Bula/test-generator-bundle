@@ -4,17 +4,21 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Renderer;
 
+use Mika\TestGeneratorBundle\Dto\SpecResultDto;
+
 class SpecMarkdownRenderer
 {
     /**
      * Convertit le tableau de données de spécification JSON en un document Markdown structuré.
      *
-     * @param array<string, mixed> $specData Le tableau issu du JSON parsé par SpecGeneratorAgent
+     * @param SpecResultDto $specDto Le tableau issu du JSON parsé par SpecGeneratorAgent
      *
      * @throws \JsonException
      */
-    public function render(array $specData): string
+    public function render(SpecResultDto $specDto): string
     {
+        $specData = $specDto->toArray();
+
         $targetClass = $specData['targetClass'] ?? 'ClasseInconnue';
         $testType = $specData['testType'] ?? 'Unit';
         $dependencies = $specData['dependenciesToMock'] ?? [];
