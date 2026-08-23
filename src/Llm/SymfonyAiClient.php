@@ -6,8 +6,8 @@ namespace Mika\TestGeneratorBundle\Llm;
 
 use Mika\TestGeneratorBundle\Dto\GeneratedTestResult;
 use Mika\TestGeneratorBundle\Dto\SpecResultDto;
-use Symfony\Component\Serializer\Exception\ExceptionInterface;
 use Mika\TestGeneratorBundle\Exception\TestGenerationException;
+use Mika\TestGeneratorBundle\Serializer\SpecSerializerFactory;
 use Mika\TestGeneratorBundle\Util\JsonSanitizer;
 use Mika\TestGeneratorBundle\Util\PhpCodeExtractor;
 use Symfony\AI\Platform\Message\Message;
@@ -15,14 +15,8 @@ use Symfony\AI\Platform\Message\MessageBag;
 use Symfony\AI\Platform\PlatformInterface;
 use Symfony\Component\DependencyInjection\Attribute\AutowireLocator;
 use Symfony\Component\DependencyInjection\ServiceLocator;
-use Symfony\Component\Serializer\Encoder\JsonEncoder;
-use Symfony\Component\Serializer\Mapping\Factory\ClassMetadataFactory;
-use Symfony\Component\Serializer\Mapping\Loader\AttributeLoader;
-use Symfony\Component\Serializer\NameConverter\MetadataAwareNameConverter;
-use Symfony\Component\Serializer\Normalizer\ArrayDenormalizer;
+use Symfony\Component\Serializer\Exception\ExceptionInterface;
 use Symfony\Component\Serializer\Normalizer\DenormalizerInterface;
-use Symfony\Component\Serializer\Normalizer\ObjectNormalizer;
-use Symfony\Component\Serializer\Serializer;
 use Symfony\Component\Serializer\SerializerInterface;
 
 /**
@@ -42,20 +36,8 @@ class SymfonyAiClient implements LlmClientInterface
         private readonly string $defaultProvider = 'gemini',
         private readonly string $defaultModel = 'gemini-3.1-flash-lite',
     ) {
-        // Fallback autonome : instanciation manuelle d'un Serializer compatible avec les attributs PHP
-        // au cas où l'application hôte n'enregistre pas de SerializerInterface dans le conteneur DI.
-        if (null === $this->serializer) {
-            $classMetadataFactory = new ClassMetadataFactory(new AttributeLoader());
-            $metadataAwareNameConverter = new MetadataAwareNameConverter($classMetadataFactory);
-
-            $normalizer = new ObjectNormalizer(
-                classMetadataFactory: $classMetadataFactory,
-                nameConverter: $metadataAwareNameConverter
-            );
-
-            // Ajout du `ArrayDenormalizer` (DenormalizerInterface) pour dénormaliser les collections d'objets imbriqués dans SpecResultDto
-            $this->serializer = new Serializer([$normalizer, new ArrayDenormalizer()], [new JsonEncoder()]);
-        }
+        // Si l'application hôte n'enregistre pas de Serializer, on en crée un compatible avec les attributs PHP
+        $this->serializer ??= SpecSerializerFactory::create();
     }
 
     public function supports(string $provider): bool
