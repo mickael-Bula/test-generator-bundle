@@ -25,7 +25,8 @@ readonly class TestDatabaseResolver
      *     dev_db: string,
      *     platform: string,
      *     dev_db_exists: bool,
-     *     test_db_exists: bool
+     *     test_db_exists: bool,
+     *     has_migrations: bool
      * }
      */
     public function resolveTestDatabaseInfo(): array
@@ -113,11 +114,16 @@ readonly class TestDatabaseResolver
             throw new \RuntimeException('Impossible de résoudre le nom de la base de données de test.');
         }
 
+        // On s'assure de ne pas écraser la base de données de DEV ou de PROD.
         if ($devDbName === $testDbName) {
             $message = 'SÉCURITÉ : La base de données de test (%s) est IDENTIQUE à la base de développement (%s). '
                 . 'Veuillez vérifier vos fichiers .env.test ou .env.test.local.';
             throw new \RuntimeException(sprintf($message, $testDbName, $devDbName));
         }
+
+        // On détermine la stratégie de mise à jour des tables
+        $hasMigrations = $testContainer->hasParameter('kernel.bundles')
+            && isset($testContainer->getParameter('kernel.bundles')['DoctrineMigrationsBundle']);
 
         return [
             'test_db' => $testDbName,
@@ -125,6 +131,7 @@ readonly class TestDatabaseResolver
             'platform' => $platform,
             'dev_db_exists' => $devDbExists,
             'test_db_exists' => $testDbExists,
+            'has_migrations' => $hasMigrations,
         ];
     }
 
