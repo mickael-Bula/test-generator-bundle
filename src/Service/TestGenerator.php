@@ -311,14 +311,14 @@ class TestGenerator
     }
 
     /**
-     * Sauvegarde le test défaillant et du rapport d'erreur PHPUnit.
+     * Sauvegarde le test défaillant et le rapport d'erreur PHPUnit.
      */
     private function saveFailedTest(string $className, string $testCode, ?string $failureOutput): string
     {
         // Formatage du nom de fichier avec Horodatage
         $date = (new \DateTimeImmutable())->format('Y-m-d_H-i-s');
-        $filename = sprintf('%s_%sFailedTest.php', $date, $className);
-        $logFilename = sprintf('%s_%sFailedTest.log', $date, $className);
+        $filename = sprintf('%s_%s_FailedTest.php', $date, $className);
+        $logFilename = sprintf('%s_%s_FailedTest.log', $date, $className);
 
         // Normalisation des séparateurs de dossiers selon l'OS (DIRECTORY_SEPARATOR)
         $normalizedDir = rtrim(
