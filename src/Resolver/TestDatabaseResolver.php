@@ -34,7 +34,7 @@ readonly class TestDatabaseResolver
         $projectDir = $this->kernel->getProjectDir();
         $kernelClass = get_class($this->kernel);
 
-        // 1. Récupérer les informations de la BDD de DEV via un Kernel dédié
+        // Récupère les informations de la BDD de DEV via un Kernel dédié
         $devKernel = new $kernelClass('dev', $this->kernel->isDebug());
         $devKernel->boot();
 
@@ -51,7 +51,7 @@ readonly class TestDatabaseResolver
 
         $devKernel->shutdown();
 
-        // 2. Sauvegarder le contexte global du processus PHP
+        // Sauvegarde le contexte global du processus PHP
         $originalServer = $_SERVER;
         $originalEnv = $_ENV;
 
@@ -66,8 +66,9 @@ readonly class TestDatabaseResolver
                 putenv($key);
             }
 
-            // 3. Charger explicitement les fichiers .env selon la cascade Symfony pour l'environnement 'test'
+            // Charge explicitement les fichiers .env selon la cascade Symfony pour l'environnement 'test'
             $dotenv = new Dotenv();
+            // NOTE : En environnement de test, le fichier `.env.local` est ignoré par Symfony
             $envFiles = [
                 $projectDir . '/.env',
                 $projectDir . '/.env.test',
@@ -83,7 +84,7 @@ readonly class TestDatabaseResolver
             $_ENV['APP_ENV'] = 'test';
             $_SERVER['APP_ENV'] = 'test';
 
-            // 4. Démarrer le Kernel de TEST et extraire le nom résolu par Doctrine
+            // Démarre le Kernel de TEST et extrait le nom résolu par Doctrine
             $testKernel = new $kernelClass('test', $this->kernel->isDebug());
             $testKernel->boot();
 
@@ -109,7 +110,7 @@ readonly class TestDatabaseResolver
             $_ENV = $originalEnv;
         }
 
-        // 5. Contrôle de sécurité
+        // Contrôle de sécurité
         if (empty($testDbName)) {
             throw new \RuntimeException('Impossible de résoudre le nom de la base de données de test.');
         }
@@ -181,7 +182,7 @@ readonly class TestDatabaseResolver
         $params = $connection->getParams();
         $platform = $this->extractDatabasePlatform($connection);
 
-        // 1. Tenter une connexion directe sur la BDD cible via une requête neutre
+        // 1. Tente une connexion directe sur la BDD cible via une requête neutre
         try {
             $testConn = DriverManager::getConnection($params, $connection->getConfiguration());
             $testConn->executeQuery('SELECT 1');
@@ -192,9 +193,9 @@ readonly class TestDatabaseResolver
             // Échec si la BDD n'existe pas encore
         }
 
-        // 2. Interrogation des tables système d'administration
+        // 2. Interrogation des tables système d'administration en fonction du SGBD.
         try {
-            $adminParams = $params;
+            $adminParams = $params; // TODO : Pourquoi passer par une variable intermédiaire ?
 
             $adminParams['dbname'] = match ($platform) {
                 'postgresql' => 'postgres',
@@ -254,5 +255,76 @@ readonly class TestDatabaseResolver
                 default => 'unknown',
             };
         }
+    }
+
+    /**
+     * Génère une DATABASE_URL de test à partir de celle de dev.
+     * Ex : postgresql://db_user:db_pass@127.0.0.1:5432/app_dev → postgresql://db_user:db_pass@127.0.0.1:5432/app_test.
+     */
+    public function suggestTestDatabaseUrl(): ?string
+    {
+        $devUrl = $_ENV['DATABASE_URL'] ?? $_SERVER['DATABASE_URL'] ?? null;
+        if (!$devUrl) {
+            return null;
+        }
+
+        // Si la chaîne contient déjà des query params, on sépare
+        $parts = explode('?', $devUrl, 2);
+        $baseUrl = $parts[0];
+        $query = isset($parts[1]) ? '?' . $parts[1] : '';
+
+        $lastSlash = strrpos($baseUrl, '/');
+        if (false === $lastSlash) {
+            return null;
+        }
+
+        // On récupère le nom de la base de DEV
+        $dbName = substr($baseUrl, $lastSlash + 1);
+        $urlWithoutDb = substr($baseUrl, 0, $lastSlash);
+
+        // Si la configuration de Doctrine ne le fait pas déjà, on ajoute le suffixe `_test`.
+        $hasDbNameSuffix = $this->hasDbNameSuffixInTestEnv();
+        $testDbName = $hasDbNameSuffix ? $dbName : $dbName . '_test';
+
+        return sprintf('%s/%s%s', $urlWithoutDb, $testDbName, $query);
+    }
+
+    /**
+     * Vérifie si Doctrine ajoute un suffixe en environnement de test.
+     */
+    private function hasDbNameSuffixInTestEnv(): bool
+    {
+        // Instancie un Kernel temporaire en environnement 'test'
+        $kernelClass = get_class($this->kernel);
+        $testKernel = new $kernelClass('test', $this->kernel->isDebug());
+        $testKernel->boot();
+
+        // Récupère la connexion de l'environnement 'test'
+        /** @var Connection $testConnection */
+        $testConnection = $testKernel->getContainer()->get('doctrine.dbal.default_connection');
+
+        /** @var array<string, mixed> $params */
+        /** @noinspection PhpInternalEntityUsedInspection */
+        $params = $testConnection->getParams();
+        $hasSuffix = array_key_exists('dbname_suffix', $params) && !empty($params['dbname_suffix']);
+
+        // On éteint le Kernel de test temporaire pour nettoyer la mémoire
+        $testKernel->shutdown();
+
+        return $hasSuffix;
+    }
+
+    public function handleTestDatabaseConnection(): void
+    {
+        /*
+         * 1. Verifier la connexion à la base de données de TEST
+         * 2. Vérifier la connexion à la base de données de DEV
+         * 3. Si les deux bases sont joignables et que leurs noms diffèrent -> RETURN
+         * 4. Si la base de DEV répond :
+         *  - on crée le fichier .env.test.local avec DB_URL + nom résolu de la base de TEST (prise en compte de suffixe)
+         *  - on crée la BDD de TEST
+         *  - on applique la stratégie résolue de mise à jour de la base (migration ou schéma create) -> RETURN
+         * 5. On retourne un message d'erreur à l'utilisateur pour lui demander de configurer la base de DEV a minma, voire celle de TEST -> RETURN
+         * */
     }
 }

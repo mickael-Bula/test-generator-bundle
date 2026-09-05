@@ -28,11 +28,51 @@ class DatabaseResolverCommand extends Command
     }
 
     /**
+     * Algo : Pour effectuer les tests foncionnels, une base de test est nécessaire. Pour l'obtenir :
+     * On vérifie si une base de test existe, sinon on la crée :
+     *  1. On recherche un `.env.test.local`. S'il n'existe pas, on le crée (point 4).
+     *  2. On y recherche la DATABASE_URL pour la tester. Si la variable n'existe pas, on la crée (point 4.).
+     *  3. On teste la chaîne récupérée. Si la base n'existe pas, on la crée (point 4).
+     *  4. On récupère la chaîne déclarée dans le .env.local. On vérifie la configuaration de doctrine (_test). On crée la base de test avec la commande doctrine
+     *  5. On exécute la mise à jour du schéma en fonction de la présence des migrations (si elles existent et qu'elles passent) avec d:m:m sinon on exécute doctrine:schema:create
+     *
+     * NOTE : On ignore le fichier .env.test dont les valeurs sont normalement générées par un outil de test (PHPUnit par exemple).
+     *
      * @throws ExceptionInterface
      */
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
+
+        // On vérifie la présence d'un fichier `.env.test.local`
+        $projectDir = $this->kernel->getProjectDir();
+        $envTestLocalExists = file_exists($projectDir . '/.env.test.local');
+
+        if (!$envTestLocalExists) {
+            $io->warning('Aucun fichier .env.test.local n\'a été trouvé dans le projet.');
+
+            $suggestedUrl = $this->resolver->suggestTestDatabaseUrl();
+
+            $message = 'Voulez-vous que le bundle crée un fichier .env.test.local pour déclarer une base de test ?';
+            if ($suggestedUrl && $io->confirm($message)) {
+                $content = sprintf(
+                    "# Fichier généré automatiquement par TestGeneratorBundle\nDATABASE_URL=\"%s\"\n",
+                    $suggestedUrl
+                );
+
+                file_put_contents($projectDir . '/.env.test.local', $content);
+                $io->success('Fichier .env.test.local créé avec succès !');
+            } else {
+                $io->note([
+                    'Veuillez créer un fichier .env.test.local à la racine de votre projet.',
+                    'Exemple de contenu :',
+                    'DATABASE_URL="postgresql://user:pass@127.0.0.1:5432/db_test?serverVersion=16&charset=utf8"',
+                ]
+                );
+
+                return Command::FAILURE;
+            }
+        }
 
         try {
             $info = $this->resolver->resolveTestDatabaseInfo();
@@ -64,16 +104,14 @@ class DatabaseResolverCommand extends Command
             $io->warning(sprintf('La base de données de test "%s" n\'existe pas encore.', $info['test_db']));
 
             if ($io->confirm('Voulez-vous exécuter la commande de création maintenant ?')) {
-                $projectDir = $this->kernel->getProjectDir();
-
                 // On purge les variables pour obliger Symfony à relire complètement les fichiers `.env.test.*`
                 $processEnv = [
                     'APP_ENV' => 'test',
                     'DATABASE_URL' => false,
-                    'SYMFONY_DOTENV_VARS' => false, // Pour recharger les caraibales Dotenv
+                    'SYMFONY_DOTENV_VARS' => false, // Pour recharger les variables Dotenv
                 ];
 
-                // Étape 1 : Création de la base de données via l'Applicaition Console
+                // Étape 1 : Création de la base de données via l'Application Console
                 $createDbProcess = new Process(
                     ['php', 'bin/console', 'doctrine:database:create', '--env=test', '--if-not-exists'],
                     $projectDir,
