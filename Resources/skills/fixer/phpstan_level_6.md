@@ -51,4 +51,37 @@
         ];
     }
     ```
+3. **Ordre entre PHPDoc et Attributs PHP (`#[DataProvider]`, `#[Test]`, etc.) :**
+   En PHP, le bloc PHPDoc (`/** ... */`) doit impérativement être placé AVANT les attributs PHP (`#[...]`), juste au-dessus de ces derniers.
+   - **INTERDICTION :** Ne JAMAIS intercaler un attribut PHP entre le bloc PHPDoc et la fonction. 
+     Cela détache le bloc de la fonction et empêche PHPStan de lire les annotations (`@param`, `@return`, etc.).
+
+   Exemple INVALIDE (PHPStan ignore `@param` et lève une erreur de typage) :
    
+   ```php
+   #[Test]
+   #[DataProvider('providePricesForCalculation')]
+   /**
+   * @param int|float $originalPrice
+   * @param int|float $expectedPrice
+   */
+   public function testCalculate(mixed $originalPrice, mixed$expectedPrice): void
+   {
+   // ...
+   }
+   ```
+   
+   Exemple VALIDE :
+ 
+    ```php
+    /**
+    * @param int|float $originalPrice
+    * @param int|float $expectedPrice
+    */
+   #[Test]
+   #[DataProvider('providePricesForCalculation')]
+   public function testCalculate(mixed $originalPrice, mixed$expectedPrice): void
+   {
+       // ...
+   }
+   ```
