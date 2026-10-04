@@ -14,7 +14,6 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\HttpKernel\KernelInterface;
-use Symfony\Component\Process\Process;
 
 #[AsCommand(
     name: 'db:resolve',
@@ -37,9 +36,12 @@ class DatabaseResolverCommand extends Command
      *  2. Sinon, on récupère la DATABASE_URL depuis le .env.test.local.
      *  3. Si la DATABASE_URL de DEV répond, on l'ajoute dans le fichier .env.test.local en adaptant son nom à la stratégie de Doctrine (suffixe "_test").
      *  4. On crée la base de test avec la commande doctrine.
-     *  5. On exécute la mise à jour du schéma en fonction de la présence des migrations (si elles existent et qu'elles passent) avec d:m:m sinon on exécute doctrine:schema:create
+     *  5. On exécute la mise à jour du schéma en fonction de la présence des migrations :
+     *      - si elles existent, on lance la commande doctrine:migrations:migrate. Si les ne passent pas, on lance doctrine:schema:create.
+     *      - sinon on exécute doctrine:schema:create
      *
-     * NOTE : On ignore le fichier .env.test dont les valeurs sont normalement générées par un outil de test (PHPUnit par exemple).
+     * NOTE 1 : On ignore le fichier .env.test dont les valeurs sont normalement générées par un outil de test (PHPUnit par exemple).
+     * NOTE 2 : Le fichier .env.test.local est ignoré par Symfony en environnement de test.
      *
      * @throws ExceptionInterface
      */
@@ -57,7 +59,7 @@ class DatabaseResolverCommand extends Command
         $testDbInfos = $this->resolver->getDatabaseInfosWithTestEnv($kernelClass, $projectDir);
 
         // Si le moteur n'est pas PostgreSQL, on signale que seul ce moteur est pris en charge par le Bundle.
-        if ('postgresql' !== $devDbInfos['platform']) {
+        if ('postgresql' !== $devDbInfos->platform) {
             $this->displayMessage(
                 $io,
                 $devDbInfos,
@@ -70,35 +72,20 @@ class DatabaseResolverCommand extends Command
         }
 
         // Si la base de TEST existe et porte un nom différent de la base de DEV...
-        if ($testDbInfos['db_exists']) {
-            // on s'assure de ne pas écraser la base de données de DEV existante
-            if ($devDbInfos->dbExists && $devDbInfos->dbName === $testDbInfos->dbName) {
-                $content = 'SÉCURITÉ : La base de données de test (%s) est IDENTIQUE à la base de développement (%s). '
-                    . 'Veuillez vérifier vos fichiers .env.test ou .env.test.local.';
-                $message = sprintf($content, $testDbInfos->dbName, $devDbInfos->dbName);
+        if ($testDbInfos->dbExists) {
+            // On vérifie que les noms des bases ne sont pas identiques.
+            $checkDbNames = $this->resolver->checkDatabaseNamesAreDifferent($devDbInfos, $testDbInfos);
 
-                // Si les noms des bases sont identiques, on signale une erreur.
-                $this->displayMessage(
-                    $io,
-                    $devDbInfos,
-                    $testDbInfos,
-                    'error',
-                    $message
-                );
-
-                return Command::FAILURE;
-            }
-
-            // Sinon, c'est que la configuration est correcte.
+            // On affiche le résultat en console.
             $this->displayMessage(
                 $io,
                 $devDbInfos,
                 $testDbInfos,
-                'success',
-                'L\'environnement de test est correctement configuré.'
+                $checkDbNames['success'] === Command::SUCCESS ? 'success' : 'error',
+                $checkDbNames['message']
             );
 
-            return Command::SUCCESS;
+            return $checkDbNames['success'] === Command::SUCCESS ? Command::SUCCESS : Command::FAILURE;
         }
 
         // Si la base de DEV existe, on récupère sa DATABASE_URL pour créer la base de TEST.
@@ -124,16 +111,14 @@ class DatabaseResolverCommand extends Command
             }
 
             // 1.2 : On surcharge les variables d'environnement en mémoire avec le contenu du fichier '.env.test.local'
-            if (file_exists($envTestLocalPath)) {
-                (new Dotenv())->overload($envTestLocalPath);
+            (new Dotenv())->overload($envTestLocalPath);
 
-                // Resynchronisation des variables pour le processus courant
-                $_ENV['APP_ENV'] = 'test';
-                $_SERVER['APP_ENV'] = 'test';
+            // 1.3 Resynchronisation des variables pour le processus courant
+            $_ENV['APP_ENV'] = 'test';
+            $_SERVER['APP_ENV'] = 'test';
 
-                // On rafraîchit les métadonnées de la base de TEST avec la nouvelle configuration
-                $testDbInfos = $this->resolver->getDatabaseInfosFromKernel($kernelClass, 'test');
-            }
+            // 1.4 On rafraîchit les métadonnées de la base de TEST avec la nouvelle configuration
+            $testDbInfos = $this->resolver->getDatabaseInfosFromKernel($kernelClass, 'test');
 
             // Étape 2 : On demande à l'utilisateur s'il faut créer la base de test.
             if (!$io->confirm(sprintf('Voulez-vous créer la base de test %s ?', $testDbInfos->dbName))) {
@@ -162,7 +147,7 @@ class DatabaseResolverCommand extends Command
             $io->success(sprintf('La base de test %s a été créée.', $testDbInfos->dbName));
 
             // Étape 3 : Exécution des migrations ou du schema:create en sous-processus isolé
-            if (!$this->resolver->handleDoctrineSynchronisation($testDbInfos, $io, $projectDir, $processEnv)) {
+            if (Command::FAILURE === $this->resolver->handleDoctrineSynchronisation($testDbInfos, $io, $projectDir, $processEnv)) {
                 return Command::FAILURE;
             }
         }

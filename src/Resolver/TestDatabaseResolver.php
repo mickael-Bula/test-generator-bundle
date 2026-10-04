@@ -237,6 +237,31 @@ readonly class TestDatabaseResolver
     }
 
     /**
+     * @return array{'success' => int, 'message' => string}
+     */
+    public function checkDatabaseNamesAreDifferent(DatabaseInfosDto $devDbInfos, DatabaseInfosDto $testDbInfos): array
+    {
+        // on s'assure de ne pas écraser la base de données de DEV existante
+        if ($devDbInfos->dbExists && $devDbInfos->dbName === $testDbInfos->dbName) {
+            $content = 'SÉCURITÉ : La base de données de test (%s) est IDENTIQUE à la base de développement (%s). '
+                . 'Veuillez vérifier vos fichiers .env.test ou .env.test.local.';
+            $message = sprintf($content, $testDbInfos->dbName, $devDbInfos->dbName);
+
+            // Si les noms des bases sont identiques, on signale une erreur.
+            return [
+                'success' => Command::FAILURE,
+                'message' => $message
+            ];
+        }
+
+        // Sinon, c'est que la configuration est correcte.
+        return [
+            'success' => Command::SUCCESS,
+            'message' => 'L\'environnement de test est correctement configuré.'
+        ];
+    }
+
+    /**
      * @param string $strategy
      * @param string $projectDir
      * @param array $processEnv de l'environnement nettoyé

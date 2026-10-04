@@ -181,3 +181,72 @@ Lors du lancement de `llm:generate:test` :
   Chaque test généré est exécuté en réel (PHPUnit) puis soumis à une analyse statique (PHPStan).
   En cas d'assertion échouée, d'erreur de typage ou de méthode inexistante, 
   le rapport d'erreur est immédiatement réinjecté dans le LLM pour corriger le code jusqu'à obtention d'un test valide.
+
+> *Dans le cas où le LLM échouerait à réaliser un test validé par PHPUnit et PHPStan, 
+> le fichier généré et son rapport d'erreur PHPUnit restent conservés sous :*
+> - `var/failed_tests/<Y-m-d_H-i-s>_<className>FailedTest.php`
+> - `var/failed_tests/<Y-m-d_H-i-s>_<className>FailedTest.log`
+>
+> *Exemple pour un test en échec sur la classe `VatCalculator` :*
+> - *classe de tests :* `var/failed_tests/2024-01-01_12-34-56_VatCalculatorFailedTest.php`
+> - *rapport d'erreur PHPUnit :* `var/failed_tests/2024-01-01_12-34-56_VatCalculatorFailedTest.log`.
+
+---
+
+## Tests fonctionnels
+
+### Prérequis et compatibilité SGBD
+
+Le bundle exige une base de données de test opérationnelle pour générer les tests fonctionnels.
+
+- **SGBD supporté :** En phase de développement, seul **PostgreSQL** est pris en charge. Si la chaîne `DATABASE_URL` ne contient pas `postgresql`, 
+  le bundle basculera automatiquement sur la génération exclusive de tests unitaires.
+- **Fichier `.env.test` :** Ce fichier est généré automatiquement par **Symfony Flex** lors de l'installation des dépendances de test 
+  (ex : `symfony/test-pack`, `phpunit-bridge`). Il est donc présent par défaut dans le projet.
+
+### Gestion du nommage et suffixe de base (`dbname_suffix`)
+
+**Symfony** et **Doctrine** gèrent le nommage des bases de test via la directive `dbname_suffix` dans la configuration de test :
+
+```YAML
+# config/packages/test/doctrine.yaml
+when@test:
+doctrine:
+dbal:
+# "TEST_TOKEN" est généralement défini par ParaTest
+dbname_suffix: '_test%env(default::TEST_TOKEN)%'
+```
+
+#### Impact sur la configuration :
+
+- Si `dbname_suffix` est actif : **Doctrine** ajoute automatiquement le suffixe `_test` au nom de base résolu. 
+  La valeur de `DATABASE_URL` dans l'environnement de test doit donc conserver le nom de la base principale (ex : `my_app`), 
+  sous peine d'obtenir un nom doublonné (`my_app_test_test`).
+- Si `dbname_suffix` n'est pas configuré : Le nom de la base doit inclure explicitement le suffixe `_test` (ex : `my_app_test`).
+
+### Résolution et automatisation par le Bundle
+
+Pour s'adapter à la machine du développeur tout en évitant les configurations manuelles complexes, le bundle applique la stratégie suivante :
+
+#### 1. Détection de la configuration existante
+
+Le bundle extrait les identifiants de connexion selon l'ordre de priorité suivant :
+
+1. `.env.test.local` (priorité absolue pour les surcharges locales de test).
+2. `.env.local` (pour récupérer les identifiants réels de développement local : utilisateur, mot de passe, port).
+3. `.env` (fallback standard versionné).
+
+#### 2. Création automatique de l'environnement de test
+
+Si aucune base de test n'est détectée sur le SGBD, le bundle prend le relais :
+
+1. **Génération du fichier `.env.test.local` (s'il est absent) :**
+   - Copie de la variable `DATABASE_URL` issue de `.env.local` (ou `.env`).
+   - Ajustement automatique du nom de la base (ajout du suffixe `_test` uniquement si `dbname_suffix` n'est pas détecté dans `config/packages/test/doctrine.yaml`).
+
+2. **Création de la base de données :**
+   - Exécution de `php bin/console --env=test doctrine:database:create`.
+
+3. **Initialisation de la structure :**
+   - Si **DoctrineMigrationsBundle** et des migrations sont présents, exécution de `php bin/console --env=test doctrine:migrations:migrate --no-interaction`. 
+   - Sinon, c'est la commande `php bin/console --env=test doctrine:schema:create` qui est exécutée.

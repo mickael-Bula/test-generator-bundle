@@ -92,7 +92,7 @@ class GenerateTestCommand extends Command
      */
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $timezone = new \DateTimeZone(date_default_timezone_get());
+        $timezone = new \DateTimeZone('Europe/Paris');
         $startTime = new \DateTimeImmutable('now', $timezone);
         $startMicrotime = microtime(true);
 
