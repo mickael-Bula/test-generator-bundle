@@ -15,6 +15,8 @@ use Mika\TestGeneratorBundle\Resolver\TestPathResolver;
 use Mika\TestGeneratorBundle\Service\TestGenerator;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Exception\ExceptionInterface;
+use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -39,6 +41,7 @@ class GenerateTestCommand extends Command
         private readonly ClassResolver $classResolver,
         private readonly TestPathResolver $pathResolver,
         private readonly SpecManager $specManager,
+        private readonly DatabaseResolverCommand $databaseResolverCommand,
     ) {
         parent::__construct();
 
@@ -143,6 +146,23 @@ class GenerateTestCommand extends Command
             }
 
             $testType = $isFunctional ? TestType::FUNCTIONAL : TestType::UNIT;
+
+            // Si le test est fonctionnel, on vérifie que la base de données est initialisée
+            if ($testType === TestType::FUNCTIONAL) {
+                $this->io->section('Vérification de la base de données de test');
+                try {
+                    $dbInput = new ArrayInput([]);
+                    $exitCode = $this->databaseResolverCommand->run($dbInput, $output);
+
+                    if ($exitCode !== Command::SUCCESS) {
+                        $this->io->error('La résolution de la base de données de test a échoué.');
+
+                        return Command::FAILURE;
+                    }
+                } catch (ExceptionInterface $e) {
+                    $this->io->error($e->getMessage());
+                }
+            }
 
             $resolved = $this->classResolver->resolve($targetInput);
             $fqcn = $resolved->className;

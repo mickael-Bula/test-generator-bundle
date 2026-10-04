@@ -139,7 +139,7 @@ class GenerateSpecCommand extends Command
         // Extraction du nom court (ex : App\Service\VatCalculator → VatCalculator)
         $shortClassName = basename(str_replace('\\', '/', $fqcn));
 
-        // Vérification de l'existance du fichier source
+        // Vérification de l'existence du fichier source
         if (!is_file($filePath) || !is_readable($filePath)) {
             $io->error(sprintf('Impossible de lire le fichier : %s', $filePath));
 
