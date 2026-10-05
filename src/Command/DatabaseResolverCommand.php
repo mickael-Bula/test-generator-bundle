@@ -4,15 +4,17 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Command;
 
-use Symfony\Component\Dotenv\Dotenv;
 use Mika\TestGeneratorBundle\Dto\DatabaseInfosDto;
 use Mika\TestGeneratorBundle\Resolver\TestDatabaseResolver;
+use Mika\TestGeneratorBundle\Resolver\DamaTestBundleResolver;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Exception\ExceptionInterface;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
+use Symfony\Component\Dotenv\Dotenv;
 use Symfony\Component\HttpKernel\KernelInterface;
 
 #[AsCommand(
@@ -24,6 +26,8 @@ class DatabaseResolverCommand extends Command
     public function __construct(
         private readonly TestDatabaseResolver $resolver,
         private readonly KernelInterface $kernel,
+        #[Autowire('%kernel.project_dir%')] private readonly string $projectDir,
+        private readonly DamaTestBundleResolver $damaResolver,
     ) {
         parent::__construct();
     }
@@ -49,14 +53,18 @@ class DatabaseResolverCommand extends Command
     {
         $io = new SymfonyStyle($input, $output);
 
-        $projectDir = $this->kernel->getProjectDir();
         $kernelClass = get_class($this->kernel);
+
+        // Vérification préalable du bundle DAMA
+        if (!$this->damaResolver->checkDamaBundle($io, $this->projectDir)) {
+            return Command::FAILURE;
+        };
 
         // Récupère les informations de la BDD de DEV via un Kernel dédié
         $devDbInfos = $this->resolver->getDatabaseInfosFromKernel($kernelClass, 'dev');
 
         // Récupère les informations de la BDD de TEST via un Kernel dédié
-        $testDbInfos = $this->resolver->getDatabaseInfosWithTestEnv($kernelClass, $projectDir);
+        $testDbInfos = $this->resolver->getDatabaseInfosWithTestEnv($kernelClass, $this->projectDir);
 
         // Si le moteur n'est pas PostgreSQL, on signale que seul ce moteur est pris en charge par le Bundle.
         if ('postgresql' !== $devDbInfos->platform) {
@@ -91,7 +99,7 @@ class DatabaseResolverCommand extends Command
         // Si la base de DEV existe, on récupère sa DATABASE_URL pour créer la base de TEST.
         if ($devDbInfos->dbExists) {
             // Étape 1 : On s'assure que la DATABASE_URL est déclarée dans le fichier .env.test.local, en les créant ou en les mettant à jour.
-            $envTestLocalPath = $projectDir . '/.env.test.local';
+            $envTestLocalPath = $this->projectDir . '/.env.test.local';
             $envTestLocalExists = file_exists($envTestLocalPath);
 
             // 1.1 : Si le fichier .env.test.local n'existe pas, on tente de le créer.
@@ -105,7 +113,7 @@ class DatabaseResolverCommand extends Command
                     sprintf('La base de données de test "%s" n\'existe pas encore.', $devDbInfos->dbName . '_test')
                 );
 
-                if (Command::FAILURE === $this->resolver->createOrUpdateTestEnvFileAndDatabaseUrl($io, $projectDir, $testDbInfos->hasSuffix)) {
+                if (Command::FAILURE === $this->resolver->createOrUpdateTestEnvFileAndDatabaseUrl($io, $this->projectDir, $testDbInfos->hasSuffix)) {
                     return Command::FAILURE;
                 }
             }
@@ -135,7 +143,7 @@ class DatabaseResolverCommand extends Command
             ];
 
             // 2.2 : Création de la base de données via l'Application Console
-            $createDbProcess = $this->resolver->handleDoctrineCommands('database:create', $projectDir, $processEnv);
+            $createDbProcess = $this->resolver->handleDoctrineCommands('database:create', $this->projectDir, $processEnv);
 
             if (!$createDbProcess->isSuccessful()) {
                 $io->error("Erreur lors de la création de la base de données : \n" . $createDbProcess->getErrorOutput());
@@ -147,7 +155,7 @@ class DatabaseResolverCommand extends Command
             $io->success(sprintf('La base de test %s a été créée.', $testDbInfos->dbName));
 
             // Étape 3 : Exécution des migrations ou du schema:create en sous-processus isolé
-            if (Command::FAILURE === $this->resolver->handleDoctrineSynchronisation($testDbInfos, $io, $projectDir, $processEnv)) {
+            if (Command::FAILURE === $this->resolver->handleDoctrineSynchronisation($testDbInfos, $io, $this->projectDir, $processEnv)) {
                 return Command::FAILURE;
             }
         }

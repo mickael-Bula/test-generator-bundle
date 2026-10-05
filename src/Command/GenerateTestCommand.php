@@ -155,7 +155,7 @@ class GenerateTestCommand extends Command
                     $exitCode = $this->databaseResolverCommand->run($dbInput, $output);
 
                     if ($exitCode !== Command::SUCCESS) {
-                        $this->io->error('La résolution de la base de données de test a échoué.');
+                        $this->io->error(' La configuration de l\'environnement de test fonctionnel a échoué.');
 
                         return Command::FAILURE;
                     }

@@ -136,7 +136,7 @@ class GenerateSpecCommand extends Command
         $fqcn = $resolved->className;
         $filePath = $resolved->filePath;
 
-        // Extraction du nom court (ex : App\Service\VatCalculator → VatCalculator)
+        // Extraction du nom seul (ex : App\Service\VatCalculator → VatCalculator)
         $shortClassName = basename(str_replace('\\', '/', $fqcn));
 
         // Vérification de l'existence du fichier source
@@ -170,10 +170,10 @@ class GenerateSpecCommand extends Command
             $io->note(sprintf('Ciblage prioritaire de la méthode : %s()', $methodName));
         }
 
-        // 2. Génération du JSON via SpecGeneratorAgent
+        // Génération du JSON via SpecGeneratorAgent
         $io->section(sprintf('Génération de la matrice de spécification par le LLM (%s)...', $model));
 
-        // 5. Génération et écriture via SpecManager
+        // Génération et écriture via SpecManager
         try {
             $result = $this->specManager->generateAndSaveSpec(
                 shortClassName: $shortClassName,
