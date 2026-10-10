@@ -29,19 +29,23 @@ class SkillResolver
      */
     public function resolveForClass(string $fqcn, string $classCode): string
     {
-        $skillsToLoad = [];
+        // 1. Skill : PHPUnit 11 (Appliqué par défaut à tous les tests générés)
+        $skillsToLoad = [
+            'phpunit11.md',
+            'unit_test_safety.md',
+        ];
 
-        // 1. Skill : Commandes Symfony
+        // 2. Skill : Commandes Symfony
         if ($this->isSymfonyCommand($fqcn, $classCode)) {
             $skillsToLoad[] = 'symfony_command.md';
         }
 
-        // 2. Skill : Système de fichiers / I/O
+        // 3. Skill : Système de fichiers / I/O
         if ($this->hasFilesystemOperations($classCode)) {
             $skillsToLoad[] = 'filesystem_test.md';
         }
 
-        // 3. Skill : PhpParser v5
+        // 4. Skill : PhpParser v5
         if ($this->usesPhpParser($classCode)) {
             $skillsToLoad[] = 'php-parser-v5.md';
         }
@@ -55,7 +59,7 @@ class SkillResolver
             }
         }
 
-        // 4. Ajout des skills personnalisés du projet
+        // 5. Ajout des skills personnalisés du projet
         $customSkills = $this->loadCustomSkills();
 
         return implode("\n\n", array_merge($loadedSkills, $customSkills));

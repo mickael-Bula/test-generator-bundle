@@ -7,6 +7,7 @@ namespace Mika\TestGeneratorBundle\Service;
 use Mika\TestGeneratorBundle\Exception\TestCorrectionException;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\PromptBuilder\TestPromptBuilderInterface;
+use Mika\TestGeneratorBundle\Resolver\FixerSkillResolver;
 use Mika\TestGeneratorBundle\Validator\PhpSyntaxValidator;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\DependencyInjection\Attribute\AutowireIterator;
@@ -27,9 +28,10 @@ class TestGenerator
         #[AutowireIterator('mika_test_generator.prompt_builder')] // Récupère toutes les classes portant ce tag
         private readonly iterable $promptBuilders,
         private readonly PhpStanRunner $phpStanRunner,
+        private readonly FixerSkillResolver $fixerSkillResolver,
         private readonly Filesystem $filesystem = new Filesystem(),
-        #[Autowire('%kernel.project_dir%/var/failed_tests')] private string $failedTestsDir = 'var/failed_tests',
-        #[Autowire('%kernel.project_dir%/var/tmp')] private string $tmpDir = 'var/tmp',
+        #[Autowire('%kernel.project_dir%/var/failed_tests')] private readonly string $failedTestsDir = 'var/failed_tests',
+        #[Autowire('%kernel.project_dir%/var/tmp')] private readonly string $tmpDir = 'var/tmp',
     ) {
         // Création automatique des dossiers s'ils n'existent pas encore sur l'hôte
         if (!$this->filesystem->exists($this->tmpDir)) {
@@ -106,21 +108,27 @@ class TestGenerator
         while ($phpunitAttempt < self::MAX_PHPUNIT_ATTEMPTS) {
             ++$phpunitAttempt;
 
-            $testCode = $client->call($messages, $targetModel);
+            $rawTestCode = $client->call($messages, $targetModel);
+            $testCode = $this->cleanLlmOutput($rawTestCode);
 
             // Validation de la syntaxe PHP (nikic/php-parser)
             $syntaxResult = $this->syntaxValidator->validate($testCode);
 
             if (!$syntaxResult->isValid) {
-                // ÉCHEC SYNTAXIQUE : On informe le LLM directement sans appeler PHPUnit
-                $errorMessage = sprintf(
-                    "Une erreur de syntaxe PHP s'est produite à la ligne %d :\n%s\n\n" .
-                    "Règles d'anti-crash :\n" .
-                    "- N'échappe JAMAIS les variables avec des antislashs (écris \$this et non \\\$this).\n" .
-                    '- Vérifie la fermeture de toutes les chaînes de caractères.',
+                // ÉCHEC SYNTAXIQUE : résolution dynamique du skill adapté à l'erreur de syntaxe
+                $syntaxErrorOutput = sprintf(
+                    "Erreur de syntaxe à la ligne %d: %s",
                     $syntaxResult->errorLine ?? 0,
                     $syntaxResult->errorMessage ?? 'Syntaxe PHP invalide'
                 );
+
+                $syntaxSkills = $this->fixerSkillResolver->resolveFromErrorOutput($syntaxErrorOutput);
+
+                $errorMessage = "ERREUR DE SYNTAXE PHP :\n" . $syntaxErrorOutput . "\n\n";
+                if (!empty($syntaxSkills)) {
+                    $errorMessage .= "--- GUIDES DE CORRECTION SYNTAXIQUE ---\n" . $syntaxSkills . "\n\n";
+                }
+                $errorMessage .= "Corrige immédiatement la syntaxe et renvoie le code PHP complet corrigé.";
 
                 // On conserve la dernière erreur de syntaxe comme rapport en cas d'échec final
                 $lastOutput = "ERREUR DE SYNTAXE PHP :\n" . $errorMessage;
@@ -338,5 +346,25 @@ class TestGenerator
         }
 
         return $targetPath;
+    }
+
+    /**
+     * Nettoie la réponse du LLM pour extraire uniquement le code PHP valide.
+     * Supprime les blocs Markdown (```php ... ```) et les backticks résiduels.
+     */
+    private function cleanLlmOutput(string $rawCode): string
+    {
+        // TODO : un bout de ce code existe déjà dans PhpCodeExtractor => à factoriser
+        // 1. Découpe si le LLM a entouré le code de balises ```php ou ```
+        if (preg_match('/```(?:php)?\s*(.*?)\s*```/s', $rawCode, $matches)) {
+            $rawCode = $matches[1];
+        }
+
+        // 2. Supprime tout reliquat de backticks en début/fin de chaîne
+        $cleanCode = trim($rawCode);
+        $cleanCode = preg_replace('/^```(?:php)?/i', '', $cleanCode);
+        $cleanCode = preg_replace('/```$/', '', $cleanCode);
+
+        return trim($cleanCode);
     }
 }
