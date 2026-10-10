@@ -27,6 +27,7 @@ final readonly class FixerSkillResolver
         // Détection des erreurs PHPStan (Niveau 6)
         if (
             str_contains($errorOutput, 'unresolvable native type')
+            || str_contains($errorOutput, 'Call to an undefined method')
             || str_contains($errorOutput, 'contains unresolvable type')
             || str_contains($errorOutput, 'has no value type specified in iterable type array')
             || str_contains($errorOutput, 'PHPStan')
@@ -113,6 +114,14 @@ final readonly class FixerSkillResolver
             && str_contains($errorOutput, 'Cannot assign')
         ) {
             $skillsToLoad[] = 'unknown_type_exception.md';
+        }
+
+        // Détection des erreurs de variables nulles issues d'une mauvaise utilisation du setUp()
+        if (
+            str_contains($errorOutput, 'must be of type')
+            || str_contains($errorOutput, 'Call to a member function') && str_contains($errorOutput, 'on null')
+        ) {
+            $skillsToLoad[] = 'test_fixture_scope.md';
         }
 
         // Détection des erreurs de syntaxe PHP liées à des attributs mal placés ou des jetons inattendus
