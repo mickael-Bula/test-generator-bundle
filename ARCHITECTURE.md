@@ -13,3 +13,28 @@ Certains skills (ex : `unit_test_safety.md`) sont systématiquement ajoutés au 
 
 ## La factory de LLM
 
+## Repo-Map
+
+Elle est ajoutée dans le prompt depuis `PhpUnitFixerPromptBuilder` avec `use RepoMapSystemMessageTrait;`.
+
+## Les Skills personnalisés
+
+Il faut ajouter la possibilité de déterminer un chemin pour ajouter des Skills personnalisés
+Ce chemin sera à injecter dans la classe 
+
+## Chargements des Skills et des Détecteurs
+
+Les Skills se trouvent dans le dossier `Resources/skills` et `Resources/skills/fixer`.
+Ils sont appelés dans `TestGenerator::resolveForClass`.
+Appelés également depuis la construction du prompt PHPUnit : `PhpUnitFixerPromptBuilder::buildPrompt`.
+
+Les détecteurs sont déclarés dans et appelés depuis `FixerSkillResolver::resolveFromErrorOutput`.
+Appelés depuis `PhpUnitFixerPromptBuilder::buildSystemMessage`.
+
+## Améliorations possibles
+
+L'appel des détecteurs se fait lors de la construction du prompt : pour PHPUnit, dans PhpUnitFixerPromptBuilder
+Est-il nécessaire de transmettre la Repo-Map dans ce prompt, sachant que l'on précise le type d'erreur et sa solution ?
+
+## TODO
+

@@ -24,7 +24,7 @@ Pour générer et valider automatiquement les tests unitaires via le LLM, ce bun
 
 - **PHP** 8.2 ou supérieur
 - **Symfony** 6.4 ou 7.x
-- **PHPUnit** 10.0 ou supérieur (avec un fichier `phpunit.xml` ou `phpunit.xml.dist` à la racine de l'application)
+- **PHPUnit** 11.0 ou supérieur (avec un fichier `phpunit.xml` ou `phpunit.xml.dist` à la racine de l'application)
 - **PHPStan** 1.10 ou supérieur
 
 ### Installation rapide des outils de développement

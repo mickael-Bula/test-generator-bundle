@@ -23,8 +23,8 @@ class SkillResolver
 
     /**
      * Résolution et concatènation des skills pertinents selon la classe à tester.
-     * La méthode s'appuie sur l'autoloader de Composer, mais conserve une détection de secours sur le code source :
-     * si la classe n'a pas éncore été chargée par Composer,
+     * La méthode s'appuie sur l'Autoloader de Composer, mais conserve une détection de secours sur le code source :
+     * si la classe n'a pas encore été chargée par Composer,
      * on tente de lire les informations directement depuis le code source.
      */
     public function resolveForClass(string $fqcn, string $classCode): string

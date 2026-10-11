@@ -18,10 +18,11 @@ final readonly class FixerSkillResolver
     }
 
     /**
-     * Analyse la sortie d'erreur (PHPUnit ou PHPStan) et retourne les contenus des Skills applicables.
+     * Analyse la sortie d'erreur PHPUnit ou PHPStan et retourne les contenus des Skills applicables.
      */
     public function resolveFromErrorOutput(string $errorOutput): string
     {
+        // TODO : Voir si les skills doivent être traités tous ensemble ou individuellement par le LLM
         $skillsToLoad = [];
 
         // Détection des erreurs PHPStan (Niveau 6)

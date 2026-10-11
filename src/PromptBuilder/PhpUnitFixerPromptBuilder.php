@@ -54,7 +54,7 @@ readonly class PhpUnitFixerPromptBuilder implements TestPromptBuilderInterface
     ): array {
         $phpUnitOutput = $specContent ?? 'Aucune sortie d\'erreur fournie.';
 
-        // Résolution des skills applicables au code.
+        // Résolution des Skills applicables au code.
         $fixerSkills = $this->fixerSkillResolver->resolveFromErrorOutput($phpUnitOutput);
 
         return [
@@ -68,7 +68,7 @@ readonly class PhpUnitFixerPromptBuilder implements TestPromptBuilderInterface
                 classCode: $classCode,
                 className: $className,
                 failedTestCode: $existingTestCode ?? '',
-                phpUnitOutput: $specContent ?? 'Aucune sortie d\'erreur fournie.',
+                phpUnitOutput: $phpUnitOutput,
             ),
         ];
     }
@@ -86,10 +86,10 @@ readonly class PhpUnitFixerPromptBuilder implements TestPromptBuilderInterface
     ): string {
         $systemMessage = $this->initializeSystemMessage($filePath, $provider);
 
-        // --- EXTRACTION CIBLÉE DE LA REPO-MAP ---
+        // --- DÉTECTIONS ET EXTRACTIONS DES INDICES CORRECTIFS ---
         if (null !== $phpUnitOutput) {
-            // Récupère la repo-map générée
-            // TODO : beaucoup de répétition du même code. À re-factoriser
+            // TODO : beaucoup de répétition du même code. À re-factoriser => transformer en Skills ?
+            // Récupère la Repo-Map générée pour utilisation dans les détecteurs
             try {
                 $repoMap = $this->repoMapBuilder->buildMapForFile($filePath);
 
@@ -107,7 +107,8 @@ readonly class PhpUnitFixerPromptBuilder implements TestPromptBuilderInterface
 
                 // 3. Indice Erreur "expects() on null"
                 $expectsNullHint = $this->extractExpectsOnNullErrorHint($phpUnitOutput);
-                if (null !== $expectsNullHint) {$systemMessage .= "\n\n" . "```text\n" . $expectsNullHint . "\n```\n";
+                if (null !== $expectsNullHint) {
+                    $systemMessage .= "\n\n" . "```text\n" . $expectsNullHint . "\n```\n";
                 }
 
                 // 4. Indice Erreur de compatibilité de classe anonyme (Noms courts dans les signatures)
@@ -157,6 +158,12 @@ readonly class PhpUnitFixerPromptBuilder implements TestPromptBuilderInterface
                 if (null !== $riskyTestHint) {
                     $systemMessage .= "\n\n" . "```text\n" . $riskyTestHint . "\n```\n";
                 }
+
+                // 12. Indice sur les attentes sur un nombre d'appels mal configuré (ex : once() pour une boucle)
+                $mockCountHint = $this->extractMockCountExpectationHint($phpUnitOutput);
+                if (null !== $mockCountHint) {
+                    $systemMessage .= "\n\n" . "```text\n" . $mockCountHint . "\n```\n";
+                }
             } catch (\Exception|InvalidArgumentException $e) {
                 // On ignore silencieusement l'erreur si la Repo-Map échoue ici
             }
@@ -176,7 +183,7 @@ TEXT;
         $systemMessage .= "\n\n" . <<<'TEXT'
 EXIGENCES STRICTES DE QUALITÉ ET STYLE :
 
-1. NORMES PHPUNIT 10 & PHP 8 (OBLIGATOIRE) :
+1. NORMES PHPUNIT 11 & PHP 8 (OBLIGATOIRE) :
    - Conserve OBLIGATOIREMENT #[CoversClass(NomDeLaClasse::class)] sur la classe de test.
    - Conserve OBLIGATOIREMENT #[Test] sur chaque méthode de test.
    - Assure-toi que les imports suivants sont bien présents :
@@ -238,7 +245,7 @@ TEXT;
     {
         if ('ollama' === $normalizedProvider) {
             return <<<'TEXT'
-Tu es un Expert Fixer PHPUnit 10+ et Symfony. Ton rôle est de réparer un fichier de test unitaire existant afin de le faire passer au vert.
+Tu es un Expert Fixer PHPUnit 11+ et Symfony. Ton rôle est de réparer un fichier de test unitaire existant afin de le faire passer au vert.
 
 RÈGLES DE SORTIE STRICTES (MODE CODE PHP PUR) :
 1. Génère EXCLUSIVEMENT le code PHP corrigé, complet et immédiatement exécutable.
@@ -305,26 +312,31 @@ TEXT;
 
         if (!$foundFqcn) {
             return sprintf(
-                "INDICE DE RÉFLEXION FQCN (CLASSE INCONNUE) :\n"
-                . "La classe ou l'interface `%s` est introuvable car elle n'est pas importée (`use`) en haut du fichier de test.\n"
-                . "Tu dois impérativement ajouter l'instruction `use` correspondante ou utiliser son FQCN complet.",
-                $shortName
+                "INDICE DE RÉFLEXION FQCN (CLASSE INCONNUE) :\n" .
+                "La classe ou l'interface `%s` est introuvable. " .
+                "Utilise systématiquement son FQCN absolu complet (ex: \\App\\...\\%s).",
+                $shortName,$shortName
             );
         }
 
         $cleanFqcn = ltrim($foundFqcn, '\\');
 
         return sprintf(
-            "INDICE DE RÉFLEXION FQCN (CLASSE INCONNUE - ERREUR CRITIQUE D'IMPORT) :\n"
-            . "PHPUnit a levé une `UnknownTypeException` pour `%s` car le fichier de test omet l'importation de la classe.\n\n"
-            . "**SOLUTION OBLIGATOIRE À APPLIQUER IMMÉDIATEMENT** :\n"
-            . "1. Ajoute l'instruction `use` en haut de ton fichier de test (sous `namespace ...;` ou après les déclarations globales) :\n"
+            "INDICE DE RÉFLEXION FQCN (NOM COURT INTERDIT - UTILISE LE FQCN) :\n"
+            . "PHPUnit a levé une `UnknownTypeException` pour `%s` car tu as utilisé un nom court sans l'importer.\n\n"
+            . "**SOLUTION OBLIGATOIRE** :\n"
+            . "N'utilise pas de noms courts pour les types et les mocks. Utilise toujours le **FQCN absolu** complet.\n"
+            . "Remplace `%s` par :\n"
             . "```php\n"
-            . "use %s;\n"
+            . "\\%s\n"
             . "```\n"
-            . "2. Ou utilise directement le FQCN absolu dans tes propriétés et tes `createMock(\\%s::class)`.",
+            . "Exemple correct :\n"
+            . "```php\n"
+            . "\$this->createMock(\\%s::class);\n",
             $shortName,
-            $cleanFqcn,$cleanFqcn
+            $shortName,
+            $cleanFqcn,
+            $cleanFqcn
         );
     }
 
@@ -707,5 +719,23 @@ TEXT;
         . "**Correction à appliquer** :\n"
         . "Supprime immédiatement l'appel à `self::expectNotToPerformAssertions();` dans le ou les tests concernés. "
         . "Laisse les mocks valider les appels.";
+    }
+
+    /**
+     * Intercepte les erreurs PHPUnit liées au nombre d'appels inattendu sur un mock
+     * (ex : once() alors qu'il y a une boucle).
+     */
+    private function extractMockCountExpectationHint(string $phpUnitOutput): ?string
+    {
+        if (!preg_match('/was not expected to be called/i', $phpUnitOutput)) {
+            return null;
+        }
+
+        return "INDICE DE CORRECTION PHPUNIT (ERREUR DE COMPTAGE D'APPELS DE MOCK) :\n"
+        . "Erreur PHPUnit : Un mock a été configuré avec une attente stricte (ex: `expects(self::once())`), "
+        . "mais la méthode a été appelée plusieurs fois lors de l'exécution (généralement à cause d'une boucle sur plusieurs éléments).\n\n"
+        . "**Correction à appliquer** :\n"
+        . "Modifie l'attente du mock concerné pour autoriser plusieurs appels. "
+        . "Utilise `expects(self::any())` ou `expects(self::atLeastOnce())` au lieu de `once()` lorsque la méthode est appelée dans une boucle.";
     }
 }

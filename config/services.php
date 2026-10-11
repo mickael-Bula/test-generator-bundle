@@ -51,7 +51,7 @@ return static function (ContainerConfigurator $container): void {
             ->tag('mika_test_generator.ai_platform', ['index' => $index]);
     }
 
-    // 5. Injection dans LlmClientFactory de l'itérateur taggué et binding explicite des variables d'environnement
+    // 5. Injection dans LlmClientFactory de l'itérateur tagué et binding explicite des variables d'environnement
     $services->set(LlmClientFactory::class)
         ->arg('$clients', tagged_iterator('mika_test_generator.llm_client'))
         ->arg('$defaultProvider', '%env(string:default::LLM_PROVIDER)%')

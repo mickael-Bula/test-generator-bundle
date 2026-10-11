@@ -72,15 +72,13 @@ DIRECTIVES DE GÉNÉRATION DES TESTS UNITAIRES :
 
 1. GESTION DES DÉPENDANCES ET MOCKS (RÈGLE ABSOLUE) :
 - Analyse le constructeur de la classe cible via la Repo-Map.
-- Mocker systématiquement (via `$this->createMock(...)` dans `setUp()`) **TOUTES** les dépendances du constructeur qui sont des interfaces, 
-  des repositories, des managers ou des services.
+- Mocker systématiquement (via `$this->createMock(...)` dans `setUp()`) **TOUTES** les dépendances du constructeur qui sont des interfaces, des repositories, des managers ou des services.
 - Interdiction formelle d'instancier des services, managers ou repositories avec `new`.
 - Instancier directement avec `new` **uniquement** les DTOs, Value Objects et Entités pures.
 - Passe les arguments des méthodes de mock individuellement (ex: `->with($arg1, $arg2)`), jamais groupés dans un tableau unique.
 
 2. UTILISATION OBLIGATOIRE DES FQCN (NOMS COMPLETS) :
-- Pour TOUTES les classes, interfaces, entités, repositories et services de l'application utilisés dans le code (`createMock()`, `new`, type hints), 
-  tu DOIS IMPÉRATIVEMENT utiliser leur chemin complet avec un antislash initial (`\Namespace\...`).
+- Pour TOUTES les classes, interfaces, entités, repositories et services de l'application utilisés dans le code (`createMock()`, `new`, type hints), tu DOIS IMPÉRATIVEMENT utiliser leur chemin complet avec un antislash initial (`\Namespace\...`).
 
 3. STRUCTURE ET EXEMPLE DE CODE OBLIGATOIRE POUR LE SETUP :
 - La méthode `setUp()` doit **toujours** respecter cette structure générique (en mockant l'intégralité des dépendances du constructeur de la classe à tester) :
