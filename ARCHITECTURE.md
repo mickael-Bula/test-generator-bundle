@@ -17,6 +17,10 @@ Certains skills (ex : `unit_test_safety.md`) sont systématiquement ajoutés au 
 
 Elle est ajoutée dans le prompt depuis `PhpUnitFixerPromptBuilder` avec `use RepoMapSystemMessageTrait;`.
 
+TODO : Voir s'il est utile de la fournir, le LLM semblant ne pas s'en servir. 
+Dans ce cas, elle serait utilisée pour retrouver les signatures et les fournir en cas d'erreur rencontrée 
+(ex : `extractConstructorTypeErrorHint`).
+
 ## Les Skills personnalisés
 
 Il faut ajouter la possibilité de déterminer un chemin pour ajouter des Skills personnalisés

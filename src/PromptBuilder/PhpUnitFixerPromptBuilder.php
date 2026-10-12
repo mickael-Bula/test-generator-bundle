@@ -94,45 +94,45 @@ readonly class PhpUnitFixerPromptBuilder implements TestPromptBuilderInterface
                 $repoMap = $this->repoMapBuilder->buildMapForFile($filePath);
 
                 // 1. Indice Repo-Map pour les classes inconnues
-                $targetedHint =$this->extractTargetedFqcnHint($phpUnitOutput,$repoMap);
+                $targetedHint =$this->extractTargetedFqcnHint($phpUnitOutput, $repoMap);
                 if (null !== $targetedHint) {
                     $systemMessage .= "\n\n" . "```text\n" . $targetedHint . "\n```\n";
                 }
 
                 // 2. Indice Repo-Map pour les erreurs "Class not found" à l'instanciation
-                $classNotFoundHint =$this->extractClassNotFoundErrorHint($phpUnitOutput,$repoMap);
+                $classNotFoundHint =$this->extractClassNotFoundErrorHint($phpUnitOutput, $repoMap);
                 if (null !== $classNotFoundHint) {
                     $systemMessage .= "\n\n" . "```text\n" . $classNotFoundHint . "\n```\n";
                 }
 
-                // 3. Indice Erreur "expects() on null"
+                // 3. Indice Avertissement PHP (Undefined array key)
+                $arrayKeyHint = $this->extractUndefinedArrayKeyHint($phpUnitOutput, $repoMap);
+                if (null !== $arrayKeyHint) {
+                    $systemMessage .= "\n\n" . "```text\n" . $arrayKeyHint . "\n```\n";
+                }
+
+                // 4. Indice Erreur "expects() on null"
                 $expectsNullHint = $this->extractExpectsOnNullErrorHint($phpUnitOutput);
                 if (null !== $expectsNullHint) {
                     $systemMessage .= "\n\n" . "```text\n" . $expectsNullHint . "\n```\n";
                 }
 
-                // 4. Indice Erreur de compatibilité de classe anonyme (Noms courts dans les signatures)
+                // 5. Indice Erreur de compatibilité de classe anonyme (Noms courts dans les signatures)
                 $anonCompatHint = $this->extractAnonymousClassCompatibilityHint($phpUnitOutput);
                 if (null !== $anonCompatHint) {
                     $systemMessage .= "\n\n" . "```text\n" . $anonCompatHint . "\n```\n";
                 }
 
-                // 5. Indice Réflexion Attribut Symfony mal instancié
+                // 6. Indice Réflexion Attribut Symfony mal instancié
                 $attributeHint = $this->extractAttributeInstantiationErrorHint($phpUnitOutput);
                 if (null !== $attributeHint) {
                     $systemMessage .= "\n\n" . "```text\n" . $attributeHint . "\n```\n";
                 }
 
-                // 6. Indice Réflexion PHP pour les DTOs non mutables et leurs constructeurs
+                // 7. Indice Réflexion PHP pour les DTOs non mutables et leurs constructeurs
                 $dtoHint = $this->extractDtoConstructorHint($phpUnitOutput);
                 if (null !== $dtoHint) {
                     $systemMessage .= "\n\n" . "```text\n" . $dtoHint . "\n```\n";
-                }
-
-                // 7. Indice Avertissement PHP (Undefined array key)
-                $arrayKeyHint = $this->extractUndefinedArrayKeyHint($phpUnitOutput);
-                if (null !== $arrayKeyHint) {
-                    $systemMessage .= "\n\n" . "```text\n" . $arrayKeyHint . "\n```\n";
                 }
 
                 // 8. Indice TypeError Argument Null
@@ -395,43 +395,97 @@ TEXT;
     }
 
     /**
-     * Intercepte les avertissements PHP de type "Undefined array key"
-     * pour indiquer au LLM de configurer les valeurs de retour de ses mocks.
+     * Intercepte les avertissements "Undefined array key" en combinant
+     * l'extrait source et la recherche dans la Repo-Map pour fournir la signature
      */
-    private function extractUndefinedArrayKeyHint(string $phpUnitOutput): ?string
+    private function extractUndefinedArrayKeyHint(string $phpUnitOutput, string $repoMap): ?string
     {
         $file = '';
-        $line = '';
+        $line = 0;
 
         if (preg_match(
-            '/([^\r\n:]+):(\d+)\s*\n\s*Undefined array key\s+"([^"]+)"/i',
+            '/([^\r\n:]+\.php):(\d+)\s*\n\s*Undefined array key\s+"([^"]+)"/i',
             $phpUnitOutput,
             $matches
         )) {
-            $file = $matches[1];
-            $line = $matches[2];
-            $missingKey = $matches[3];
-        }
-        // Fallback : si la sortie est sur une seule ligne ou format différent
-        elseif (preg_match('/Undefined array key\s+"([^"]+)"/i', $phpUnitOutput,$matches)) {
+            $file =$matches[1];
+            $line = (int)$matches[2];
+            $missingKey =$matches[3];
+        } elseif (preg_match('/Undefined array key\s+"([^"]+)"/i', $phpUnitOutput,$matches)) {
             $missingKey =$matches[1];
         } else {
             return null;
         }
 
-        $locationInfo = $file !== '' ? sprintf(" (à la ligne %s de %s)", $line, basename($file)) : "";
+        $sourceContext = '';
+        $calledMethodName = '';
+
+        if ($file !== '' && file_exists($file)) {
+            $fileLines = file($file);
+            if ($fileLines !== false) {
+                // 1. Fenêtre de code source autour de l'erreur
+                $start = max(0, $line - 6);
+                $end = min(count($fileLines),$line + 3);
+
+                $snippet = [];
+                for ($i = $start; $i < $end; $i++) {
+                    $prefix = ($i + 1 === $line) ? '>>> LIGNE EN ERREUR : ' : '                    ';
+                    $snippet[] = sprintf('%d: %s%s', $i + 1,$prefix, rtrim($fileLines[$i]));
+                }
+                $sourceContext = implode("\n", $snippet);
+
+                // 2. Extraire le nom de la méthode appelée juste avant, en remontant le snippet
+                for ($i = $line - 1; $i >= max(0, $line - 5); $i--) {
+                    if (preg_match('/->([a-zA-Z0-9_]+)\s*\(/', $fileLines[$i],$callMatch)) {
+                        $calledMethodName = $callMatch[1];
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 3. Recherche du contrat/signature dans la Repo-Map existante
+        $repoMapSnippet = '';
+        if ($calledMethodName !== '') {
+            $repoLines = explode("\n", $repoMap);
+            $foundLines = [];
+            $capture = false;
+
+            foreach ($repoLines as$repoLine) {
+                if (str_contains($repoLine, $calledMethodName)) {$capture = true;
+                }
+                if ($capture) {
+                    $foundLines[] = $repoLine;
+                    if (count($foundLines) > 10 || trim($repoLine) === '}') {
+                        break;
+                    }
+                }
+            }
+            if (!empty($foundLines)) {
+                $repoMapSnippet = implode("\n", $foundLines);
+            }
+        }
+
+        $contextBlock = $sourceContext !== ''
+            ? "\n\nExtrait du code source de la SUT :\n```php\n" . $sourceContext . "\n```\n"
+            : "";
+
+        $repoBlock = $repoMapSnippet !== ''
+            ? "\nExtrait de la Repo-Map (Contrat de la méthode source du tableau) :\n```php\n" . $repoMapSnippet . "\n```\n"
+            : "";
 
         return sprintf(
-            "INDICE DE CORRECTION AVERTISSEMENT PHP (UNDEFINED ARRAY KEY) %s :\n"
-            . "Alerte PHP détectée : La clé de tableau `%s` est introuvable lors de l'exécution.\n"
-            . "Diagnostic : L'un de tes mocks ou une dépendance injectée renvoie un tableau incomplet ou vide, "
-            . "alors que la SUT s'attend à y trouver la clé `%s`.\n\n"
-            . "**Correction à appliquer** :\n"
-            . "Mets à jour la configuration de tes mocks (via `.willReturn(...)`) "
-            . "pour que les données retournées incluent explicitement la clé `%s` avec une valeur valide de test.",
-            $locationInfo,
+            "INDICE DE CORRECTION EXPERT (AVERTISSEMENT PHP : UNDEFINED ARRAY KEY) :\n"
+            . "Alerte PHP détectée : La clé de tableau `%s` est absente à la ligne %s.\n"
+            . "%s"
+            . "%s\n"
+            . "**ACTION REQUISE DANS LE TEST** :\n"
+            . "En analysant le contrat ci-dessus extrait de la Repo-Map, identifie le mock fournisseur de ce tableau. "
+            . "Mets à jour son `willReturn(...)` dans le test pour qu'il retourne un tableau contenant explicitement la clé `%s`.",
             $missingKey,
-            $missingKey,
+            $line > 0 ? $line : 'inconnue',
+            $contextBlock,
+            $repoBlock,
             $missingKey
         );
     }

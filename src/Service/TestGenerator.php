@@ -7,7 +7,6 @@ namespace Mika\TestGeneratorBundle\Service;
 use Mika\TestGeneratorBundle\Exception\TestCorrectionException;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\PromptBuilder\TestPromptBuilderInterface;
-use Mika\TestGeneratorBundle\Resolver\FixerSkillResolver;
 use Mika\TestGeneratorBundle\Validator\PhpSyntaxValidator;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\DependencyInjection\Attribute\AutowireIterator;
@@ -28,7 +27,6 @@ class TestGenerator
         #[AutowireIterator('mika_test_generator.prompt_builder')] // Récupère toutes les classes portant ce tag
         private readonly iterable $promptBuilders,
         private readonly PhpStanRunner $phpStanRunner,
-        private readonly FixerSkillResolver $fixerSkillResolver,
         private readonly Filesystem $filesystem = new Filesystem(),
         #[Autowire('%kernel.project_dir%/var/failed_tests')] private readonly string $failedTestsDir = 'var/failed_tests',
         #[Autowire('%kernel.project_dir%/var/tmp')] private readonly string $tmpDir = 'var/tmp',
