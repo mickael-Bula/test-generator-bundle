@@ -4,7 +4,7 @@ Lorsque la classe à tester interagit avec `nikic/php-parser` (v5+) :
 
 1. **Visibilité & Modificateurs :**
     - **Interdiction :** N'utilise JAMAIS `Class_::MODIFIER_PUBLIC`, `Class_::MODIFIER_PROTECTED`, `Class_::MODIFIER_PRIVATE`.
-    - **Obligation :** Utilise EXCLUSIVEMENT la classe `PhpParser\Modifiers` (ex: `Modifiers::PUBLIC`, `Modifiers::PROTECTED`, `Modifiers::PRIVATE`).
+    - **Obligation :** Utilise EXCLUSIVEMENT la classe `PhpParser\Modifiers` (ex : `Modifiers::PUBLIC`, `Modifiers::PROTECTED`, `Modifiers::PRIVATE`).
 
 2. **Interdiction STRICTE des tableaux optionnels vides (anti-warning IDE) :**
     - Ne passe JAMAIS la clé `'params' => []` dans les options de `ClassMethod` quand la méthode n'a pas de paramètres.

@@ -79,7 +79,7 @@ class SymfonyAiClient implements LlmClientInterface
             };
         }
 
-        // 1. Invocation de la plateforme (erreurs réseau/API uniquement)
+        // Invocation de la plateforme (erreurs réseau/API uniquement)
         try {
             return $platform->invoke($targetModel, $messageBag)
                 ->asText();
@@ -126,7 +126,7 @@ class SymfonyAiClient implements LlmClientInterface
 
             return $testResult->getCleanTestCode();
         } catch (\Throwable) {
-            // Ignoré, on tente les fallbacks
+            // On ignore l'exception pour tenter les fallbacks
         }
 
         // Tentative 2 : Décodage manuel via json_decode

@@ -22,7 +22,7 @@ trait RepoMapSystemMessageTrait
         $systemMessage = $this->getSystemMessage($normalizedProvider);
 
         try {
-            // Génération de la repo-map dynamique ciblée sur le dossier fournit (src du projet hôte ou d'un vendor)
+            // Génération de la Repo-Map dynamique ciblée sur le dossier fournit (src du projet hôte ou d'un vendor)
             $repoMap = $this->repoMapBuilder->buildMapForFile($filePath);
         } catch (\InvalidArgumentException|InvalidArgumentException $e) {
             $message = sprintf(
@@ -40,7 +40,7 @@ trait RepoMapSystemMessageTrait
                 . "CONSIGNES SUR LA REPO-MAP :\n"
                 . '- Utilise obligatoirement cette cartographie pour vérifier les namespaces exacts, '
                 . "les méthodes et les types de retour des classes dépendantes lors de la création de mocks.\n"
-                . '- Ne devine pas les signatures des méthodes externes si elles sont présentes dans la repo-map.';
+                . '- Ne devine pas les signatures des méthodes externes si elles sont présentes dans la Repo-Map.';
         }
 
         return $systemMessage;

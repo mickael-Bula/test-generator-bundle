@@ -28,8 +28,8 @@ class TestGenerator
         private readonly iterable $promptBuilders,
         private readonly PhpStanRunner $phpStanRunner,
         private readonly Filesystem $filesystem = new Filesystem(),
-        #[Autowire('%kernel.project_dir%/var/failed_tests')] private string $failedTestsDir = 'var/failed_tests',
-        #[Autowire('%kernel.project_dir%/var/tmp')] private string $tmpDir = 'var/tmp',
+        #[Autowire('%kernel.project_dir%/var/failed_tests')] private readonly string $failedTestsDir = 'var/failed_tests',
+        #[Autowire('%kernel.project_dir%/var/tmp')] private readonly string $tmpDir = 'var/tmp',
     ) {
         // Création automatique des dossiers s'ils n'existent pas encore sur l'hôte
         if (!$this->filesystem->exists($this->tmpDir)) {
@@ -106,30 +106,25 @@ class TestGenerator
         while ($phpunitAttempt < self::MAX_PHPUNIT_ATTEMPTS) {
             ++$phpunitAttempt;
 
-            $testCode = $client->call($messages, $targetModel);
+            $rawTestCode = $client->call($messages, $targetModel);
+            $testCode = $this->cleanLlmOutput($rawTestCode);
 
             // Validation de la syntaxe PHP (nikic/php-parser)
             $syntaxResult = $this->syntaxValidator->validate($testCode);
 
             if (!$syntaxResult->isValid) {
-                // ÉCHEC SYNTAXIQUE : On informe le LLM directement sans appeler PHPUnit
-                $errorMessage = sprintf(
-                    "Une erreur de syntaxe PHP s'est produite à la ligne %d :\n%s\n\n" .
-                    "Règles d'anti-crash :\n" .
-                    "- N'échappe JAMAIS les variables avec des antislashs (écris \$this et non \\\$this).\n" .
-                    '- Vérifie la fermeture de toutes les chaînes de caractères.',
+                // ÉCHEC SYNTAXIQUE : résolution dynamique du Skill adapté à l'erreur de syntaxe
+                $syntaxErrorOutput = sprintf(
+                    "Erreur de syntaxe à la ligne %d: %s",
                     $syntaxResult->errorLine ?? 0,
                     $syntaxResult->errorMessage ?? 'Syntaxe PHP invalide'
                 );
 
-                // On conserve la dernière erreur de syntaxe comme rapport en cas d'échec final
-                $lastOutput = "ERREUR DE SYNTAXE PHP :\n" . $errorMessage;
+                $errorMessage = "ERREUR DE SYNTAXE PHP :\n" . $syntaxErrorOutput . "\n\n";
+                $errorMessage .= "Corrige immédiatement la syntaxe et renvoie le code PHP complet corrigé.";
 
                 $messages[] = ['role' => 'assistant', 'content' => $testCode];
-                $messages[] = [
-                    'role' => 'user',
-                    'content' => $errorMessage . "\n\nCorrige immédiatement la syntaxe et renvoie le code PHP complet corrigé.",
-                ];
+                $messages[] = ['role' => 'user', 'content' => $errorMessage];
 
                 // On relance la boucle pour la correction de la syntaxe.
                 continue;
@@ -137,11 +132,25 @@ class TestGenerator
 
             // Exécution du test PHPUnit
             $result = $this->testRunner->runTest($testCode, $className);
-            $lastOutput = '' !== $result['output'] ? $result['output'] : 'Aucune sortie reçue de PHPUnit.';
 
-            if ($result['success']) {
+            $rawOutput = $result['output'] ?? '';
+
+            // 1. Suppression des codes de coloration ANSI de PHPUnit pour fiabiliser les str_contains
+            $cleanOutput = preg_replace('/\x1b\[[0-9;]*[mK]/', '', $rawOutput);
+            $lastOutput = '' !== $cleanOutput ? $cleanOutput : 'Aucune sortie reçue de PHPUnit.';
+
+            // Détection de la présence d'avertissements ou de warnings PHP dans la sortie
+            $hasPhpWarnings = str_contains($lastOutput, 'PHP warning:') || str_contains($lastOutput, 'Warnings:');
+
+            if ($result['success'] && !$hasPhpWarnings) {
                 $isPhpUnitValid = true;
-                break; // PHPUnit passe, on peut avancer vers PHPStan
+                break; // PHPUnit passe sans aucun warning, on avance vers PHPStan
+            }
+
+            // Si PHPUnit réussit, mais contient des warnings, on force le passage dans le Fixer
+            // en transformant la sortie en rapport d'erreur exploitable par les intercepteurs.
+            if ($result['success'] && $hasPhpWarnings) {
+                $lastOutput = "ERREUR DE VALIDATION (AVERTISSEMENT PHP DÉTECTÉ) :\n" . $lastOutput;
             }
 
             $this->prepareFixerIteration(
@@ -159,7 +168,13 @@ class TestGenerator
         // Si PHPUnit n'a pas réussi à valider en 3 tentatives
         if (!$isPhpUnitValid) {
             $savedPath = $this->saveFailedTest($className, $testCode, $lastOutput);
-            throw new TestCorrectionException(sprintf('Impossible de générer un test valide (PHPUnit) pour %s après %d tentatives. Sauvegardé dans : %s', $className, self::MAX_PHPUNIT_ATTEMPTS, $savedPath));
+            throw new TestCorrectionException(
+                sprintf(
+                    'Impossible de générer un test valide (PHPUnit) pour %s après %d tentatives. Sauvegardé dans : %s',
+                    $className,
+                    self::MAX_PHPUNIT_ATTEMPTS,
+                    $savedPath)
+            );
         }
 
         // ==========================================
@@ -244,7 +259,7 @@ class TestGenerator
     }
 
     /**
-     * Récupération du prompt du Fixer.
+     * Récupération du prompt du Fixer et injection dynamique des Skills selon l'erreur.
      * Le tableau $messages étant passé par référence, les modifications y sont directement appliquées.
      *
      * @param array<int, array{role: string, content: string}> $messages
@@ -311,14 +326,14 @@ class TestGenerator
     }
 
     /**
-     * Sauvegarde le test défaillant et du rapport d'erreur PHPUnit.
+     * Sauvegarde le test défaillant et le rapport d'erreur PHPUnit.
      */
     private function saveFailedTest(string $className, string $testCode, ?string $failureOutput): string
     {
         // Formatage du nom de fichier avec Horodatage
         $date = (new \DateTimeImmutable())->format('Y-m-d_H-i-s');
-        $filename = sprintf('%s_%sFailedTest.php', $date, $className);
-        $logFilename = sprintf('%s_%sFailedTest.log', $date, $className);
+        $filename = sprintf('%s_%s_FailedTest.php', $date, $className);
+        $logFilename = sprintf('%s_%s_FailedTest.log', $date, $className);
 
         // Normalisation des séparateurs de dossiers selon l'OS (DIRECTORY_SEPARATOR)
         $normalizedDir = rtrim(
@@ -338,5 +353,25 @@ class TestGenerator
         }
 
         return $targetPath;
+    }
+
+    /**
+     * Nettoie la réponse du LLM pour extraire uniquement le code PHP valide.
+     * Supprime les blocs Markdown (```php ... ```) et les backticks résiduels.
+     */
+    private function cleanLlmOutput(string $rawCode): string
+    {
+        // TODO : un bout de ce code existe déjà dans PhpCodeExtractor => à factoriser
+        // 1. Découpe si le LLM a entouré le code de balises ```php ou ```
+        if (preg_match('/```(?:php)?\s*(.*?)\s*```/s', $rawCode, $matches)) {
+            $rawCode = $matches[1];
+        }
+
+        // 2. Supprime tout reliquat de backticks en début/fin de chaîne
+        $cleanCode = trim($rawCode);
+        $cleanCode = preg_replace('/^```(?:php)?/i', '', $cleanCode);
+        $cleanCode = preg_replace('/```$/', '', $cleanCode);
+
+        return trim($cleanCode);
     }
 }

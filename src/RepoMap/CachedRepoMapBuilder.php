@@ -91,7 +91,7 @@ class CachedRepoMapBuilder
         $cachedHashItem = $this->cache->getItem($cacheKeyHash);
         $cachedMapItem = $this->cache->getItem($cacheKeyMap);
 
-        // 3. Si le cache existe et que le hash du dossier n'a pas changé
+        // 3. Si le cache existe et que le hash du dossier n'a pas changé, on le retourne
         if ($cachedHashItem->isHit() && $cachedMapItem->isHit() && $cachedHashItem->get() === $currentHash) {
             return (string) $cachedMapItem->get();
         }

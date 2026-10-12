@@ -15,6 +15,8 @@ use Mika\TestGeneratorBundle\Resolver\TestPathResolver;
 use Mika\TestGeneratorBundle\Service\TestGenerator;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Exception\ExceptionInterface;
+use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -39,6 +41,7 @@ class GenerateTestCommand extends Command
         private readonly ClassResolver $classResolver,
         private readonly TestPathResolver $pathResolver,
         private readonly SpecManager $specManager,
+        private readonly DatabaseResolverCommand $databaseResolverCommand,
     ) {
         parent::__construct();
 
@@ -92,7 +95,7 @@ class GenerateTestCommand extends Command
      */
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $timezone = new \DateTimeZone(date_default_timezone_get());
+        $timezone = new \DateTimeZone('Europe/Paris');
         $startTime = new \DateTimeImmutable('now', $timezone);
         $startMicrotime = microtime(true);
 
@@ -143,6 +146,23 @@ class GenerateTestCommand extends Command
             }
 
             $testType = $isFunctional ? TestType::FUNCTIONAL : TestType::UNIT;
+
+            // Si le test est fonctionnel, on vérifie que la base de données est initialisée
+            if ($testType === TestType::FUNCTIONAL) {
+                $this->io->section('Vérification de la base de données de test');
+                try {
+                    $dbInput = new ArrayInput([]);
+                    $exitCode = $this->databaseResolverCommand->run($dbInput, $output);
+
+                    if ($exitCode !== Command::SUCCESS) {
+                        $this->io->error(' La configuration de l\'environnement de test fonctionnel a échoué.');
+
+                        return Command::FAILURE;
+                    }
+                } catch (ExceptionInterface $e) {
+                    $this->io->error($e->getMessage());
+                }
+            }
 
             $resolved = $this->classResolver->resolve($targetInput);
             $fqcn = $resolved->className;
@@ -281,7 +301,10 @@ class GenerateTestCommand extends Command
                 className: $shortClassName,
             );
 
-            file_put_contents($testTargetPath->filePath, $testCode);
+            // Application du post-processeur de FQCN (remplacement des FQCN par 'use')
+            $cleanTestCode = $this->refactorFqcnToUseStatements($testCode);
+
+            file_put_contents($testTargetPath->filePath, $cleanTestCode);
 
             $this->displayFinalMessage($testFileExisted, $testTargetPath, $testType);
 
@@ -388,5 +411,54 @@ class GenerateTestCommand extends Command
             ['Fin' => $endTime->format('H:i:s')],
             ['Durée totale' => $formattedDuration]
         );
+    }
+
+    /**
+     * Post-processeur automatique : convertit les FQCN inline (App\, Doctrine\, PHPUnit\)
+     * en instructions 'use' propres en début de fichier et raccourcit les types.
+     */
+    private function refactorFqcnToUseStatements(string $phpCode): string
+    {
+        // 1. Capture tous les FQCN cibles (App\, Doctrine\, PHPUnit\MockObject)
+        preg_match_all('/\\\\(App|Doctrine|PHPUnit\\\\Framework\\\\MockObject)\\\\[a-zA-Z0-9_\\\\]+/', $phpCode, $matches);
+        $fqcns = array_unique($matches[0]);
+
+        if (empty($fqcns)) {
+            return $phpCode;
+        }
+
+        $useStatements = [];
+        $replacements = [];
+
+        foreach ($fqcns as $fqcn) {
+            $parts = explode('\\', ltrim($fqcn, '\\'));
+            $shortName = end($parts);
+
+            // Génère l'instruction use (ex : use App\Entity\MaClasse;)
+            $useStatements[] = "use " . ltrim($fqcn, '\\') . ";";
+
+            // Prépare le dictionnaire de remplacement (FQCN -> Nom court)
+            $replacements[$fqcn] = $shortName;
+        }
+
+        // Supprime les doublons d'imports et trie par ordre alphabétique
+        $useStatements = array_unique($useStatements);
+        sort($useStatements);
+        $useBlock = implode("\n", $useStatements);
+
+        // Trie les remplacements du plus long au plus court pour éviter les conflits de sous-chaînes
+        uksort($replacements, fn($a, $b) => strlen($b) - strlen($a));
+
+        // Remplace les FQCN dans le corps du code par leur nom court
+        foreach ($replacements as $fqcn => $shortName) {
+            $phpCode = str_replace($fqcn, $shortName, $phpCode);
+        }
+
+        // Insère le bloc de 'use' juste après la déclaration du namespace
+        if (preg_match('/namespace\s+[^;]+;\s*/', $phpCode, $nsMatches)) {
+            $phpCode = str_replace($nsMatches[0], $nsMatches[0] . "\n" . $useBlock . "\n", $phpCode);
+        }
+
+        return $phpCode;
     }
 }
