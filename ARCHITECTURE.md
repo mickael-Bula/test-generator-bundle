@@ -21,6 +21,9 @@ TODO : Voir s'il est utile de la fournir, le LLM semblant ne pas s'en servir.
 Dans ce cas, elle serait utilisée pour retrouver les signatures et les fournir en cas d'erreur rencontrée 
 (ex : `extractConstructorTypeErrorHint`).
 
+On pourrait même n'utiliser que la reflection PHP pour fournir les méthodes et classes nécessaires plutôt que tout le projet.
+On fournirait ainsi la classe à tester (SUT) et les signatures des dépendances de la classe testée (avec les DocBlocks) et rien d'autre.
+
 ## Les Skills personnalisés
 
 Il faut ajouter la possibilité de déterminer un chemin pour ajouter des Skills personnalisés
