@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 
+use Mika\TestGeneratorBundle\Interceptor\ErrorInterceptorInterface;
+use Mika\TestGeneratorBundle\Registry\ErrorInterceptorRegistry;
 use Symfony\AI\Platform\Platform;
 use Mika\TestGeneratorBundle\Llm\SymfonyAiClient;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
@@ -24,11 +26,18 @@ return static function (ContainerConfigurator $container): void {
     $services->instanceof(TestPromptBuilderInterface::class)
         ->tag('mika_test_generator.prompt_builder');
 
+    $services->instanceof(ErrorInterceptorInterface::class)
+        ->tag('mika_test_generator.error_interceptor');
+
     // 2. Chargement automatique de toutes les classes PHP du bundle
     $services->load('Mika\\TestGeneratorBundle\\', '../src/*')
         ->exclude('../src/{DependencyInjection,Dto,Enum,Exception,Resources,TestGeneratorBundle.php}');
 
-    // 3. Configuration des clés d'environnement pour AiPlatformFactory
+    // 3. Enregistrement du Registry d'intercepteurs avec l'itérateur tagué
+    $services->set(ErrorInterceptorRegistry::class)
+        ->arg('$interceptors', tagged_iterator('mika_test_generator.error_interceptor'));
+
+    // 4. Configuration des clés d'environnement pour AiPlatformFactory
     $services->set(AiPlatformFactory::class)
         ->arg('$geminiKey', '%env(string:default::GEMINI_API_KEY)%')
         ->arg('$openAiKey', '%env(string:default::OPENAI_API_KEY)%')
@@ -36,7 +45,7 @@ return static function (ContainerConfigurator $container): void {
         ->arg('$openRouterKey', '%env(string:default::OPENROUTER_API_KEY)%')
         ->arg('$ollamaUrl', '%env(string:default::OLLAMA_HOST)%');
 
-    // 4. Enregistrement des plateformes Symfony AI pour le ServiceLocator
+    // 5. Enregistrement des plateformes Symfony AI pour le ServiceLocator
     $platforms = [
         'gemini' => 'createGeminiPlatform',
         'openai' => 'createOpenAiPlatform',
@@ -51,13 +60,13 @@ return static function (ContainerConfigurator $container): void {
             ->tag('mika_test_generator.ai_platform', ['index' => $index]);
     }
 
-    // 5. Injection dans LlmClientFactory de l'itérateur tagué et binding explicite des variables d'environnement
+    // 6. Injection dans LlmClientFactory de l'itérateur tagué et binding explicite des variables d'environnement
     $services->set(LlmClientFactory::class)
         ->arg('$clients', tagged_iterator('mika_test_generator.llm_client'))
         ->arg('$defaultProvider', '%env(string:default::LLM_PROVIDER)%')
         ->arg('$defaultModel', '%env(string:default::LLM_MODEL)%');
 
-    // 6. Injection des variables d'environnement dans SymfonyAiClient
+    // 7. Injection des variables d'environnement dans SymfonyAiClient
     $services->set(SymfonyAiClient::class)
         ->arg('$defaultProvider', '%env(string:default::LLM_PROVIDER)%')
         ->arg('$defaultModel', '%env(string:default::LLM_MODEL)%');
