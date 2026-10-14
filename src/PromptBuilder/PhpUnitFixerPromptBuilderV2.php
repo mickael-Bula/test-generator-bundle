@@ -6,14 +6,12 @@ namespace Mika\TestGeneratorBundle\PromptBuilder;
 
 use Mika\TestGeneratorBundle\Attribute\AsTestPromptBuilder;
 use Mika\TestGeneratorBundle\Registry\ErrorInterceptorRegistry;
-use Mika\TestGeneratorBundle\Resolver\FixerSkillResolver;
 
 #[AsTestPromptBuilder(type: 'fixer_v2')]
 readonly class PhpUnitFixerPromptBuilderV2 implements TestPromptBuilderInterface
 {
     public function __construct(
         private ErrorInterceptorRegistry $interceptorRegistry,
-        private FixerSkillResolver $fixerSkillResolver,
     ) {
     }
 
@@ -32,26 +30,20 @@ readonly class PhpUnitFixerPromptBuilderV2 implements TestPromptBuilderInterface
         ?string $specContent = null,
         ?string $provider = null,
     ): array {
-        $phpUnitOutput =$specContent ?? 'Aucune sortie d\'erreur fournie.';
+        $phpUnitOutput = $specContent ?? 'Aucune sortie d\'erreur fournie.';
 
-        // 1. Résolution des indices experts via les intercepteurs modulaires par Réflexion
+        // Résolution des indices experts via les intercepteurs modulaires par Réflexion
         $expertHint = $this->interceptorRegistry->resolveFromErrorOutput($phpUnitOutput);
 
-        // 2. Résolution des skills
-        $fallbackSkills = $this->fixerSkillResolver->resolveFromErrorOutput($phpUnitOutput);
-
-        // TODO : Voir s'il faut ajouter une tâche supprimant les éventuels doublons
-
         return [
-            'system' => $this->buildSystemMessage($provider, $expertHint,$fallbackSkills),
-            'user' => $this->buildUserMessage($classCode,$className, $existingTestCode ?? '', $phpUnitOutput),
+            'system' => $this->buildSystemMessage($provider, $expertHint),
+            'user' => $this->buildUserMessage($classCode, $className, $existingTestCode ?? '', $phpUnitOutput),
         ];
     }
 
     private function buildSystemMessage(
         ?string $provider = null,
         ?string $expertHint = null,
-        ?string $fallbackSkills = null,
     ): string {
         $systemMessage = $this->getSystemHeader($provider);
 
@@ -70,10 +62,6 @@ TEXT;
             . "💡 DIRECTIVES EXPERTES DE CORRECTION (RÉFLEXION) :\n"
             . "========================================\n"
             . $expertHint;
-        }
-
-        if (null !== $fallbackSkills && trim($fallbackSkills) !== '') {
-            $systemMessage .= "\n\n" . $fallbackSkills;
         }
 
         return $systemMessage;
@@ -117,7 +105,7 @@ TEXT;
         }
 
         return <<<'TEXT'
-Tu es un Expert Fixer PHPUnit 10+ et Symfony. Ton rôle est de réparer un fichier de test unitaire existant afin de le faire passer au vert.
+Tu es un Expert Fixer PHPUnit 11+ et Symfony. Ton rôle est de réparer un fichier de test unitaire existant afin de le faire passer au vert.
 Réponds exclusivement en JSON valide avec la clé 'test_code' contenant le code PHP corrigé (commençant par <?php).
 TEXT;
     }

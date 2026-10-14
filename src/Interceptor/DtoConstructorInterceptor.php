@@ -9,48 +9,63 @@ final class DtoConstructorInterceptor implements ErrorInterceptorInterface
 {
     public function supports(string $errorOutput): bool
     {
-        return str_contains($errorOutput, 'Call to undefined method')
-            && (str_contains($errorOutput, 'with') || str_contains($errorOutput, 'set'));
+        return str_contains($errorOutput, 'Call to undefined method');
     }
 
     public function intercept(string $errorOutput): ?string
     {
-        if (!preg_match('/Call to undefined method ([^:]+)::(with|set)/i', $errorOutput,$matches)) {
+        // Capture n'importe quelle méthode inexistante sur n'importe quelle classe
+        if (!preg_match('/Call to undefined method ([^:]+)::([a-zA-Z0-9_]+)/i', $errorOutput,$matches)) {
             return null;
         }
 
-        $className =$matches[1];
+        $className = $matches[1];
+        $methodName = $matches[2];
+
         if (!class_exists($className)) {
             return null;
         }
 
         try {
-            $reflection = new \ReflectionClass($className);$constructor = $reflection->getConstructor();$params = [];
+            $reflection = new \ReflectionClass($className);
+            $constructor = $reflection->getConstructor();
+            $params = [];
 
             if ($constructor) {
-                foreach ($constructor->getParameters() as$param) {
-                    $params[] = '$' . $param->getName() . ($param->isOptional() ? ' [optionnel]' : ' [requis]');
+                foreach ($constructor->getParameters() as $param) {
+                    $pType = $param->getType();
+                    $pTypeName = $pType instanceof \ReflectionNamedType ? $pType->getName() : 'mixed';
+                    $params[] = sprintf(
+                        '%s $\%s\%s',
+                        $pTypeName,
+                        $param->getName(),
+                        $param->isOptional() ? ' [optionnel]' : ' [requis]'
+                    );
                 }
             }
 
             $publicMethods = [];
-            foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as$method) {
+            foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
                 if (!$method->isConstructor() && !str_starts_with($method->getName(), '__')) {
-                    $publicMethods[] =$method->getName();
+                    $publicMethods[] = $method->getName();
                 }
             }
 
             return sprintf(
-                "INDICE DE RÉFLEXION PHP CRITIQUE (OBJET IMMUABLE / DTO) :\n" .
-                "Erreur fatale : Tu tentes d'appeler une méthode inexistante (`with*` ou `set*`) sur la classe `%s`.\n" .
-                "❌ **Rappel** : Les DTOs et Value Objects sont immuables. Ils n'ont **aucun** setter (`set*`).\n\n" .
-                "✔️ **API Réelle et exhaustive disponible sur cette classe (extraite par Réflexion)** :\n" .
-                "- **Constructeur** : `new \\%s(%s)`\n" .
-                "- **Méthodes publiques autorisées** : `%s`\n\n" .
-                "Corrige ton code en supprimant les appels à `with*` / `set*` et en passant toutes les valeurs directement dans le constructeur.",
-                $className,$className,
-                implode(', ', $params),
-                implode('(), ', $publicMethods) . '()'
+                "INDICE DE RÉFLEXION PHP CRITIQUE (OBJET IMMUABLE / DTO - MÉTHODE INEXISTANTE) :\n"
+                . "Erreur fatale : Tu tentes d'appeler la méthode inexistante `%s()` sur la classe `%s`.\n"
+                . "❌ **Rappel** : Les DTOs et Value Objects sont immuables. Ils n'ont **aucun** setter (`set*`) ni méthode fluent (`with*`).\n\n"
+                . "✔️ **Signature exacte et constructeur requis (extraits par Réflexion)** :\n"
+                . "- **Constructeur** : `new \\%s(%s)`\n"
+                . "- **Méthodes publiques réelles autorisées** : `%s`\n\n"
+                . "Corrige ton code en supprimant l'appel à `%s()` et en passant toutes les valeurs directement et positionnellement dans le constructeur `new \\%s(...)`.",
+                $methodName,
+                $className,
+                $className,
+                !empty($params) ? implode(', ', $params) : 'Aucun argument',
+                implode('(), ', $publicMethods) . '()',
+                $methodName,
+                ltrim($className, '\\')
             );
         } catch (\Exception $e) {
             return null;

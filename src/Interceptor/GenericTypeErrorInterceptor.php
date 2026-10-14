@@ -22,44 +22,48 @@ final class GenericTypeErrorInterceptor implements ErrorInterceptorInterface
             return null;
         }
 
-        $className =$matches[1];
-        $methodName =$matches[2];
-        $argPosition =$matches[3];
-        $argName =$matches[4];
+        $className = $matches[1];
+        $methodName = $matches[2];
+        $argPosition = $matches[3];
+        $argName = $matches[4];
         $expectedType = trim($matches[5]);
-        $givenType =$matches[6];
+        $givenType = $matches[6];
 
         $contextAdvice = sprintf(
             "L'argument #%s (`\$%s`) a reçu un type `%s`, alors que la signature exige strictement un type `%s`.",
-            $argPosition,$argName,
-            $givenType,$expectedType
+            $argPosition,
+            $argName,
+            $givenType,
+            $expectedType
         );
 
-        // Affinement intelligent par Réflexion pour donner un conseil sur-mesure (ex: DateTime)
+        // Affinement intelligent par Réflexion pour donner un conseil sur-mesure (ex : DateTime)
         try {
-            $resolvedClass =$className;
+            $resolvedClass = $className;
             if (str_contains($className, 'MockObject_')) {
                 if (preg_match('/MockObject_(.+)_[a-f0-9]{8}/i', $className,$m)) {
-                    $candidate =$m[1];
+                    $candidate = $m[1];
                     if (class_exists($candidate) || interface_exists($candidate)) {
-                        $resolvedClass =$candidate;
+                        $resolvedClass = $candidate;
                     }
                 }
             }
 
             if (class_exists($resolvedClass) || interface_exists($resolvedClass)) {
                 $refClass = new \ReflectionClass($resolvedClass);
-                if ($refClass->hasMethod($methodName)) {$methodRef = $refClass->getMethod($methodName);
-                    $params =$methodRef->getParameters();
+                if ($refClass->hasMethod($methodName)) {
+                    $methodRef = $refClass->getMethod($methodName);
+                    $params = $methodRef->getParameters();
 
-                    if (isset($params[$argPosition - 1])) {$paramRef = $params[$argPosition - 1];
-                        $typeRef =$paramRef->getType();
+                    if (isset($params[$argPosition - 1])) {
+                        $paramRef = $params[$argPosition - 1];
+                        $typeRef = $paramRef->getType();
 
                         if ($typeRef instanceof \ReflectionNamedType) {
-                            $typeName =$typeRef->getName();
+                            $typeName = $typeRef->getName();
                             if (
-                                $typeName === 'DateTimeInterface'
-                                || $typeName === '\DateTimeInterface'
+                                'DateTimeInterface' === $typeName
+                                || '\DateTimeInterface' === $typeName
                                 || is_subclass_of($typeName, \DateTimeInterface::class)
                             ) {
                                 $contextAdvice .= "\n✔️ **Conseil pour les dates** : Passe une instance valide, "
@@ -79,8 +83,10 @@ final class GenericTypeErrorInterceptor implements ErrorInterceptorInterface
             . "Règle fondamentale PHP 8+ : Le type fourni ne correspond pas à la signature de la méthode.\n"
             . "Diagnostic : %s",
             $className,
-            $methodName,$argName,
-            $argPosition,$contextAdvice
+            $methodName,
+            $argName,
+            $argPosition,
+            $contextAdvice
         );
     }
 }
