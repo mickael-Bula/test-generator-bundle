@@ -5,7 +5,11 @@ declare(strict_types=1);
 namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 
 use Mika\TestGeneratorBundle\Interceptor\ErrorInterceptorInterface;
+use Mika\TestGeneratorBundle\Interceptor\Support\RepoMapProvider;
+use Mika\TestGeneratorBundle\Interceptor\Support\SeedExtractor;
 use Mika\TestGeneratorBundle\Registry\ErrorInterceptorRegistry;
+use PhpParser\Parser;
+use PhpParser\ParserFactory;
 use Symfony\AI\Platform\Platform;
 use Mika\TestGeneratorBundle\Llm\SymfonyAiClient;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
@@ -17,7 +21,9 @@ return static function (ContainerConfigurator $container): void {
     $services = $container->services()
         ->defaults()
         ->autowire()
-        ->autoconfigure();
+        ->autoconfigure()
+        // Tout argument typé PhpParser\Parser d'un service de ce bundle reçoit le parseur du bundle
+        ->bind(Parser::class, service('mika_test_generator.php_parser'));
 
     // 1. Tags automatiques appliqués à toutes les classes implémentant les interfaces du bundle
     $services->instanceof(LlmClientInterface::class)
@@ -31,7 +37,12 @@ return static function (ContainerConfigurator $container): void {
 
     // 2. Chargement automatique de toutes les classes PHP du bundle
     $services->load('Mika\\TestGeneratorBundle\\', '../src/*')
-        ->exclude('../src/{DependencyInjection,Dto,Enum,Exception,Resources,TestGeneratorBundle.php}');
+        ->exclude([
+            '../src/{DependencyInjection,Dto,Enum,Exception,Resources,TestGeneratorBundle.php}',
+            // Structures de données et visiteurs créés par `new` : jamais des services
+            '../src/RepoMap/{RepoMap,EdgeCollector}.php',
+            '../src/Interceptor/Support/{PhpUnitFailure,TypeErrorInfo}.php',
+        ]);
 
     // 3. Enregistrement du Registry d'intercepteurs avec l'itérateur tagué
     $services->set(ErrorInterceptorRegistry::class)
@@ -70,4 +81,17 @@ return static function (ContainerConfigurator $container): void {
     $services->set(SymfonyAiClient::class)
         ->arg('$defaultProvider', '%env(string:default::LLM_PROVIDER)%')
         ->arg('$defaultModel', '%env(string:default::LLM_MODEL)%');
+
+    // 8. Analyse statique : parseur nikic/php-parser (id propre au bundle, pas de collision avec l'application)
+    $services->set(ParserFactory::class);
+
+    $services->set('mika_test_generator.php_parser', Parser::class)
+        ->factory([service(ParserFactory::class), 'createForNewestSupportedVersion']);
+
+    // 9. Repo-map : construite à la demande et mise en cache (CacheInterface autowiré, soit cache.app)
+    $services->set(RepoMapProvider::class)
+        ->arg('$srcDir', '%kernel.project_dir%/src');
+
+    $services->set(SeedExtractor::class)
+        ->arg('$rootNs', 'App\\');
 };

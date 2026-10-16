@@ -218,6 +218,11 @@ class GenerateTestV2Command extends Command
             );
 
             $cleanTestCode = $this->refactorFqcnToUseStatements($testCode);
+
+            // TODO : On relance PHPUnit et PHPStan sur le code nettoyé
+            // TODO : si le nettoyage réussi, on enregistre le fichier, sinon on le met dans le dossier d'erreur
+
+            // On enregistre le code validé
             file_put_contents($testTargetPath->filePath, $cleanTestCode);
 
             $this->io->success(
@@ -252,30 +257,47 @@ class GenerateTestV2Command extends Command
         preg_match_all('/\\\\(App|Doctrine|PHPUnit\\\\Framework\\\\MockObject)\\\\[a-zA-Z0-9_\\\\]+/', $phpCode, $matches);
         $fqcns = array_unique($matches[0]);
 
-        if (empty($fqcns)) {
+        if ([] === $fqcns) {
             return $phpCode;
         }
 
-        $useStatements = [];
+        // Noms courts déjà pris par un import existant (alias compris)
+        $taken = [];
+        preg_match_all('/^use\s+([\w\\\\]+)(?:\s+as\s+(\w+))?\s*;/m', $phpCode, $uses, PREG_SET_ORDER);
+        foreach ($uses as $u) {
+            $taken[strtolower($u[2] ?? basename(str_replace('\\', '/', $u[1])))] = $u[1];
+        }
+
+        $newUses = [];
         $replacements = [];
-
         foreach ($fqcns as $fqcn) {
-            $parts = explode('\\', ltrim($fqcn, '\\'));
-            $shortName = end($parts);
-            $useStatements[] = "use " . ltrim($fqcn, '\\') . ";";
-            $replacements[$fqcn] = $shortName;
+            $clean = ltrim($fqcn, '\\');
+            $short = basename(str_replace('\\', '/', $clean));
+            $key = strtolower($short);
+
+            if (isset($taken[$key])) {
+                if ($taken[$key] === $clean) {
+                    $replacements[$fqcn] = $short; // déjà importé : on raccourcit seulement
+                }
+                // sinon, il y a collision : ce FQCN reste en ligne
+                continue;
+            }
+
+            $taken[$key] = $clean;
+            $newUses[] = "use $clean;";
+            $replacements[$fqcn] = $short;
         }
 
-        $useStatements = array_unique($useStatements);
-        sort($useStatements);
-        $useBlock = implode("\n", $useStatements);
-
-        uksort($replacements, fn($a, $b) => strlen($b) - strlen($a));
-        foreach ($replacements as $fqcn => $shortName) {
-            $phpCode = str_replace($fqcn, $shortName, $phpCode);
+        uksort($replacements, static fn (string $a, string $b): int => \strlen($b) <=> \strlen($a));
+        foreach ($replacements as $fqcn => $short) {
+            // (?![\w\\]) : chercher `\App\Entity\User` ne touche pas `\App\Entity\UserRepository`
+            $phpCode = preg_replace('/' . preg_quote($fqcn, '/') . '(?![\w\\\\])/', $short, $phpCode);
         }
 
-        if (preg_match('/namespace\s+[^;]+;\s*/', $phpCode, $nsMatches)) {
+        sort($newUses);
+        $useBlock = implode("\n", $newUses);
+
+        if ('' !== $useBlock && preg_match('/namespace\s+[^;]+;\s*/', $phpCode, $nsMatches)) {
             $phpCode = str_replace($nsMatches[0], $nsMatches[0] . "\n" . $useBlock . "\n", $phpCode);
         }
 

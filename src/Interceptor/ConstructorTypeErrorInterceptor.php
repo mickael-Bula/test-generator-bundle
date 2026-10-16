@@ -30,7 +30,7 @@ final class ConstructorTypeErrorInterceptor implements ErrorInterceptorInterface
             "INDICE DE RÉFLEXION CONSTRUCTEUR (CRITIQUE) :\n"
             . "Erreur de type dans le constructeur de '%s' à l'argument #%s (\$%s).\n"
             . "Il est STRICTEMENT INTERDIT de passer `null` pour un argument typé (attendu : `%s`).\n"
-            . "Tu dois impérativement créer un mock complet pour cette dépendance via `$this->createMock(%s::class)` dans le `setUp()` et le passer en argument.",
+            . "Tu dois impérativement créer un mock complet pour cette dépendance via `\$this->createMock(%s::class)` dans le `setUp()` et le passer en argument.",
             $className,
             $argNum,$argName,
             $expectedType,$expectedType

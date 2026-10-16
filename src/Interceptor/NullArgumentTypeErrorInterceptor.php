@@ -4,15 +4,83 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Interceptor;
 
+use Mika\TestGeneratorBundle\Interceptor\Support\PhpUnitFailureLocator;
+use Mika\TestGeneratorBundle\Interceptor\Support\RepoMapProvider;
+use Mika\TestGeneratorBundle\Interceptor\Support\SeedExtractor;
+use Mika\TestGeneratorBundle\Parser\TypeErrorInfo;
+use Mika\TestGeneratorBundle\Renderer\SkeletonRenderer;
+use Psr\Log\LoggerInterface;
+
 /** @noinspection PhpUnused */
-final class NullArgumentTypeErrorInterceptor implements ErrorInterceptorInterface
+final readonly class NullArgumentTypeErrorInterceptor implements ErrorInterceptorInterface
 {
+    public function __construct(
+        private RepoMapProvider       $maps,
+        private PhpUnitFailureLocator $locator,
+        private SeedExtractor         $seeds,
+        private NullFlowDiagnostic    $diagnostic,
+        private SkeletonRenderer      $renderer,
+        private int                   $maxDepth = 2,
+        private int                   $tokenBudget = 6000,
+        private ?LoggerInterface      $logger = null,
+    ) {
+    }
+
     public function supports(string $errorOutput): bool
     {
-        return str_contains($errorOutput, 'TypeError:') && str_contains($errorOutput, 'null given');
+        // Même parseur que le diagnostic : on ne se déclare que si on peut l'exploiter.
+        return 'null' === TypeErrorInfo::fromOutput($errorOutput)?->given;
     }
 
     public function intercept(string $errorOutput): ?string
+    {
+        $failure = $this->locator->locate($errorOutput);
+
+        $seeds = $this->seeds->extract($errorOutput, $failure->testFile, $failure->sut);
+        $layers = $this->maps->get()->expand($seeds, $this->maxDepth); // fqcn => profondeur
+        if ([] === $layers) {
+            return null;
+        }
+        asort($layers);
+
+        $parts = [];
+
+        // Diagnostic en tête : best-effort, il ne doit jamais casser la boucle de correction.
+        try {
+            $parts[] = $this->diagnostic->build($errorOutput, $failure->testFile, array_keys($layers));
+        } catch (\Throwable $e) {
+            $this->logger?->warning('Diagnostic de nullabilité indisponible : ' . $e->getMessage());
+        }
+
+        if ('' !== ($skeletons = $this->skeletons($layers))) {
+            $parts[] = "## Signatures réelles des classes concernées (réflexion)\n" . $skeletons;
+        }
+
+        $parts = array_filter($parts);
+
+        return [] === $parts ? null : implode("\n", $parts);
+    }
+
+    /** @param array<string,int> $layers fqcn => profondeur, trié par profondeur croissante */
+    private function skeletons(array $layers): string
+    {
+        $out = '';
+        foreach ($layers as $fqcn => $depth) {
+            try {
+                $block = $this->renderer->render($fqcn, $depth);
+            } catch (\ReflectionException) {
+                continue; // classe non chargeable : on l'ignore
+            }
+            if ((\strlen($out) + \strlen($block)) / 4 > $this->tokenBudget) {
+                break;
+            }
+            $out .= "// --- profondeur $depth ---\n$block\n";
+        }
+
+        return $out;
+    }
+
+    public function intercept2(string $errorOutput): ?string
     {
         // Capture n'importe quel TypeError du type : Class::method(): Argument #X ($arg) must be of type T, null given
         if (!preg_match(
@@ -41,7 +109,7 @@ final class NullArgumentTypeErrorInterceptor implements ErrorInterceptorInterfac
         $dtoBlueprint = '';
 
         try {
-            $resolvedClass = $className;
+            $resolvedClass =$className;
             if (str_contains($className, 'MockObject_')
                 && preg_match('/MockObject_(.+)_[a-f0-9]{8}/i', $className,$m)
             ) {
@@ -56,7 +124,7 @@ final class NullArgumentTypeErrorInterceptor implements ErrorInterceptorInterfac
                     $methodRef = $refClass->getMethod($methodName);
                     $parameters = $methodRef->getParameters();
 
-                    // CIBLAGE PRÉCIS : On regarde l'argument exact qui a échoué (position 1-indexed -> 0-indexed)
+                    // Ciblage précis de l'argument en erreur dans la SUT
                     if (isset($parameters[$argPosition - 1])) {
                         $targetParam = $parameters[$argPosition - 1];
                         $paramType = $targetParam->getType();
@@ -69,19 +137,16 @@ final class NullArgumentTypeErrorInterceptor implements ErrorInterceptorInterfac
                                 if ($dtoConstructor) {
                                     $constructorParams = [];
                                     foreach ($dtoConstructor->getParameters() as $dtoParam) {
-                                        $constructorParams[] = sprintf(
-                                        '$%s%s%s',
-                                        $dtoParam->getName(),
-                                        $dtoParam->hasType() ? ': ' . $dtoParam->getType()->getName() : '',
-                                        $dtoParam->isOptional() ? ' = ...' : ''
-                                    );
+                                        $typeHint = $dtoParam->hasType() ? ': ' . $dtoParam->getType()->getName() : '';
+                                        $constructorParams[] = sprintf('%s%s: <valeur_requise>', $dtoParam->getName(),$typeHint);
                                     }
+
+                                    $shortDtoName = basename(str_replace('\\', '/', $dtoClass));
                                     $dtoBlueprint = sprintf(
-                                        "\n\nBlueprint Réflexion du DTO/Objet ciblé par l'argument #%d (`%s`) :\n`public function __construct(%s)`",
-                                        $argPosition,
+                                        "\n\nBlueprint structurel par Réflexion du DTO/Objet (`%s`) :\n```php\nnew %s(\n    %s\n);\n```",
                                         $dtoClass,
-                                        implode(', ', $constructorParams
-                                        )
+                                        $shortDtoName,
+                                        implode(",\n    ", $constructorParams)
                                     );
                                 }
                             }
@@ -99,8 +164,8 @@ final class NullArgumentTypeErrorInterceptor implements ErrorInterceptorInterfac
             . "%s"
             . "%s\n\n"
             . "✔️ **Pistes de résolution universelles dans ton test** :\n"
-            . "1. **Si cette donnée provient d'un Mock** : Vérifie que tu as explicitement configuré sa valeur de retour via `->willReturn(...)` (les mocks retournent `null` par défaut).\n"
-            . "2. **Si cette donnée provient d'un DTO / Objet de domaine** : Assure-toi de lui avoir fourni l'intégralité des arguments requis dans son constructeur (`new MonObjet(...)`) en respectant exactement le blueprint ci-dessus pour qu'aucun getter ne retourne `null`.",
+            . "1. **Si cette donnée provient d'un Mock** : Configure explicitement sa valeur de retour via `->willReturn(...)` (les mocks retournent `null` par défaut).\n"
+            . "2. **Si cette donnée provient d'un DTO / Objet** : Fournis **l'intégralité** des arguments requis dans son constructeur en utilisant le template structurel ci-dessus pour qu'aucun getter ne retourne `null`.",
             $className,
             $methodName,
             $argName,

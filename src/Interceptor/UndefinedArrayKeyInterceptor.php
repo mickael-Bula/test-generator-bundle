@@ -95,11 +95,11 @@ final class UndefinedArrayKeyInterceptor implements ErrorInterceptorInterface
             }
         }
 
-        $contextBlock = '' !==$sourceContext
+        $contextBlock = '' !== $sourceContext
             ? "\n\nExtrait du code source de la SUT :\n```php\n" . $sourceContext . "\n```\n"
             : "";
 
-        $contractBlock = '' !==$serviceDocComment
+        $contractBlock = '' !== $serviceDocComment
             ? "\nContrat / PHPDoc officiel de la source responsable (`$serviceMethodSignature`) :\n```php\n" . $serviceDocComment . "\n```\n"
             : "";
 

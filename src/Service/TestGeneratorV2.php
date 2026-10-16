@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Mika\TestGeneratorBundle\Service;
 
 use Mika\TestGeneratorBundle\Exception\TestCorrectionException;
+use Mika\TestGeneratorBundle\Interceptor\Support\MissingClassPreFixer;
+use Mika\TestGeneratorBundle\Interceptor\Support\MockPropertyTypeFixer;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\PromptBuilder\TestPromptBuilderInterface;
 use Mika\TestGeneratorBundle\Validator\PhpSyntaxValidator;
@@ -16,16 +18,19 @@ final class TestGeneratorV2
 {
     private const MAX_PHPUNIT_ATTEMPTS = 3;
     private const MAX_PHPSTAN_ATTEMPTS = 2;
+    private const MAX_PREFIX_PASSES = 3;
 
     public function __construct(
         private readonly LlmClientFactory $llmFactory,
         private readonly PhpUnitTestRunner $testRunner,
         private readonly PhpSyntaxValidator $syntaxValidator,
         private readonly PhpStanRunner $phpStanRunner,
-        private readonly Filesystem $filesystem = new Filesystem(),
+        private readonly MissingClassPreFixer $preFixer,
+        #[AutowireIterator('mika_test_generator.prompt_builder')] private readonly iterable $promptBuilders, // Récupère toutes les classes portant ce tag
         #[Autowire('%kernel.project_dir%/var/tmp')] private readonly string $tmpDir = 'var/tmp',
         #[Autowire('%kernel.project_dir%/var/failed_tests')] private readonly string $failedTestsDir = 'var/failed_tests',
-        #[AutowireIterator('mika_test_generator.prompt_builder')] private readonly iterable $promptBuilders, // Récupère toutes les classes portant ce tag
+        private readonly MockPropertyTypeFixer $mockFixer,
+        private readonly Filesystem $filesystem = new Filesystem(),
     ) {
         if (!$this->filesystem->exists($this->tmpDir)) {
             $this->filesystem->mkdir($this->tmpDir);
@@ -99,7 +104,8 @@ final class TestGeneratorV2
             // Validation de la syntaxe PHP
             $syntaxResult = $this->syntaxValidator->validate($testCode);
 
-            if (!$syntaxResult->isValid) {$syntaxErrorOutput = sprintf(
+            if (!$syntaxResult->isValid) {
+                $syntaxErrorOutput = sprintf(
                 "Erreur de syntaxe à la ligne %d: %s",
                 $syntaxResult->errorLine ?? 0,
                 $syntaxResult->errorMessage ?? 'Syntaxe PHP invalide'
@@ -108,32 +114,37 @@ final class TestGeneratorV2
                 $errorMessage = "ERREUR DE SYNTAXE PHP :\n" . $syntaxErrorOutput . "\n\n"
                     . "Corrige immédiatement la syntaxe et renvoie le code PHP complet corrigé.";
 
+                // On conserve le message d'erreur pour les logs
+                $lastOutput = $errorMessage;
+
+                // On met à jour le prompt
                 $messages[] = ['role' => 'assistant', 'content' => $testCode];
                 $messages[] = ['role' => 'user', 'content' => $errorMessage];
+
                 continue;
             }
 
-            // Exécution du test PHPUnit
-            $result =$this->testRunner->runTest($testCode, $className);
-            $rawOutput =$result['output'] ?? '';
+            // Exécution du test PHPUnit avec tentative de correction statique des namespaces
+            $run = $this->runWithPreFix($testCode, $className);
+            $testCode = $run['code'];
+            $lastOutput = $run['output'];
 
-            // Suppression des codes ANSI
-            $cleanOutput = preg_replace('/\x1b\[[0-9;]*[mK]/', '', $rawOutput);
-            $lastOutput = '' !== $cleanOutput ? $cleanOutput : 'Aucune sortie reçue de PHPUnit.';
-
-            $hasPhpWarnings = str_contains($lastOutput, 'PHP warning:') || str_contains($lastOutput, 'Warnings:');
-
-            if ($result['success'] && !$hasPhpWarnings) {
+            if ($run['valid']) {
                 $isPhpUnitValid = true;
                 break; // PHPUnit passe sans aucune erreur ni warning
             }
 
-            if ($result['success'] && $hasPhpWarnings) {
-                $lastOutput = "ERREUR DE VALIDATION (AVERTISSEMENT PHP DÉTECTÉ) :\n" . $lastOutput;
-            }
-
             // Utilisation du registre d'intercepteurs modulaires
-            $this->prepareFixerIterationV2($messages, $testCode, $lastOutput, $classCode, $filePath, $fqcn, $className, $provider);
+            $this->prepareFixerIterationV2(
+                $messages,
+                $testCode,
+                $lastOutput,
+                $classCode,
+                $filePath,
+                $fqcn,
+                $className,
+                $provider
+            );
         }
 
         if (!$isPhpUnitValid) {
@@ -150,6 +161,8 @@ final class TestGeneratorV2
         // ==========================================
         // PHASE 2 : ANALYSE STATIQUE PHPSTAN
         // ==========================================
+        $greenCode = $testCode;   // dernière version validée par PHPUnit (fin de phase 1)
+        $greenReport = null;      // rapport PHPStan de cette version
         $phpstanAttempt = 0;
 
         while ($phpstanAttempt < self::MAX_PHPSTAN_ATTEMPTS) {
@@ -163,47 +176,165 @@ final class TestGeneratorV2
                 $syntaxResult->errorMessage ?? 'Syntaxe invalide'
             );
 
-                $messages[] = ['role' => 'assistant', 'content' =>$testCode];
+                $messages[] = ['role' => 'assistant', 'content' => $testCode];
                 $messages[] = [
                     'role' => 'user',
-                    'content' =>$lastOutput . "\n\nCorrige immédiatement la syntaxe et renvoie le code complet."
+                    'content' => $lastOutput . "\n\nCorrige immédiatement la syntaxe et renvoie le code complet."
                 ];
 
-                $testCode =$client->call($messages,$targetModel);
+                // Si le nombre maximal de tentatives a été atteint, on sort de la boucle.
+                if ($phpstanAttempt >= self::MAX_PHPSTAN_ATTEMPTS) {
+                    break;
+                }
+
+                $rawTestCode = $client->call($messages, $targetModel);
+                $testCode = $this->cleanLlmOutput($rawTestCode);
                 continue;
             }
 
-            $tempFilePath = sprintf(
-                '%s' . DIRECTORY_SEPARATOR . '%s_TempTestV2_%s.php',
-                rtrim($this->tmpDir, '/\\'),$className,
-                uniqid('', true)
-            );
+            $wasGreen = $testCode === $greenCode;
+            $stan = $this->runPhpStanWithPreFix($testCode, $className);
+            $testCode = $stan['code'];
 
-            try {
-                $this->filesystem->dumpFile($tempFilePath, $testCode);
-                $phpStanResult = $this->phpStanRunner->analyze($tempFilePath);
-
-                if ($phpStanResult['success']) {
-                    return $testCode;
-                }
-                $lastOutput = "ERREUR D'ANALYSE STATIQUE (PHPStan) :\n" . $phpStanResult['output'];
-            } finally {
-                if ($this->filesystem->exists($tempFilePath)) {
-                    $this->filesystem->remove($tempFilePath);
-                }
+            if ($wasGreen) {
+                $greenReport = $stan['initial'];
             }
 
-            $this->prepareFixerIterationV2($messages, $testCode, $lastOutput, $classCode, $filePath, $fqcn, $className, $provider);
-            $testCode = $client->call($messages, $targetModel);
+            if ($stan['success']) {
+                if ($testCode === $greenCode) {
+                    return $testCode;
+                }
+
+                $run = $this->runWithPreFix($testCode, $className);
+                $testCode = $run['code'];
+
+                if ($run['valid']) {
+                    return $testCode;
+                }
+
+                $lastOutput = "RÉGRESSION PHPUNIT : ...\n\n" . $run['output'];
+            } else {
+                $lastOutput = "ERREUR D'ANALYSE STATIQUE (PHPStan) :\n" . $stan['output'];
+            }
+
+            // Si le nombre maximal de tentatives a été atteint, on sort de la boucle.
+            if ($phpstanAttempt >= self::MAX_PHPSTAN_ATTEMPTS) {
+                break;
+            }
+
+            $this->prepareFixerIterationV2(
+                $messages,
+                $testCode,
+                $lastOutput,
+                $classCode,
+                $filePath,
+                $fqcn,
+                $className,
+                $provider
+            );
+
+            $testCode = $this->cleanLlmOutput($client->call($messages, $targetModel));
         }
 
-        $savedPath = $this->saveFailedTest($className, $testCode,$lastOutput);
+        $savedPath = $this->saveFailedTest($className, $greenCode, $greenReport ?? $lastOutput);
         throw new TestCorrectionException(sprintf(
             'Échec PHPStan pour %s après %d tentatives. Sauvegardé dans : %s',
             $className,
             self::MAX_PHPSTAN_ATTEMPTS,
             $savedPath
         ));
+    }
+
+    /**
+     * @return array{valid: bool, output: string}
+     */
+    private function runPhpUnit(string $testCode, string $className): array
+    {
+        // Exécution du test PHPUnit
+        $result = $this->testRunner->runTest($testCode, $className);
+
+        // Suppression des codes ANSI
+        $clean = preg_replace('/\x1b\[[0-9;]*[mK]/', '', $result['output'] ?? '') ?? '';
+        $output = '' !== $clean ? $clean : 'Aucune sortie reçue de PHPUnit.';
+
+        $hasWarnings = str_contains($output, 'PHP warning:') || str_contains($output, 'Warnings:');
+
+        if ($result['success'] && !$hasWarnings) {
+            return ['valid' => true, 'output' => $output];
+        }
+        if ($result['success']) {
+            $output = "ERREUR DE VALIDATION (AVERTISSEMENT PHP DÉTECTÉ) :\n" . $output;
+        }
+
+        return ['valid' => false, 'output' => $output];
+    }
+
+    /**
+     * Exécute PHPUnit avec correction statique
+     *
+     * @return array{valid: bool, output: string, code: string}
+     */
+    private function runWithPreFix(string $testCode, string $className): array
+    {
+        $run = $this->runPhpUnit($testCode, $className);
+
+        for ($pass = 0; !$run['valid'] && $pass < self::MAX_PREFIX_PASSES; ++$pass) {
+            $patched = $this->preFixer->fix($run['output'], $testCode);
+            if (null === $patched) {
+                break;
+            }
+            $testCode = $patched;
+            $run = $this->runPhpUnit($testCode, $className);
+        }
+
+        return [...$run, 'code' => $testCode]; // ['valid' => true, 'output' => 'OK', 'code' => '<?php …']
+    }
+
+    /**
+     * Exécute PHPStan
+     *
+     * @return array{success: bool, output: string}
+     */
+    private function runPhpStan(string $testCode, string $className): array
+    {
+        $tempFilePath = sprintf(
+            '%s' . DIRECTORY_SEPARATOR . '%s_TempTestV2_%s.php',
+            rtrim($this->tmpDir, '/\\'),
+            $className,
+            uniqid('', true)
+        );
+
+        try {
+            $this->filesystem->dumpFile($tempFilePath, $testCode);
+
+            return $this->phpStanRunner->analyze($tempFilePath);
+        } finally {
+            if ($this->filesystem->exists($tempFilePath)) {
+                $this->filesystem->remove($tempFilePath);
+            }
+        }
+    }
+
+    /**
+     * Exécute PHPStan avec correction statique
+     *
+     * @return array{success: bool, output: string, code: string, initial: string}
+     */
+    private function runPhpStanWithPreFix(string $testCode, string $className): array
+    {
+        $result = $this->runPhpStan($testCode, $className);
+        $initial = $result['output']; // rapport du code tel que reçu
+
+        for ($pass = 0; !$result['success'] && $pass < self::MAX_PREFIX_PASSES; ++$pass) {
+            $patched = $this->mockFixer->fix($result['output'], $testCode);
+            if (null === $patched) {
+                break;
+            }
+            $testCode = $patched;
+            $result = $this->runPhpStan($testCode, $className);
+        }
+
+        return $result + ['code' => $testCode, 'initial' => $initial];
     }
 
     /**

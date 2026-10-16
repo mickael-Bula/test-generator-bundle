@@ -71,14 +71,21 @@ DIRECTIVES DE GÉNÉRATION DES TESTS UNITAIRES :
 
 1. GESTION DES DÉPENDANCES ET MOCKS (RÈGLE ABSOLUE) :
 - Analyse les dépendances du constructeur listées dans le contexte ci-dessus.
-- Mocker systématiquement (via `$this->createMock(...)` dans `setUp()`) **TOUTES** les dépendances du constructeur qui sont des interfaces, des repositories, des managers ou des services.
+- Mocker systématiquement (via `$this->createMock(...)` dans `setUp()`)
+  **TOUTES** les dépendances du constructeur qui sont des interfaces, des repositories, des managers ou des services.
 - Interdiction formelle d'instancier des services, managers ou repositories avec `new`.
 - Instancier directement avec `new` **uniquement** les DTOs, Value Objects et Entités pures.
 - Passe les arguments des méthodes de mock individuellement (ex: `->with($arg1, $arg2)`), jamais groupés dans un tableau unique.
+- Les « Autres arguments du constructeur » sont de VRAIES valeurs (tableau, scalaire, objet réel) : ne les mocke jamais.
+- Pour tout objet passé au SUT ou retourné par un mock, si un paramètre est `?T` ou possède une valeur par défaut `null`,
+  renseigne-le avec une valeur non nulle quand le SUT l'utilise (vois « Méthodes publiques » et « Méthodes appelées »).
 
 2. UTILISATION OBLIGATOIRE DES FQCN (NOMS COMPLETS) :
-- Pour TOUTES les classes, interfaces, entités, repositories et services de l'application utilisés dans le code (`createMock()`, `new`, type hints), tu DOIS IMPÉRATIVEMENT utiliser leur chemin complet avec un antislash initial (`\Namespace\...`).
-
+- Pour TOUTES les classes, interfaces, entités, repositories et services de l'application utilisés dans le code 
+  (`createMock()`, `new`, type hints), tu DOIS IMPÉRATIVEMENT utiliser leur chemin complet avec un antislash initial (`\Namespace\...`).
+- Corrige les noms de classes manquants ou erronés : utilise toujours le FQCN complet avec antislash initial
+  (`\App\...`), sans instruction `use` (elles sont ajoutées automatiquement quand le test passe).
+  
 3. STRUCTURE ET EXEMPLE DE CODE OBLIGATOIRE POUR LE SETUP :
 - La méthode `setUp()` doit **toujours** respecter cette structure générique (en mockant l'intégralité des dépendances du constructeur) :
 
@@ -92,20 +99,28 @@ DIRECTIVES DE GÉNÉRATION DES TESTS UNITAIRES :
   }
 
 - Toutes les méthodes et `setUp()` doivent retourner `void`.
+- Déclare TOUJOURS chaque propriété contenant un mock avec un type intersection :
+  `private \Namespace\ContratInterface&\PHPUnit\Framework\MockObject\MockObject $dependencyMock;`
+  (jamais l'interface seule : `expects()` et `method()` seraient inconnus de PHPStan).
+- Pour une propriété `array` ou `iterable`, ajoute juste au-dessus `/** @var list<\Namespace\Type> */`
+  (ou `iterable<\Namespace\Type>`), avec le type de valeur du paramètre correspondant du constructeur.
 
 4. RESPECT STRICT DU CONTEXTE ET INTERDICTION D'INVENTER DES MÉTHODES :
 - **Consultation obligatoire :** Appuie-toi sur les signatures réelles des méthodes publiques et des types de retours indiqués dans le contexte.
-- **Interdiction d'halluciner :** N'appelle **jamais** de méthodes de type fluent (`with...()`, `set...()`, etc.) si elles ne figurent pas explicitement dans les signatures fournies.
-- Si un DTO ou une entité doit être configuré, passe ses valeurs **uniquement par son constructeur** (`__construct`) avec les arguments positionnels/nommés réels.
+- **Interdiction d'halluciner :** N'appelle **jamais** de méthodes de type fluent (`with...()`, `set...()`, etc.) 
+  si elles ne figurent pas explicitement dans les signatures fournies.
+- Si un DTO ou une entité doit être configuré, passe ses valeurs **uniquement par son constructeur** (`__construct`) 
+  avec les arguments positionnels/nommés réels.
 
 5. QUALITÉ, COMMENTAIRES ET STYLE :
 - Utilise obligatoirement `#[CoversClass(...)]` sur la classe et `#[Test]` sur chaque méthode.
-- Aucun bloc PHPDoc (`/** ... */`) sur la classe ou les méthodes.
+- Aucun bloc PHPDoc (`/** ... */`) sur la classe ou les méthodes. Seule exception : un `@var` au-dessus
+  d'une propriété `array` ou `iterable`, pour préciser le type de valeur (jamais pour un mock).
 - Seuls les commentaires de balises BDD suivants sont autorisés (isolés sur leur propre ligne, sans texte après) :
   // ÉTANT DONNÉ
   // QUAND
   // ALORS
-- Pour les exceptions (`$this->expectException`), place l'attente sous `// ALORS` et l'action déclencheuse sous `// QUAND` en tout dernier.
+- Pour les exceptions (`$this->expectException`), place l'attente sous `// ALORS` et l'action qui la déclenche sous `// QUAND` en tout dernier.
 TEXT;
 
         if (null !== $skillsPrompt && trim($skillsPrompt) !== '') {$systemMessage .= "\n\n========================================\n"
