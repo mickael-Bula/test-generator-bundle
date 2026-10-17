@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace Mika\TestGeneratorBundle\Interceptor\Support;
 
 use Mika\TestGeneratorBundle\Resolver\MissingClassResolver;
+use Symfony\Component\DependencyInjection\Attribute\AsTaggedItem;
 
+/** @noinspection PhpUnused */
+#[AsTaggedItem(priority: 10)]
 final readonly class MissingClassPreFixer implements TestPreFixerInterface
 {
     public function __construct(

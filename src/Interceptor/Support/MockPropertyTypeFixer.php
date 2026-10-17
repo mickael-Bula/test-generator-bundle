@@ -10,7 +10,10 @@ use PhpParser\NodeFinder;
 use PhpParser\NodeTraverser;
 use PhpParser\NodeVisitor\NameResolver;
 use PhpParser\Parser;
+use Symfony\Component\DependencyInjection\Attribute\AsTaggedItem;
 
+/** @noinspection PhpUnused */
+#[AsTaggedItem(priority: 0)]
 final readonly class MockPropertyTypeFixer implements TestPreFixerInterface
 {
     private const MOCK_OBJECT = 'PHPUnit\Framework\MockObject\MockObject';
@@ -19,15 +22,15 @@ final readonly class MockPropertyTypeFixer implements TestPreFixerInterface
     public function __construct(private Parser $parser) {}
 
     /** @return string|null le test corrigé, ou null si rien n'a pu être corrigé */
-    public function fix(string $phpStanOutput, string $code): ?string
+    public function fix(string $errorOutput, string $testCode): ?string
     {
-        preg_match_all(self::PATTERN, $phpStanOutput, $errors, PREG_SET_ORDER);
+        preg_match_all(self::PATTERN, $errorOutput, $errors, PREG_SET_ORDER);
         if ([] === $errors) {
             return null;
         }
 
         try {
-            $stmts = $this->parser->parse($code) ?? [];
+            $stmts = $this->parser->parse($testCode) ?? [];
         } catch (Error) {
             return null;
         }
@@ -82,9 +85,9 @@ final readonly class MockPropertyTypeFixer implements TestPreFixerInterface
 
         krsort($edits); // de la fin vers le début : les positions restent valides
         foreach ($edits as $start => [$end, $replacement]) {
-            $code = substr_replace($code, $replacement, $start, $end - $start + 1);
+            $testCode = substr_replace($testCode, $replacement, $start, $end - $start + 1);
         }
 
-        return $code;
+        return $testCode;
     }
 }

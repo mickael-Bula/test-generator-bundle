@@ -160,11 +160,16 @@ final class CaptureFixtureCommand extends Command
             $fs->dumpFile($dir . '/expected.php', $patched);
         }
 
-        // Brouillon de hints.txt : les titres `### …` des intercepteurs, stables d'un run à l'autre
-        $hints = (string) $this->interceptors->resolveFromErrorOutput($report);
-        preg_match_all('/^### .+$/m', $hints, $headings);
-        if ([] !== $headings[0]) {
-            $fs->dumpFile($dir . '/hints.txt', implode("\n", $headings[0]) . "\n");
+        // Brouillon de hints.txt : affiche la première ligne de chaque indice produit
+        $rows = $this->interceptors->inspect($report);
+        $firstLines = [];
+        foreach ($rows as $row) {
+            if (null !== $row['hint']) {
+                $firstLines[] = (string) strtok($row['hint'], "\n");
+            }
+        }
+        if ([] !== $firstLines) {
+            $fs->dumpFile($dir . '/hints.txt', implode("\n", $firstLines) . "\n");
         }
 
         $sut = $this->coveredClass->read($code);
@@ -174,15 +179,26 @@ final class CaptureFixtureCommand extends Command
         }
         $fs->dumpFile($dir . '/meta.json', json_encode($meta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
 
-        if (null === $patched) {
-            $io->writeln("Correcteur déterministe : aucun ne s'applique (la fixture exigera que la chaîne renvoie null).");
-        } else {
-            $io->writeln('Correcteur déterministe : appliqué. Diff input.php → expected.php :');
-            $output->writeln($this->diff($code, $patched), OutputInterface::OUTPUT_RAW);
+        // Affichage des indices
+        $io->writeln(sprintf('Intercepteurs enregistrés : %d', \count($rows)));
+        foreach ($rows as $row) {
+            $label = match (true) {
+                null !== $row['error'] => 'ERREUR ' . $row['error'],
+                null !== $row['hint'] => 'indice : ' . strtok($row['hint'], "\n"),
+                $row['supports'] => "reconnaît l'erreur mais ne produit aucun indice",
+                default => null, // ne s'applique pas à ce rapport : on n'encombre pas la sortie
+            };
+            if (null !== $label) {
+                $io->writeln(sprintf(
+                    '  - %s : %s',
+                    basename(str_replace('\\', '/', $row['interceptor'])),
+                    OutputFormatter::escape($label)
+                ));
+            }
         }
-        $io->writeln([] === $headings[0]
-            ? "Indices LLM : aucun intercepteur ne s'applique."
-            : "Indices LLM (brouillon écrit dans hints.txt) :\n  " . OutputFormatter::escape(implode("\n  ", $headings[0])));
+        if ([] === $firstLines) {
+            $io->writeln('Indices LLM : aucun.');
+        }
 
         return $patched;
     }

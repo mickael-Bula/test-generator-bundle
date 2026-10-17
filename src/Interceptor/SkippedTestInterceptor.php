@@ -9,38 +9,56 @@ use Mika\TestGeneratorBundle\Interceptor\Support\PhpUnitFailureLocator;
 /** @noinspection PhpUnused */
 final readonly class SkippedTestInterceptor implements ErrorInterceptorInterface
 {
+    private const SECTION = '/There w(?:as|ere) \d+ skipped tests?:\R\R(?<body>.*?)(?:\R--\R|\z)/s';
+    private const ENTRY = '/^\d+\)\s+[\w\\\\]+::(?<test>\w+)\R(?<reason>[^\r\n]*)/m';
+
     public function __construct(private PhpUnitFailureLocator $locator) {}
 
     public function supports(string $errorOutput): bool
     {
-        return 1 === preg_match('/There w(?:as|ere) \d+ skipped tests?:|Skipped: \d+/', $errorOutput);
+        return 1 === preg_match(self::SECTION, $errorOutput);
     }
 
     public function intercept(string $errorOutput): ?string
     {
         $sut = $this->locator->locate($errorOutput)->sut;
-        $md = "### Tests ignorés (markTestSkipped / markTestIncomplete) : interdit\n";
+        if (null === $sut || !class_exists($sut) || 1 !== preg_match(self::SECTION, $errorOutput, $section)) {
+            return null;
+        }
+        $rc = new \ReflectionClass($sut);
 
-        if (null !== $sut && class_exists($sut)) {
-            /**
-             * @throws \ReflectionException
-             */
-            $names = static fn (int $filter): string => implode(', ', array_map(
-                static fn (\ReflectionMethod $m): string => $m->getName(),
-                array_filter(
-                    (new \ReflectionClass($sut))->getMethods($filter),
-                    static fn (\ReflectionMethod $m): bool => !$m->isConstructor(),
-                ),
-            ));
-
-            $md .= '- Méthodes PUBLIQUES du SUT (appelables dans un test) : ' . $names(\ReflectionMethod::IS_PUBLIC) . "\n"
-                . '- Méthodes PRIVÉES ou PROTÉGÉES (jamais appelables) : '
-                . $names(\ReflectionMethod::IS_PRIVATE | \ReflectionMethod::IS_PROTECTED) . "\n";
+        $lines = [];
+        preg_match_all(self::ENTRY, $section['body'], $entries, PREG_SET_ORDER);
+        foreach ($entries as $e) {
+            preg_match_all('/\b[A-Za-z_]\w*\b/', $e['reason'], $words);
+            foreach (array_unique($words[0]) as $word) {
+                if ($rc->hasMethod($word) && $rc->getMethod($word)->isPublic()) {
+                    $lines[] = sprintf('- `%s` vise `%s()`, méthode PUBLIQUE : `%s`', $e['test'], $word, $this->signature($rc->getMethod($word)));
+                }
+            }
+        }
+        if ([] === $lines) {
+            return null;
         }
 
-        return $md
-            . "- Test ignoré sur une méthode PUBLIQUE : retire l'ignorance et teste-la pour de bon.\n"
-            . "- Test ignoré sur une méthode PRIVÉE : SUPPRIME le test (exception à la règle « ne supprime aucun test ») ; "
-            . "son comportement est couvert via les méthodes publiques qui l'appellent.\n";
+        return "### Tests ignorés sur des méthodes PUBLIQUES (markTestSkipped : interdit)\n"
+            . "La raison « est privée » est fausse : ces méthodes sont appelables.\n"
+            . implode("\n", $lines) . "\n"
+            . "Correction : remplace `markTestSkipped(...)` par l'appel `\$this->sut->méthode(...)`, "
+            . "déclare les variables qui manquent (une par paramètre requis, avec son type), "
+            . "puis ajoute les assertions sur le résultat ou l'état observable. Ne supprime pas le test.\n";
+    }
+
+    private function signature(\ReflectionMethod $m): string
+    {
+        return sprintf(
+            '%s(%s)%s',
+            $m->getName(),
+            implode(', ', array_map(
+                static fn (\ReflectionParameter $p): string => trim(($p->getType() ?? '') . ' $' . $p->getName()),
+                $m->getParameters(),
+            )),
+            $m->hasReturnType() ? ': ' . $m->getReturnType() : '',
+        );
     }
 }

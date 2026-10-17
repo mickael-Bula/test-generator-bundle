@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace Mika\TestGeneratorBundle\Interceptor\Support;
 
 use PhpParser\Node;
+use Symfony\Component\DependencyInjection\Attribute\AsTaggedItem;
 
+/** @noinspection PhpUnused */
+#[AsTaggedItem(priority: 50)]
 final readonly class StubOnRealObjectPreFixer implements TestPreFixerInterface
 {
     // PHP : "Call to undefined method X::expects()" ; PHPStan : "Call to an undefined method X::method()"

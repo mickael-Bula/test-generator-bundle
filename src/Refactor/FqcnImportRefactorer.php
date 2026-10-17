@@ -6,7 +6,6 @@ namespace Mika\TestGeneratorBundle\Refactor;
 
 final class FqcnImportRefactorer
 {
-    // TODO : corps de GenerateTestV2Command::refactorFqcnToUseStatements() => reprendre le nom initial plus parlant ?
     /**
      * Post-processeur automatique : convertit les FQCN inline (App\, Doctrine\, PHPUnit\)
      * en instructions 'use' propres en début de fichier et raccourcit les types.

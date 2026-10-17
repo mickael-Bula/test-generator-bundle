@@ -118,6 +118,9 @@ DIRECTIVES DE GÉNÉRATION DES TESTS UNITAIRES :
   si elles ne figurent pas explicitement dans les signatures fournies.
 - Si un DTO ou une entité doit être configuré, passe ses valeurs **uniquement par son constructeur** (`__construct`) 
   avec les arguments positionnels/nommés réels.
+- Le fichier de test est en `declare(strict_types=1)` : PHP ne convertit aucun type. 
+  Passe à chaque mutateur, constructeur ou `willReturn()` une valeur du type EXACT de sa signature 
+  (ex. `'100.0'` pour un `string` ou `?string`, `100.0` pour un `float`, `10` pour un `int`), jamais un type voisin.
 
 5. QUALITÉ, COMMENTAIRES ET STYLE :
 - Utilise obligatoirement `#[CoversClass(...)]` sur la classe et `#[Test]` sur chaque méthode.

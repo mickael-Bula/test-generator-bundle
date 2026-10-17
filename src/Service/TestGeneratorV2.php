@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace Mika\TestGeneratorBundle\Service;
 
 use Mika\TestGeneratorBundle\Exception\TestCorrectionException;
-use Mika\TestGeneratorBundle\Interceptor\Support\MissingClassPreFixer;
-use Mika\TestGeneratorBundle\Interceptor\Support\MockPropertyTypeFixer;
 use Mika\TestGeneratorBundle\Interceptor\Support\PreFixerChain;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\PromptBuilder\TestPromptBuilderInterface;

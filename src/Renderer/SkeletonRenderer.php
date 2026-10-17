@@ -33,11 +33,11 @@ final class SkeletonRenderer
 
     private function doc(string $doc, int $depth, string $indent = ''): string
     {
-        if ($doc === '') {
+        if ('' === $doc) {
             return '';
         }
 
-        if ($depth === 0) {
+        if (0 === $depth) {
             return $indent . $doc . "\n";
         }
 
@@ -71,6 +71,9 @@ final class SkeletonRenderer
         return $s;
     }
 
+    /**
+     * @throws \ReflectionException
+     */
     private function signature(\ReflectionMethod $m): string
     {
         $params = array_map(fn($p) => trim(sprintf('%s %s$%s%s',

@@ -108,10 +108,15 @@ final class TargetedContextExtractor
 
         $methods = array_filter(
             $rc->getMethods(\ReflectionMethod::IS_PUBLIC),
-            static fn (\ReflectionMethod $m): bool => !$m->isConstructor() && $m->getDeclaringClass()->getName() === $fqcn,
+            static fn (\ReflectionMethod $m) : bool => !$m->isConstructor() && $m->getDeclaringClass()->getName() === $fqcn,
         );
 
-        $used = static fn (\ReflectionMethod $m): bool => str_contains($source, '->' . $m->getName() . '(');
+        $used = static function (\ReflectionMethod $m) use ($source): bool {
+            $name = $m->getName();
+
+            return str_contains($source, '->' . $name . '(')
+                || (str_starts_with($name, 'set') && str_contains($source, '->get' . substr($name, 3) . '('));
+        };
         usort($methods, static fn (\ReflectionMethod $a, \ReflectionMethod $b): int => $used($b) <=> $used($a));
 
         foreach (\array_slice($methods, 0, self::MAX_BLUEPRINT_METHODS) as $m) {
