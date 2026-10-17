@@ -7,6 +7,7 @@ namespace Mika\TestGeneratorBundle\PromptBuilder;
 use Mika\TestGeneratorBundle\Attribute\AsTestPromptBuilder;
 use Mika\TestGeneratorBundle\Extractor\TargetedContextExtractor;
 use Mika\TestGeneratorBundle\Resolver\SkillResolver;
+use Mika\TestGeneratorBundle\Spec\SpecSanitizer;
 
 #[AsTestPromptBuilder(type: 'unit_v2')]
 readonly class UnitTestPromptBuilderV2 implements TestPromptBuilderInterface
@@ -14,6 +15,7 @@ readonly class UnitTestPromptBuilderV2 implements TestPromptBuilderInterface
     public function __construct(
         private TargetedContextExtractor $contextExtractor,
         private SkillResolver $skillResolver,
+        private SpecSanitizer $specSanitizer,
     ) {
     }
 
@@ -22,6 +24,9 @@ readonly class UnitTestPromptBuilderV2 implements TestPromptBuilderInterface
         return 'unit_v2' === $type;
     }
 
+    /**
+     * @throws \ReflectionException
+     */
     public function buildPrompt(
         string $classCode,
         string $filePath,
@@ -40,6 +45,8 @@ readonly class UnitTestPromptBuilderV2 implements TestPromptBuilderInterface
 
         // 2. Extraction chirurgicale du contexte (remplace la Repo-Map)
         $targetedContext =$this->contextExtractor->extractContext($filePath,$fqcn);
+
+        $specContent = null !== $specContent ? $this->specSanitizer->sanitize($specContent, $fqcn) : null;
 
         return [
             'system' => $this->buildSystemMessage(

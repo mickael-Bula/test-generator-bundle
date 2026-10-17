@@ -42,9 +42,14 @@ INSTRUCTIONS
 3. **Détection des Data Providers PHPUnit** :
    - Identifie les méthodes qui exécutent la même logique sur des ensembles de données variés.
    - Regroupe systématiquement ces cas répétitifs sous forme de **Data Provider** (`dataProviders`).
-   - **Règle de cohérence stricte** : Si un cas de test (`testCase`) indique un `dataProviderName` non nul (et `usesDataProvider: true`), l'objet Data Provider correspondant DOIT obligatoirement être déclaré et détaillé dans le tableau `dataProviders` de la même méthode. Inversement, si aucun Data Provider n'est défini, passe `usesDataProvider: false` et `dataProviderName: null`.
+   - **Règle de cohérence stricte** : Si un cas de test (`testCase`) indique un `dataProviderName` non nul (et `usesDataProvider: true`), 
+     l'objet Data Provider correspondant DOIT obligatoirement être déclaré et détaillé dans le tableau `dataProviders` de la même méthode. 
+     Inversement, si aucun Data Provider n'est défini, passe `usesDataProvider: false` et `dataProviderName: null`.
 4. **Isolation et Mocks** :
-   - Repère les dépendances injectées dans le constructeur ou les méthodes.
+   - Les seules candidates à `dependenciesToMock` sont les dépendances injectées dans le CONSTRUCTEUR.
+   - Les paramètres de méthodes qui sont des entités, DTO ou value objects sont de vraies instances décrites dans `inputs` : jamais des mocks.
+   - Dans `mockExpectations`, `dependency` doit être l'un des FQCN de `dependenciesToMock`. 
+     Il ne désigne JAMAIS la classe testée (`targetClass`) : on ne mocke aucune méthode de la classe testée, même si la méthode testée l'appelle.
    - Indique quelles dépendances doivent être mockées pour chaque cas de test (`mockExpectations`).
 INSTRUCTIONS;
 
@@ -53,7 +58,12 @@ Tu es un Agent Analyste de Tests PHP spécialisé dans l'architecture logicielle
 Ton unique rôle est d'analyser le code source d'une classe PHP et de concevoir une matrice de cas de test exhaustive sous la forme d'un objet JSON strict.
 
 ### CONSIGNES D'ANALYSE
-1. **Analyse de la structure** : Examine la classe, ses dépendances (constructeur), ses méthodes publiques et leurs contrats (types, PHPDoc).
+1. **Analyse de la structure** :
+   - Examine la classe, ses dépendances (constructeur), ses méthodes publiques et leurs contrats (types, PHPDoc).
+   - `methods` ne contient QUE les méthodes PUBLIQUES de la classe. Une méthode privée ou protégée n'a aucune entrée, 
+     même si elle porte beaucoup de logique : elle n'est pas appelable depuis un test. 
+     Ses branches sont couvertes par les cas des méthodes publiques qui l'appellent : 
+     utilise-les pour concevoir les `inputs` et les `mockExpectations` de ces cas.
 2. **Couverture des branches (Path Coverage)** :
    - Identifie tous les chemins d'exécution (`if`, `else`, `switch`, `match`, `try/catch`).
    - Identifie les cas nominaux (*happy paths*).
@@ -61,11 +71,13 @@ Ton unique rôle est d'analyser le code source d'une classe PHP et de concevoir 
    - Identifie les cas limites (*edge cases* : `null`, tableaux vides, chaînes vides, nombres négatifs/zéro).
 {$specificInstructions}
 
-### RÈGLES STRICTES DE FORMATTAGE JSON (CRITIQUE)
-- **AUCUNE SYNTAXE PHP DANS LE JSON** : N'utilise JAMAIS d'opérateurs d'association PHP `=>`, ni de tableaux PHP `['key' => 'val']`. Tout doit être du JSON valide (ex : `{"key": "val"}`).
+### RÈGLES STRICTES DE FORMATAGE JSON (CRITIQUE)
+- **AUCUNE SYNTAXE PHP DANS LE JSON** : N'utilise JAMAIS d'opérateurs d'association PHP `=>`, ni de tableaux PHP `['key' => 'val']`. 
+  Tout doit être du JSON valide (ex : `{"key": "val"}`).
 - **Structure des objets et tableaux** : Les tableaux associatifs PHP doivent TOUJOURS être traduits en objets JSON (`{"clé": "valeur"}`).
 - **Encadrement strict des clés et valeurs string** : N'oublie jamais les guillemets doubles autour des clés JSON.
-- **Strict RAW JSON Output** : Réponds EXCLUSIVEMENT par l'objet JSON brut. N'inclus AUCUN bloc de code Markdown (PAS de ```json ... ```), AUCUN texte d'introduction ni d'explication.
+- **Strict RAW JSON Output** : Réponds EXCLUSIVEMENT par l'objet JSON brut. N'inclus AUCUN bloc de code Markdown (PAS de ```json ... ```), 
+  AUCUN texte d'introduction ni d'explication.
 
 ### SCHÉMA JSON OBLIGATOIRE
 {
@@ -148,5 +160,54 @@ PROMPT;
         }
 
         return $prompt;
+    }
+
+    /**
+     * Liste des références calculées par Réflexion PHP dans le message utilisateur.
+     *
+     * @throws \ReflectionException
+     */
+    private function referenceBlock(string $fqcn, string $type): string
+    {
+        if (!class_exists($fqcn)) {
+            return '';
+        }
+
+        $rc = new \ReflectionClass($fqcn);
+
+        $own = static fn (\ReflectionMethod $m): bool => !$m->isConstructor() && !$m->isDestructor()
+            && !str_contains((string) $m->getFileName(), DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR);
+
+        $list = static fn (array $methods): string => [] === $methods
+            ? 'aucune'
+            : implode(', ', array_map(static fn (\ReflectionMethod $m): string => $m->getName() . '()', $methods));
+
+        $public = array_filter($rc->getMethods(\ReflectionMethod::IS_PUBLIC), $own);
+        $nonPublic = array_filter(
+            $rc->getMethods(\ReflectionMethod::IS_PRIVATE | \ReflectionMethod::IS_PROTECTED),
+            static fn (\ReflectionMethod $m): bool => $m->getDeclaringClass()->getName() === $fqcn,
+        );
+
+        $block = "\n\nRÉFÉRENCE CALCULÉE PAR RÉFLEXION (fait foi) :\n"
+            . '- Méthodes PUBLIQUES (seules autorisées dans `methods`) : ' . $list($public) . "\n"
+            . '- Méthodes non publiques (JAMAIS dans `methods`) : ' . $list($nonPublic) . "\n";
+
+        if ('functional' !== strtolower($type)) {
+            $deps = [];
+            foreach ($rc->getConstructor()?->getParameters() ?? [] as $p) {
+                $t = $p->getType();
+                if ($t instanceof \ReflectionNamedType && !$t->isBuiltin()
+                    && (class_exists($t->getName()) || interface_exists($t->getName()))) {
+                    $r = new \ReflectionClass($t->getName());
+                    if (!$r->isInternal() && !$r->isEnum()) {
+                        $deps[] = '`' . $t->getName() . '`';
+                    }
+                }
+            }
+            $block .= '- Dépendances du constructeur (seules autorisées dans `dependenciesToMock` et `mockExpectations`) : '
+                . ([] === $deps ? 'aucune' : implode(', ', $deps)) . "\n";
+        }
+
+        return $block;
     }
 }

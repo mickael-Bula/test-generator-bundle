@@ -7,6 +7,7 @@ namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 use Mika\TestGeneratorBundle\Interceptor\ErrorInterceptorInterface;
 use Mika\TestGeneratorBundle\Interceptor\Support\RepoMapProvider;
 use Mika\TestGeneratorBundle\Interceptor\Support\SeedExtractor;
+use Mika\TestGeneratorBundle\Interceptor\Support\TestPreFixerInterface;
 use Mika\TestGeneratorBundle\Registry\ErrorInterceptorRegistry;
 use PhpParser\Parser;
 use PhpParser\ParserFactory;
@@ -34,6 +35,9 @@ return static function (ContainerConfigurator $container): void {
 
     $services->instanceof(ErrorInterceptorInterface::class)
         ->tag('mika_test_generator.error_interceptor');
+
+    $services->instanceof(TestPreFixerInterface::class)
+        ->tag('mika_test_generator.pre_fixer');
 
     // 2. Chargement automatique de toutes les classes PHP du bundle
     $services->load('Mika\\TestGeneratorBundle\\', '../src/*')

@@ -7,6 +7,7 @@ namespace Mika\TestGeneratorBundle\Service;
 use Mika\TestGeneratorBundle\Exception\TestCorrectionException;
 use Mika\TestGeneratorBundle\Interceptor\Support\MissingClassPreFixer;
 use Mika\TestGeneratorBundle\Interceptor\Support\MockPropertyTypeFixer;
+use Mika\TestGeneratorBundle\Interceptor\Support\PreFixerChain;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\PromptBuilder\TestPromptBuilderInterface;
 use Mika\TestGeneratorBundle\Validator\PhpSyntaxValidator;
@@ -18,18 +19,17 @@ final class TestGeneratorV2
 {
     private const MAX_PHPUNIT_ATTEMPTS = 3;
     private const MAX_PHPSTAN_ATTEMPTS = 2;
-    private const MAX_PREFIX_PASSES = 3;
+    private const MAX_PREFIX_PASSES = 5;
 
     public function __construct(
         private readonly LlmClientFactory $llmFactory,
         private readonly PhpUnitTestRunner $testRunner,
         private readonly PhpSyntaxValidator $syntaxValidator,
         private readonly PhpStanRunner $phpStanRunner,
-        private readonly MissingClassPreFixer $preFixer,
+        private readonly PreFixerChain $preFixer,
         #[AutowireIterator('mika_test_generator.prompt_builder')] private readonly iterable $promptBuilders, // Récupère toutes les classes portant ce tag
         #[Autowire('%kernel.project_dir%/var/tmp')] private readonly string $tmpDir = 'var/tmp',
         #[Autowire('%kernel.project_dir%/var/failed_tests')] private readonly string $failedTestsDir = 'var/failed_tests',
-        private readonly MockPropertyTypeFixer $mockFixer,
         private readonly Filesystem $filesystem = new Filesystem(),
     ) {
         if (!$this->filesystem->exists($this->tmpDir)) {
@@ -54,38 +54,46 @@ final class TestGeneratorV2
         ?string $specContent = null,
         string $type = 'unit_v2',
         ?string $provider = null,
+        ?string $startFromTestCode = null,
     ): string {
-        // MAPPING VERS LES BUILDERS V2 (PHASE DE DEV)
-        if ($type === 'unit') {
-            $type = 'unit_v2';
-        } elseif ($type === 'functional') {
-            $type = 'functional_v2'; // Si une version 2 fonctionnelle est développée plus tard
-        }
-
-        // Sélection du builder approprié
-        $builder = $this->getPromptBuilder($type);
-
-        // Construction des messages via le builder
-        $prompts = $builder->buildPrompt(
-            classCode: $classCode,
-            filePath: $filePath,
-            fqcn: $fqcn,
-            className: $className,
-            methodName: $methodName,
-            existingTestCode: $existingTestCode,
-            specContent: $specContent,
-            provider: $provider
-        );
-
         $client = $this->llmFactory->getClient();
         $targetModel = $model ?? $this->llmFactory->getDefaultModel();
 
-        // Construction du prompt
-        $messages = [
-            ['role' => 'system', 'content' => $prompts['system']],
-            ['role' => 'user', 'content' => $prompts['user']],
-        ];
+        // Si une fixture de code en erreur est fournie, le prompt du fixer devient déterministe
+        if (null !== $startFromTestCode) {
+            // Reprise d'un test existant : le prompt du fixer remplacera ce message au premier échec
+            $messages = [['role' => 'system', 'content' => '']];
+        } else {
+            // MAPPING VERS LES BUILDERS V2 (PHASE DE DEV)
+            if ($type === 'unit') {
+                $type = 'unit_v2';
+            } elseif ($type === 'functional') {
+                $type = 'functional_v2'; // Si une version 2 fonctionnelle est développée plus tard
+            }
 
+            // Sélection du builder approprié
+            $builder = $this->getPromptBuilder($type);
+
+            // Construction des messages via le builder
+            $prompts = $builder->buildPrompt(
+                classCode: $classCode,
+                filePath: $filePath,
+                fqcn: $fqcn,
+                className: $className,
+                methodName: $methodName,
+                existingTestCode: $existingTestCode,
+                specContent: $specContent,
+                provider: $provider
+            );
+
+            // Construction du prompt
+            $messages = [
+                ['role' => 'system', 'content' => $prompts['system']],
+                ['role' => 'user', 'content' => $prompts['user']],
+            ];
+        }
+
+        $pending = $startFromTestCode; // code à évaluer au premier tour, sans appel LLM
         $testCode = '';
         $lastOutput = 'Aucun rapport PHPUnit généré.';
 
@@ -99,7 +107,8 @@ final class TestGeneratorV2
             ++$phpunitAttempt;
 
             $rawTestCode = $client->call($messages, $targetModel);
-            $testCode = $this->cleanLlmOutput($rawTestCode);
+            $testCode = $pending ?? $this->cleanLlmOutput($rawTestCode);
+            $pending = null; // On s'assure qu'aucune fixture n'est réutilisée dans la boucle
 
             // Validation de la syntaxe PHP
             $syntaxResult = $this->syntaxValidator->validate($testCode);
@@ -326,7 +335,7 @@ final class TestGeneratorV2
         $initial = $result['output']; // rapport du code tel que reçu
 
         for ($pass = 0; !$result['success'] && $pass < self::MAX_PREFIX_PASSES; ++$pass) {
-            $patched = $this->mockFixer->fix($result['output'], $testCode);
+            $patched = $this->preFixer->fix($result['output'], $testCode);
             if (null === $patched) {
                 break;
             }
@@ -334,7 +343,52 @@ final class TestGeneratorV2
             $result = $this->runPhpStan($testCode, $className);
         }
 
-        return $result + ['code' => $testCode, 'initial' => $initial];
+        return [
+            ...$result, // étend le tableau ['success' => true, 'output' => '<php...'],
+            'code' => $testCode, // et ajoute les clés
+            'initial' => $initial
+        ];
+    }
+
+    /**
+     * @return array{valid: bool, output: string, phase: string}
+     */
+    public function check(string $testCode, string $className): array
+    {
+        $run = $this->runPhpUnit($testCode, $className);
+        if (!$run['valid']) {
+            return [...$run, 'phase' => 'PHPUnit'];
+        }
+
+        $stan = $this->runPhpStan($testCode, $className);
+
+        return ['valid' => $stan['success'], 'output' => $stan['output'], 'phase' => 'PHPStan'];
+    }
+
+    /**
+     * Mode sans LLM : exécute PHPUnit puis PHPStan avec les pré-correcteurs, comme la boucle de génération.
+     *
+     * @return array{valid: bool, output: string, code: string, phase: string}
+     */
+    public function replay(string $testCode, string $className): array
+    {
+        $run = $this->runWithPreFix($testCode, $className);
+        if (!$run['valid']) {
+            return [...$run, 'phase' => 'PHPUnit'];
+        }
+
+        $stan = $this->runPhpStanWithPreFix($run['code'], $className);
+        if ($stan['success'] && $stan['code'] !== $run['code']) {
+            // un correctif PHPStan a modifié le test : PHPUnit doit le revalider
+            return [...$this->runWithPreFix($stan['code'], $className), 'phase' => 'PHPUnit'];
+        }
+
+        return [
+            'valid' => $stan['success'],
+            'output' => $stan['output'],
+            'code' => $stan['code'],
+            'phase' => 'PHPStan'
+        ];
     }
 
     /**
@@ -364,7 +418,10 @@ final class TestGeneratorV2
         );
 
         $messages[0] = ['role' => 'system', 'content' => $fixerPrompts['system']];
-        $messages[] = ['role' => 'assistant', 'content' => $testCode];
+        // Certaines API (Anthropic) exigent un premier message 'user', sans 'assistant'.
+        if (\count($messages) > 1) {
+            $messages[] = ['role' => 'assistant', 'content' => $testCode];
+        }
         $messages[] = ['role' => 'user', 'content' => $fixerPrompts['user']];
     }
 
@@ -383,7 +440,7 @@ final class TestGeneratorV2
     /**
      * Méthode renommant les namespaces de la classe de test pour pointer vers le dossier 'tests'
      */
-    public function replaceDynamicHeadersInTestCode(string $testCode, string $targetNamespace, string $className): string
+    public function  replaceDynamicHeadersInTestCode(string $testCode, string $targetNamespace, string $className): string
     {
         return str_replace(
             ['namespace App\Tests\Dynamic;', sprintf('class %sDynamicTest', $className)],

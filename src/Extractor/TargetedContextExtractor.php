@@ -6,7 +6,7 @@ namespace Mika\TestGeneratorBundle\Extractor;
 
 final class TargetedContextExtractor
 {
-    private const APP_NAMESPACE = 'App\\';
+    private const APP_NAMESPACE = 'App\\'; // TODO : Quant est-il des classes du Bundle lui-même ? Et si PSR4 indique autre chose que App\\ ?
     private const MAX_BLUEPRINT_METHODS = 25;
 
     /** @var array<string, array<string,string>> */

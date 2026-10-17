@@ -4,14 +4,12 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Command;
 
-use Mika\TestGeneratorBundle\Dto\TestTargetPath;
 use Mika\TestGeneratorBundle\Enum\TestType;
-use Mika\TestGeneratorBundle\Exception\PhpStanNotFoundException;
-use Mika\TestGeneratorBundle\Exception\TestCorrectionException;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\Manager\SpecManager;
 use Mika\TestGeneratorBundle\Resolver\ClassResolver;
 use Mika\TestGeneratorBundle\Resolver\TestPathResolver;
+use Mika\TestGeneratorBundle\Service\TestFinalizer;
 use Mika\TestGeneratorBundle\Service\TestGeneratorV2;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -42,6 +40,7 @@ class GenerateTestV2Command extends Command
         private readonly TestPathResolver                           $pathResolver,
         private readonly SpecManager                                $specManager,
         private readonly DatabaseResolverCommand                    $databaseResolverCommand,
+        private readonly TestFinalizer                              $finalizer,
     )
     {
         parent::__construct();
@@ -211,16 +210,18 @@ class GenerateTestV2Command extends Command
                 provider: $provider
             );
 
-            $testCode = $this->testGenerator->replaceDynamicHeadersInTestCode(
-                testCode: $testCode,
+            // $testCode est encore au format App\Tests\Dynamic : c'est celui que le runner sait exécuter
+            $final = $this->finalizer->finalize($testCode, $shortClassName);
+            if (null !== $final['reason']) {
+                $this->io->warning($final['reason']);
+            }
+
+            // On remplace les namespaces pour pointer vers le dossier de tests
+            $cleanTestCode = $this->testGenerator->replaceDynamicHeadersInTestCode(
+                testCode: $final['code'],
                 targetNamespace: $testTargetPath->targetNamespace,
                 className: $shortClassName,
             );
-
-            $cleanTestCode = $this->refactorFqcnToUseStatements($testCode);
-
-            // TODO : On relance PHPUnit et PHPStan sur le code nettoyé
-            // TODO : si le nettoyage réussi, on enregistre le fichier, sinon on le met dans le dossier d'erreur
 
             // On enregistre le code validé
             file_put_contents($testTargetPath->filePath, $cleanTestCode);
@@ -250,57 +251,5 @@ class GenerateTestV2Command extends Command
             ['Début' => $startTime->format('H:i:s')],
             ['Durée totale' => sprintf('%.2fs', $durationInSeconds)]
         );
-    }
-
-    private function refactorFqcnToUseStatements(string $phpCode): string
-    {
-        preg_match_all('/\\\\(App|Doctrine|PHPUnit\\\\Framework\\\\MockObject)\\\\[a-zA-Z0-9_\\\\]+/', $phpCode, $matches);
-        $fqcns = array_unique($matches[0]);
-
-        if ([] === $fqcns) {
-            return $phpCode;
-        }
-
-        // Noms courts déjà pris par un import existant (alias compris)
-        $taken = [];
-        preg_match_all('/^use\s+([\w\\\\]+)(?:\s+as\s+(\w+))?\s*;/m', $phpCode, $uses, PREG_SET_ORDER);
-        foreach ($uses as $u) {
-            $taken[strtolower($u[2] ?? basename(str_replace('\\', '/', $u[1])))] = $u[1];
-        }
-
-        $newUses = [];
-        $replacements = [];
-        foreach ($fqcns as $fqcn) {
-            $clean = ltrim($fqcn, '\\');
-            $short = basename(str_replace('\\', '/', $clean));
-            $key = strtolower($short);
-
-            if (isset($taken[$key])) {
-                if ($taken[$key] === $clean) {
-                    $replacements[$fqcn] = $short; // déjà importé : on raccourcit seulement
-                }
-                // sinon, il y a collision : ce FQCN reste en ligne
-                continue;
-            }
-
-            $taken[$key] = $clean;
-            $newUses[] = "use $clean;";
-            $replacements[$fqcn] = $short;
-        }
-
-        uksort($replacements, static fn (string $a, string $b): int => \strlen($b) <=> \strlen($a));
-        foreach ($replacements as $fqcn => $short) {
-            // (?![\w\\]) : chercher `\App\Entity\User` ne touche pas `\App\Entity\UserRepository`
-            $phpCode = preg_replace('/' . preg_quote($fqcn, '/') . '(?![\w\\\\])/', $short, $phpCode);
-        }
-
-        sort($newUses);
-        $useBlock = implode("\n", $newUses);
-
-        if ('' !== $useBlock && preg_match('/namespace\s+[^;]+;\s*/', $phpCode, $nsMatches)) {
-            $phpCode = str_replace($nsMatches[0], $nsMatches[0] . "\n" . $useBlock . "\n", $phpCode);
-        }
-
-        return $phpCode;
     }
 }

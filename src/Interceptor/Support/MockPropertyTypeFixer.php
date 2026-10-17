@@ -11,7 +11,7 @@ use PhpParser\NodeTraverser;
 use PhpParser\NodeVisitor\NameResolver;
 use PhpParser\Parser;
 
-final readonly class MockPropertyTypeFixer
+final readonly class MockPropertyTypeFixer implements TestPreFixerInterface
 {
     private const MOCK_OBJECT = 'PHPUnit\Framework\MockObject\MockObject';
     private const PATTERN = '/(?:Ligne|Line)\s+(?<line>\d+)\s*:\s*Call to an undefined method (?<class>[\w\\\\]+)::(?<method>expects|method)\(\)/';

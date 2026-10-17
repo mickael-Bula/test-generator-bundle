@@ -6,7 +6,7 @@ namespace Mika\TestGeneratorBundle\Interceptor\Support;
 
 use Mika\TestGeneratorBundle\Resolver\MissingClassResolver;
 
-final readonly class MissingClassPreFixer
+final readonly class MissingClassPreFixer implements TestPreFixerInterface
 {
     public function __construct(
         private PhpUnitFailureLocator $locator,

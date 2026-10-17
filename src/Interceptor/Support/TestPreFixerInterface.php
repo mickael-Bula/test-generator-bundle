@@ -7,7 +7,7 @@ namespace Mika\TestGeneratorBundle\Interceptor\Support;
 interface TestPreFixerInterface
 {
     /**
-     * Corrige de manière déterministe.
+     * @return string|null le test corrigé, ou null si ce correcteur ne s'applique pas à cette sortie
      */
     public function fix(string $errorOutput, string $testCode): ?string;
 }
