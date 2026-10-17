@@ -4,11 +4,17 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Interceptor\Support;
 
+use Mika\TestGeneratorBundle\Service\TestSnapshotStore;
+
 final readonly class PhpUnitFailureLocator
 {
     // "1) App\Tests\Dynamic\PositionManagerDynamicTest::testXxx" (avec ou sans "with data set")
     private const PATTERN = '/^\d+\)\s+(?<c>[\w\\\\]+)::(?<m>\w+)/m';
-    public function __construct(private RepoMapProvider $maps) {}
+    public function __construct(
+        private RepoMapProvider $maps,
+        private TestSnapshotStore $snapshots,
+    ) {
+    }
 
     public function locate(string $output): PhpUnitFailure
     {
@@ -33,10 +39,16 @@ final readonly class PhpUnitFailureLocator
             return null;
         }
 
-        // 1. Depuis la trace : ".../PositionManagerDynamicTest.php:141"
+        // 1. Depuis la trace : ".../ClassnameDynamicTest.php:141"
         $short = basename(str_replace('\\', '/', $testClass));
-        if (preg_match('#(?<f>/\S*?' . preg_quote($short, '#') . '\.php):\d+#', $output, $m) && is_file($m['f'])) {
-            return $m['f'];
+        if (preg_match('#(?<f>/\S*?' . preg_quote($short, '#') . '\.php):\d+#', $output, $m)) {
+            if (is_file($m['f'])) {
+                return $m['f'];
+            }
+            // Le runner supprimant le fichier après l'exécution, on lit l'instantané du dernier run
+            if (null !== $snapshot = $this->snapshots->find($m['f'])) {
+                return $snapshot;
+            }
         }
 
         // 2. Repli : autoload
@@ -52,7 +64,7 @@ final readonly class PhpUnitFailureLocator
         $classes = $this->maps->get()->classes;
         $shortOf = static fn (string $fqcn): string => basename(str_replace('\\', '/', $fqcn));
 
-        // 1. Convention : PositionManagerDynamicTest -> PositionManager
+        // 1. Convention : MaClasseDynamicTest -> MaClasse
         if (null !== $testClass) {
             $base = preg_replace('/(Dynamic|Unit)?Test$/', '', $shortOf($testClass));
             $candidates = array_values(array_filter(

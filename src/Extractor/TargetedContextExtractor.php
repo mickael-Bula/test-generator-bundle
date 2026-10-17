@@ -46,12 +46,20 @@ final class TargetedContextExtractor
         }
 
         // 3. Méthodes des dépendances réellement appelées par le SUT
+        $keysRead = $this->arrayKeysRead($source);
         $called = [];
         foreach ($dependencyClasses as $dep) {
             foreach ((new \ReflectionClass($dep))->getMethods(\ReflectionMethod::IS_PUBLIC) as $m) {
-                if (!$m->isConstructor() && str_contains($source, '->' . $m->getName() . '(')) {
-                    $called[] = '- \\' . $dep . '::' . $this->describe($m);
+                if ($m->isConstructor() || !str_contains($source, '->' . $m->getName() . '(')) {
+                    continue;
                 }
+
+                $line = '- \\' . $dep . '::' . $this->describe($m);
+                if (isset($keysRead[$m->getName()])) {
+                    $line .= "\n    Clés lues par le SUT sur le retour : " . implode(', ', $keysRead[$m->getName()])
+                        . ' (le mock doit toutes les fournir)';
+                }
+                $called[] = $line;
             }
         }
 
@@ -61,7 +69,7 @@ final class TargetedContextExtractor
         $blueprints = [];
         foreach (array_unique($m[1]) as $class) {
             if ($class !== $fqcn && !\in_array($class, $dependencyClasses, true) && class_exists($class)) {
-                $blueprints[] = $this->blueprint($class);
+                $blueprints[] = $this->blueprint($class, $source);
             }
         }
 
@@ -82,7 +90,7 @@ final class TargetedContextExtractor
     /**
      * @throws \ReflectionException
      */
-    private function blueprint(string $fqcn): string
+    private function blueprint(string $fqcn, string $source): string
     {
         $rc = new \ReflectionClass($fqcn);
 
@@ -102,8 +110,17 @@ final class TargetedContextExtractor
             $rc->getMethods(\ReflectionMethod::IS_PUBLIC),
             static fn (\ReflectionMethod $m): bool => !$m->isConstructor() && $m->getDeclaringClass()->getName() === $fqcn,
         );
+
+        $used = static fn (\ReflectionMethod $m): bool => str_contains($source, '->' . $m->getName() . '(');
+        usort($methods, static fn (\ReflectionMethod $a, \ReflectionMethod $b): int => $used($b) <=> $used($a));
+
         foreach (\array_slice($methods, 0, self::MAX_BLUEPRINT_METHODS) as $m) {
             $lines[] = '-> public function ' . $this->describe($m);
+
+            if ($used($m) && !str_starts_with($m->getName(), 'set') && null !== $body = MethodSource::ofComputed($m)) {
+                $lines[] = "   Code réel (méthode calculée : pour changer son résultat, agis sur les données qu'elle lit) :\n"
+                    . preg_replace('/^/m', '       ', $body);
+            }
         }
 
         return implode("\n", $lines);
@@ -255,5 +272,22 @@ final class TargetedContextExtractor
     private function isVendor(\ReflectionMethod $m): bool
     {
         return str_contains((string) $m->getFileName(), DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR);
+    }
+
+    /**
+     * @return array<string, list<string>> méthode appelée => clés de tableau lues sur son retour
+     */
+    private function arrayKeysRead(string $source): array
+    {
+        $keys = [];
+        preg_match_all('/\$(?<var>\w+)\s*=\s*\$this->\w+->(?<method>\w+)\(/', $source, $assigns, PREG_SET_ORDER);
+        foreach ($assigns as $a) {
+            preg_match_all('/\$' . $a['var'] . '\[\'(?<key>\w+)\'\]/', $source, $reads);
+            foreach ($reads['key'] as $k) {
+                $keys[$a['method']][$k] = true;
+            }
+        }
+
+        return array_map('array_keys', $keys);
     }
 }

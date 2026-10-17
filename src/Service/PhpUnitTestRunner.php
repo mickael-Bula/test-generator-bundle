@@ -15,6 +15,7 @@ readonly class PhpUnitTestRunner
 {
     public function __construct(
         #[Autowire('%kernel.project_dir%')] private string $projectDir,
+        private TestSnapshotStore $snapshots,
     ) {
     }
 
@@ -34,6 +35,7 @@ readonly class PhpUnitTestRunner
 
         // Écriture du code généré
         file_put_contents($testFilePath, $testCode);
+        $this->snapshots->save($testFilePath, $testCode);
 
         // Utilisation de DIRECTORY_SEPARATOR pour avoir 'vendor\bin\phpunit' sur Windows et 'vendor/bin/phpunit' ailleurs
         $phpunitBin = 'vendor' . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'phpunit';
@@ -43,6 +45,11 @@ readonly class PhpUnitTestRunner
             $phpunitBin,
             $testFilePath,
             '--colors=always',
+            '--fail-on-skipped',
+            '--fail-on-incomplete',
+            '--fail-on-risky',
+            '--display-skipped',
+            '--display-incomplete',
         ], $this->projectDir, [
             'XDEBUG_MODE' => 'off',
             'XDEBUG_SESSION' => null,

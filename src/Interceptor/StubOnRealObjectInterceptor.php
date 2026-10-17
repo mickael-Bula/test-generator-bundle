@@ -1,0 +1,66 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Mika\TestGeneratorBundle\Interceptor;
+
+use Mika\TestGeneratorBundle\Extractor\MethodSource;
+use Mika\TestGeneratorBundle\Interceptor\Support\PhpUnitFailureLocator;
+use Mika\TestGeneratorBundle\Interceptor\Support\RealObjectStubFinder;
+
+/** @noinspection PhpUnused */
+final readonly class StubOnRealObjectInterceptor implements ErrorInterceptorInterface
+{
+    private const TRIGGER = '/Call to (?:an )?undefined method [\w\\\\]+::(?:expects|method)\(\)/';
+
+    public function __construct(
+        private PhpUnitFailureLocator $locator,
+        private RealObjectStubFinder $finder,
+    ) {
+    }
+
+    public function supports(string $errorOutput): bool
+    {
+        return 1 === preg_match(self::TRIGGER, $errorOutput);
+    }
+
+    public function intercept(string $errorOutput): ?string
+    {
+        $file = $this->locator->locate($errorOutput)->testFile;
+        if (null === $file) {
+            return null;
+        }
+        $stubs = $this->finder->find((string) file_get_contents($file));
+        if ([] === $stubs) {
+            return null; // le receveur est une propriété : MockPropertyTypeFixer / UndefinedMockMethodInterceptor
+        }
+
+        $md = "### `expects()` / `method()` appelés sur un objet RÉEL\n"
+            . "Ces méthodes n'existent que sur les mocks : un objet créé avec `new` n'en a pas.\n";
+
+        foreach ($stubs as $s) {
+            $md .= sprintf(
+                "- `\$%s` est un `new \\%s(...)` ; stub demandé sur : %s\n",
+                $s['variable'],
+                $s['class'],
+                implode(', ', array_map(static fn (string $m): string => "`$m()`", $s['methods'])),
+            );
+
+            if (!class_exists($s['class'])) {
+                continue;
+            }
+            $rc = new \ReflectionClass($s['class']);
+            foreach ($s['methods'] as $name) {
+                if ($rc->hasMethod($name) && null !== $body = MethodSource::ofComputed($rc->getMethod($name))) {
+                    $md .= "  Code réel de `$name()` :\n" . preg_replace('/^/m', '      ', $body) . "\n";
+                }
+            }
+        }
+
+        return $md
+            . "Correction, dans cet ordre :\n"
+            . "1. Supprime le stub et donne à l'objet l'état voulu avec ses vrais mutateurs (le code ci-dessus montre ce que le getter lit).\n"
+            . "2. Si aucun mutateur ne permet cet état : `\$this->getMockBuilder(\\Classe::class)->onlyMethods(['méthode'])->getMock()`.\n"
+            . "Ne change rien d'autre dans le test.\n";
+    }
+}

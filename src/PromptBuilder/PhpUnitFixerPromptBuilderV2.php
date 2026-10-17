@@ -49,7 +49,8 @@ readonly class PhpUnitFixerPromptBuilderV2 implements TestPromptBuilderInterface
 
         $systemMessage .= "\n\n" . <<<'TEXT'
 RÈGLES D'OR DU FIXER (CORRECTION CIBLÉE) :
-1. NE RÉÉCRIS PAS LE TEST DE ZÉRO : Ne génère AUCUN nouveau scénario de test et ne supprime AUCUNE méthode de test existante.
+1. NE RÉÉCRIS PAS LE TEST DE ZÉRO : ne génère aucun nouveau scénario et ne supprime aucune méthode de test,
+   SAUF un test ignoré (`markTestSkipped`) qui vise une méthode privée : celui-là, supprime-le.
 2. CONSERVE LA STRUCTURE : Conserve exactement les mêmes méthodes de test, leur nom, leurs attributs et leur ordre.
 3. ADAPTE UNIQUEMENT LES LIGNES EN ÉCHEC :
 - Analyse attentivement le rapport d'erreur / rapport PHPUnit.

@@ -121,6 +121,21 @@ DIRECTIVES DE GÉNÉRATION DES TESTS UNITAIRES :
   // QUAND
   // ALORS
 - Pour les exceptions (`$this->expectException`), place l'attente sous `// ALORS` et l'action qui la déclenche sous `// QUAND` en tout dernier.
+6. STUBS, ASSERTIONS ET MÉTHODES TESTÉES :
+- Ne configure JAMAIS de stub (`->method(...)`) dans `setUp()` : PHPUnit applique le PREMIER stub enregistré qui correspond à l'appel,
+  un stub de `setUp()` masque donc ceux des tests. Pour une base partagée, crée une méthode privée `stubXxx(...)`
+  (valeurs en paramètres) appelée explicitement par chaque test, avec un seul stub par méthode et par test.
+- Quand le SUT lit un tableau retourné par un mock, ce tableau contient TOUTES les clés lues par le SUT.
+- Teste uniquement les méthodes PUBLIQUES ; les privées sont couvertes à travers elles.
+  `markTestSkipped()` et `markTestIncomplete()` sont interdits.
+- Chaque test contient au moins une assertion sur un résultat observable (valeur retournée, état modifié d'un objet,
+  `expects(self::exactly(n))`). Le commentaire « Aucune assertion nécessaire » est interdit.
+- Écris chaque valeur attendue calculée comme une expression des données d'entrée, jamais comme un résultat calculé de tête.
+- Sur une entité, n'appelle que les méthodes listées dans son blueprint.
+- Les entités et DTO sont créés avec `new` et configurés par leurs vrais mutateurs. N'appelle JAMAIS `expects()` ni `method()`
+  sur un objet créé avec `new`. Pour changer le résultat d'une méthode calculée (isXxx, getXxx dérivé), agis sur les données
+  qu'elle lit (voir « Code réel » dans le contexte). Si aucun mutateur ne le permet, crée l'objet avec
+  `$this->getMockBuilder(\Classe::class)->onlyMethods(['méthode'])->getMock()`.
 TEXT;
 
         if (null !== $skillsPrompt && trim($skillsPrompt) !== '') {$systemMessage .= "\n\n========================================\n"
