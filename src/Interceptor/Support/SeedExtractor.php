@@ -5,16 +5,21 @@ declare(strict_types=1);
 namespace Mika\TestGeneratorBundle\Interceptor\Support;
 
 
+use Psr\Cache\InvalidArgumentException;
+
 final readonly class SeedExtractor
 {
-    public function __construct(private RepoMapProvider $maps, private string $rootNs = 'App\\') {}
+    public function __construct(private RepoMapProvider $maps, private string $rootNamespace = 'App\\') {}
 
+    /**
+     * @throws InvalidArgumentException
+     */
     public function extract(string $phpunitOutput, string $testFile, string $sut): array
     {
         $seeds = [$sut];
 
         // FQCN cités (message d'erreur, trace)
-        preg_match_all('/' . preg_quote($this->rootNs, '/') . '[\w\\\\]+/', $phpunitOutput, $m);
+        preg_match_all('/' . preg_quote($this->rootNamespace, '/') . '[\w\\\\]+/', $phpunitOutput, $m);
         foreach ($m[0] as $c) {
             $seeds[] = preg_replace('/::.*$/', '', $c);
         }
@@ -30,7 +35,7 @@ final readonly class SeedExtractor
         }
 
         // Classes importées par le test (mocks, collaborateurs)
-        preg_match_all('/^use\s+(' . preg_quote($this->rootNs, '/') . '[\w\\\\]+);/m', file_get_contents($testFile), $u);
+        preg_match_all('/^use\s+(' . preg_quote($this->rootNamespace, '/') . '[\w\\\\]+);/m', file_get_contents($testFile), $u);
 
         return array_values(array_unique([...$seeds, ...$u[1]]));
     }

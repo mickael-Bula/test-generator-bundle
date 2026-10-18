@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Extractor;
 
+use Mika\TestGeneratorBundle\Reflection\DocTypeResolver;
+
 final class TargetedContextExtractor
 {
     private const APP_NAMESPACE = 'App\\'; // TODO : Quant est-il des classes du Bundle lui-même ? Et si PSR4 indique autre chose que App\\ ?
     private const MAX_BLUEPRINT_METHODS = 25;
 
-    /** @var array<string, array<string,string>> */
-    private array $usesCache = [];
+    public function __construct(private readonly DocTypeResolver $docTypes) {}
 
     /**
      * @throws \ReflectionException
@@ -33,7 +34,7 @@ final class TargetedContextExtractor
                 $dependencyClasses[] = $class;
                 continue;
             }
-            $doc = $this->docLines($ctor, $p->getName());
+            $doc = $this->docTypes->lines($ctor, $p->getName());
             $values[] = '- ' . $this->param($p) . ([] !== $doc ? '   // ' . implode(' ', $doc) : '');
         }
 
@@ -157,7 +158,7 @@ final class TargetedContextExtractor
             implode(', ', array_map($this->param(...), $m->getParameters())),
             $this->type($m->getReturnType()),
         );
-        $doc = $this->docLines($m);
+        $doc = $this->docTypes->lines($m);
 
         return $sig . ([] !== $doc ? "\n    " . implode("\n    ", $doc) : '');
     }
@@ -211,67 +212,6 @@ final class TargetedContextExtractor
             \is_object($v) => 'new \\' . $v::class . '(…)',
             default => var_export($v, true),
         };
-    }
-
-    // Lignes `@param`/`@return` du PHPDoc, types qualifiés en FQCN (le LLM ne doit pas deviner les namespaces).
-    /**
-     * @return list<string>
-     */
-    private function docLines(\ReflectionFunctionAbstract $f, ?string $only = null): array
-    {
-        $doc = $f->getDocComment() ?: '';
-        $type = '(?<t>(?:[^\s<{(]+|<[^>]*>|\{[^}]*\}|\([^)]*\))+)';
-        $lines = [];
-
-        if (preg_match_all('/@param\s+' . $type . '\s+\$(?<n>\w+)/', $doc, $m, PREG_SET_ORDER)) {
-            foreach ($m as $x) {
-                if (null === $only || $only === $x['n']) {
-                    $lines[] = sprintf('@param %s $%s', $this->qualify($x['t'], $f), $x['n']);
-                }
-            }
-        }
-        if (null === $only && preg_match('/@return\s+' . $type . '/', $doc, $x)) {
-            $lines[] = '@return ' . $this->qualify($x['t'], $f);
-        }
-
-        return $lines;
-    }
-
-    private function qualify(string $docType, \ReflectionFunctionAbstract $f): string
-    {
-        if (!$f instanceof \ReflectionMethod) {
-            return $docType;
-        }
-        $rc = $f->getDeclaringClass();
-        $uses = $this->usesOf($rc);
-
-        return (string) preg_replace_callback(
-            '/(?<![\\\\\w$])[A-Z]\w*/',
-            static fn (array $m): string => '\\' . ($uses[$m[0]] ?? $rc->getNamespaceName() . '\\' . $m[0]),
-            $docType,
-        );
-    }
-
-    /** @return array<string,string> nom court => FQCN (hors `use Foo\{A, B}` groupés) */
-    private function usesOf(\ReflectionClass $rc): array
-    {
-        if (isset($this->usesCache[$rc->getName()])) {
-            return $this->usesCache[$rc->getName()];
-        }
-
-        preg_match_all(
-            '/^use\s+([\w\\\\]+)(?:\s+as\s+(\w+))?\s*;/m',
-            (string) file_get_contents((string) $rc->getFileName()),
-            $u,
-            PREG_SET_ORDER
-        );
-
-        $map = [];
-        foreach ($u as $x) {
-            $map[$x[2] ?? basename(str_replace('\\', '/', $x[1]))] = $x[1];
-        }
-
-        return $this->usesCache[$rc->getName()] = $map;
     }
 
     private function isVendor(\ReflectionMethod $m): bool

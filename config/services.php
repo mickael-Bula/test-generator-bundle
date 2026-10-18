@@ -97,5 +97,5 @@ return static function (ContainerConfigurator $container): void {
         ->arg('$srcDir', '%kernel.project_dir%/src');
 
     $services->set(SeedExtractor::class)
-        ->arg('$rootNs', 'App\\');
+        ->arg('$rootNamespace', 'App\\');
 };

@@ -64,6 +64,8 @@ Ton unique rôle est d'analyser le code source d'une classe PHP et de concevoir 
      même si elle porte beaucoup de logique : elle n'est pas appelable depuis un test. 
      Ses branches sont couvertes par les cas des méthodes publiques qui l'appellent : 
      utilise-les pour concevoir les `inputs` et les `mockExpectations` de ces cas.
+   - `expectedBehavior.returnValue` : si la valeur est le résultat d'un calcul, 
+     écris la FORMULE appliquée aux `inputs` (ex. (10 * 100.0 + 5 * 105.0) / (10 + 5)), jamais un résultat calculé de tête.
 2. **Couverture des branches (Path Coverage)** :
    - Identifie tous les chemins d'exécution (`if`, `else`, `switch`, `match`, `try/catch`).
    - Identifie les cas nominaux (*happy paths*).

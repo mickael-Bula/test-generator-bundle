@@ -140,7 +140,9 @@ DIRECTIVES DE GÉNÉRATION DES TESTS UNITAIRES :
   `markTestSkipped()` et `markTestIncomplete()` sont interdits.
 - Chaque test contient au moins une assertion sur un résultat observable (valeur retournée, état modifié d'un objet,
   `expects(self::exactly(n))`). Le commentaire « Aucune assertion nécessaire » est interdit.
-- Écris chaque valeur attendue calculée comme une expression des données d'entrée, jamais comme un résultat calculé de tête.
+- Quand l'attendu est le résultat d'un calcul, écris-le comme une expression des données d'entrée et compare les flottants avec
+  `assertEqualsWithDelta(expression, $obtenu, 0.0001)`, jamais `assertSame`. Les valeurs numériques du spec sont indicatives :
+  le code du SUT fait foi.
 - Sur une entité, n'appelle que les méthodes listées dans son blueprint.
 - Les entités et DTO sont créés avec `new` et configurés par leurs vrais mutateurs. N'appelle JAMAIS `expects()` ni `method()`
   sur un objet créé avec `new`. Pour changer le résultat d'une méthode calculée (isXxx, getXxx dérivé), agis sur les données
@@ -173,6 +175,10 @@ TEXT;
 
         if (null !== $specContent) {$trimmedSpec = trim($specContent);$message .= "SPÉCIFICATIONS BDD :\n```markdown\n$trimmedSpec\n```\n";
             $message .= "Génère exactement une méthode de test par scénario en respectant Arrange/Act/Assert.\n";
+            $message .= "Les valeurs numériques du spec (retours attendus, résultats de calcul) ont été rédigées de tête : "
+                . "en cas d'écart avec le code de la classe, le CODE FAIT FOI. "
+                . "Recalcule chaque résultat à partir des données d'entrée et écris-le comme une expression "
+                . "(ex. `(10 * 100.0 + 5 * 105.0) / (10 + 5)`).\n";
         }
 
         if (null !== $existingTestCode) {

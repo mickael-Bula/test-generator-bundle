@@ -4,90 +4,77 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Interceptor;
 
+use Mika\TestGeneratorBundle\Interceptor\Support\CollectionTypes;
+use Mika\TestGeneratorBundle\Reflection\DocTypeResolver;
+
 /** @noinspection PhpUnused */
 final class CollectionOrArrayTypeErrorInterceptor implements ErrorInterceptorInterface
 {
+    private const PATTERN = '/TypeError:\s+(?<class>[\w\\\\]+)::(?<method>\w+)\(\):\s+Argument\s+#(?<pos>\d+)\s+\(\$(?<arg>\w+)\)\s+must be of type\s+(?<expected>[^,\r\n]+),\s+(?<given>\w+)\s+given/';
+    private const ARRAY_COLLECTION = 'Doctrine\Common\Collections\ArrayCollection';
+
+    public function __construct(private readonly DocTypeResolver $docTypes) {}
+
     public function supports(string $errorOutput): bool
     {
-        return str_contains($errorOutput, 'TypeError:')
-            && (str_contains($errorOutput, 'iterable') || str_contains($errorOutput, 'array') || str_contains($errorOutput, 'Collection'));
+        return [] !== $this->errors($errorOutput);
     }
 
     public function intercept(string $errorOutput): ?string
     {
-        if (!preg_match(
-            '/TypeError:\s+([^:]+)::([^(]+)\(\):\s+Argument\s+#(\d+)\s+\(\$([^)]+)\)\s+must be of type\s+([^,]+),\s+([a-zA-Z_]+)\s+given/i',
-            $errorOutput,
-            $matches
-        )) {
-            return null;
-        }
+        $blocks = array_map($this->describe(...), $this->errors($errorOutput));
 
-        $className = $matches[1];
-        $methodName = $matches[2];
-        $argPosition = (int)$matches[3];
-        $argName = $matches[4];
-        $expectedType = trim($matches[5]);
-        $givenType = $matches[6];
-
-        $itemTypeHint = '';
-
-        // Analyse par Réflexion pour extraire le PHPDoc de la méthode et trouver le type des éléments attendus
-        try {
-            $resolvedClass = $this->resolveClassName($className);
-            if (class_exists($resolvedClass) || interface_exists($resolvedClass)) {
-                $refClass = new \ReflectionClass($resolvedClass);
-                if ($refClass->hasMethod($methodName)) {
-                    $methodRef = $refClass->getMethod($methodName);
-                    $docComment = $methodRef->getDocComment();
-
-                    if ($docComment
-                        && preg_match(
-                            '/@param\s+(?:iterable|array|Collection)<[a-zA-Z0-9_\\\\|]+,\s*([a-zA-Z0-9_\\\\]+)(?:>|\[])/i',
-                            $docComment,
-                            $docMatches
-                        )
-                    ) {
-                        $itemClassName = $docMatches[1];
-                        $itemTypeHint = sprintf(
-                        "\n💡 **Indice PHPDoc détecté** : La collection/itérable doit contenir des objets de type `\\%s`. "
-                        . "Assure-toi de passer un tableau contenant des instances valides de cette classe (ex: `[new \\%s(...)]`).",
-                        ltrim($itemClassName, '\\'),
-                        ltrim($itemClassName, '\\')
-                        );
-                    }
-                }
-            }
-        } catch (\Exception $e) {
-            // Fallback silencieux
-        }
-
-        return sprintf(
-            "INDICE DE TYPAGE SPÉCIALISÉ (COLLECTION / TABLEAU / ITÉRABLE) :\n"
-            . "La méthode ou le constructeur `%s::%s()` a rejeté l'argument `\$%s` (#%s).\n"
-            . "Type attendu : `%s` | Type fourni : `%s`.\n"
-            . "%s\n\n"
-            . "✔️ **Solution obligatoire** :\n"
-            . "Passe soit un tableau PHP classique `[]`, soit un `new \\ArrayIterator([...])` ou une `\\Doctrine\\Common\\Collections\\ArrayCollection([...])`.",
-            $className,
-            $methodName,
-            $argName,
-            $argPosition,
-            $expectedType,
-            $givenType,
-            $itemTypeHint
-        );
+        return [] === $blocks ? null : implode("\n", $blocks);
     }
 
-    private function resolveClassName(string $className): string
+    /** Seules les erreurs dont le type ATTENDU est une collection ; `null given` revient à NullArgumentTypeErrorInterceptor. */
+    private function errors(string $output): array
     {
-        if (str_contains($className, 'MockObject_')) {
-            if (preg_match('/MockObject_(.+)_[a-f0-9]{8}/i', $className,$m)) {
-                if (class_exists($m[1]) || interface_exists($m[1])) {
-                    return $m[1];
-                }
-            }
+        preg_match_all(self::PATTERN, $output, $m, PREG_SET_ORDER);
+
+        return array_values(array_filter(
+            $m,
+            static fn (array $e): bool => 'null' !== strtolower($e['given']) && CollectionTypes::isCollectionLike($e['expected']),
+        ));
+    }
+
+    private function describe(array $e): string
+    {
+        $expected = trim($e['expected']);
+        $valueType = $this->valueType($e['class'], $e['method'], $e['arg']);
+
+        return sprintf("### TypeError (collection) : `%s::%s()`, argument #%s `\$%s`\n", $e['class'], $e['method'], $e['pos'], $e['arg'])
+            . sprintf("- Reçu : `%s` ; attendu : `%s`\n", $e['given'], $expected)
+            . (null !== $valueType ? "- Type des éléments (PHPDoc) : `$valueType`\n" : '')
+            . '- Correction : ' . $this->advice($expected, $valueType) . "\n";
+    }
+
+    private function advice(string $expected, ?string $valueType): string
+    {
+        $type = CollectionTypes::main($expected);
+        $wrap = match (true) {
+            'array' === strtolower($type) => 'un tableau littéral `[...]` (un `ArrayIterator` ou une collection ne conviennent pas à `array`)',
+            'iterable' === strtolower($type) => 'un tableau littéral `[...]` ou `new \ArrayIterator([...])`',
+            class_exists(self::ARRAY_COLLECTION) && is_a(self::ARRAY_COLLECTION, $type, true) => '`new \Doctrine\Common\Collections\ArrayCollection([...])`',
+            default => sprintf('une instance de `\%s` (voir son constructeur dans le contexte)', $type),
+        };
+
+        // Classe des éléments : `iterable<\App\X>`, `Collection<int, \App\X>` ou `\App\X[]`
+        $item = null !== $valueType && 1 === preg_match('/(\\\\[A-Za-z_][\w\\\\]*)(?:>|\[\])/', $valueType, $x) ? $x[1] : null;
+
+        return 'passe ' . $wrap . (null !== $item ? sprintf(', contenant des instances de `%s`', $item) : '') . '.';
+    }
+
+    private function valueType(string $class, string $method, string $arg): ?string
+    {
+        if (1 === preg_match('/MockObject_(.+)_[a-f0-9]{8}/i', $class, $m)) {
+            $class = $m[1];
         }
-        return $className;
+        if (!class_exists($class) && !interface_exists($class)) {
+            return null;
+        }
+        $reflection = new \ReflectionClass($class);
+
+        return $reflection->hasMethod($method) ? $this->docTypes->paramType($reflection->getMethod($method), $arg) : null;
     }
 }

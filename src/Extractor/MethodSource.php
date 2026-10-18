@@ -27,4 +27,18 @@ final class MethodSource
 
         return $source;
     }
+
+    /**
+     * Code complet d'une méthode ; null si elle dépasse $maxLines lignes.
+     */
+    public static function full(\ReflectionMethod $m, int $maxLines = 40): ?string
+    {
+        $file = $m->getFileName();
+        if (false === $file) {
+            return null;
+        }
+        $lines = \array_slice(file($file, FILE_IGNORE_NEW_LINES) ?: [], $m->getStartLine() - 1, $m->getEndLine() - $m->getStartLine() + 1);
+
+        return \count($lines) <= $maxLines ? implode("\n", $lines) : null;
+    }
 }

@@ -1,0 +1,37 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Mika\TestGeneratorBundle\Interceptor\Support;
+
+final class DocTypeResolver
+{
+    // TODO : La fonctionnalité a été déplacée dans le dossier Reflection/DocTypeResolver => à supprimer à terme
+    /**
+     * Type PHPDoc d'un paramètre, noms de classes en FQCN : 'iterable<Position>' → 'iterable<\App\Entity\Position>'.
+     */
+    public static function paramType(\ReflectionMethod $method, string $param): ?string
+    {
+        $doc = $method->getDocComment() ?: '';
+        if (1 !== preg_match('/@param\s+(?<t>.+?)\s+\$' . preg_quote($param, '/') . '\b/', $doc, $x)) {
+            return null;
+        }
+
+        $class = $method->getDeclaringClass();
+        $file = $class->getFileName();
+        $uses = [];
+        if (false !== $file) {
+            preg_match_all('/^use\s+([\w\\\\]+)(?:\s+as\s+(\w+))?\s*;/m', (string) file_get_contents($file), $u, PREG_SET_ORDER);
+            foreach ($u as $y) {
+                $uses[$y[2] ?? basename(str_replace('\\', '/', $y[1]))] = $y[1];
+            }
+        }
+
+        // Les noms courts du PHPDoc se résolvent par les `use` de la classe, sinon dans son namespace
+        return (string) preg_replace_callback(
+            '/(?<![\\\\\w$])[A-Z]\w*/',
+            static fn (array $n): string => '\\' . ($uses[$n[0]] ?? $class->getNamespaceName() . '\\' . $n[0]),
+            $x['t'],
+        );
+    }
+}

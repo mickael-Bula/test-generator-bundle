@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Interceptor;
 
+use Mika\TestGeneratorBundle\Interceptor\Support\CollectionTypes;
 use Mika\TestGeneratorBundle\Service\TestSnapshotStore;
 
 /** @noinspection PhpUnused */
@@ -32,7 +33,10 @@ final readonly class GenericTypeErrorInterceptor implements ErrorInterceptorInte
     {
         preg_match_all(self::PATTERN, $output, $matches, PREG_SET_ORDER);
 
-        return array_values(array_filter($matches, static fn (array $e): bool => 'null' !== strtolower($e['given'])));
+        return array_values(array_filter(
+            $matches,
+            static fn (array $e): bool => 'null' !== strtolower($e['given']) && !CollectionTypes::isCollectionLike($e['expected']),
+        ));
     }
 
     private function describe(array $e): string
