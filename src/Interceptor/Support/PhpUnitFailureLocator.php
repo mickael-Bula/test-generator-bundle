@@ -51,6 +51,11 @@ final readonly class PhpUnitFailureLocator
             }
         }
 
+        // Rapport sans chemin (échec de vérification d'un mock) : instantané du dernier run
+        if (null !== $snapshot = $this->snapshots->find($short . '.php')) {
+            return $snapshot;
+        }
+
         // 2. Repli : autoload
         try {
             return (new \ReflectionClass($testClass))->getFileName() ?: null;

@@ -203,9 +203,7 @@ class FixTestCommand extends Command
     private function analyzeReport(string $code, string $report): array
     {
         // Les intercepteurs relisent le test par le chemin de la trace : on enregistre l'instantané sous ce nom
-        if (1 === preg_match('#(/\S+Test\.php):\d+#', $report, $m)) {
-            $this->snapshots->save($m[1], $code);
-        }
+        $this->snapshots->saveForReport($report, $code);
 
         $patched = $this->preFixers->fix($report, $code);
         $this->io->section('Correcteur déterministe');

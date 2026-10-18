@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Mika\TestGeneratorBundle\Command;
 
 use Mika\TestGeneratorBundle\Interceptor\Support\PreFixerChain;
+use Mika\TestGeneratorBundle\Quality\TestQualityGate;
 use Mika\TestGeneratorBundle\Registry\ErrorInterceptorRegistry;
 use Mika\TestGeneratorBundle\Resolver\CoveredClassReader;
 use Mika\TestGeneratorBundle\Service\TestGeneratorV2;
@@ -21,6 +22,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\Finder\Finder;
 
 #[AsCommand(
     name: 'llm:fixture:capture',
@@ -38,6 +40,7 @@ final class CaptureFixtureCommand extends Command
         private readonly TestSnapshotStore $snapshots,
         private readonly TestGeneratorV2 $generator,
         private readonly CoveredClassReader $coveredClass,
+        private readonly TestQualityGate $qualityGate,
     ) {
         parent::__construct();
     }
@@ -45,8 +48,8 @@ final class CaptureFixtureCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addArgument('name', InputArgument::REQUIRED, 'Nom du scénario (kebab-case), ex. position-manager--run-1')
-            ->addArgument('test', InputArgument::REQUIRED, 'Test en échec (ex. var/failed_tests/…_FailedTestV2.php)')
+            ->addArgument('name', InputArgument::REQUIRED, 'Nom du scénario (kebab-case), ex. ma-classe--run-1')
+            ->addArgument('test', InputArgument::REQUIRED, 'Test en échec (ex. var/failed_tests/…_FailedTest.php)')
             ->addOption('report', 'r', InputOption::VALUE_REQUIRED, 'Mode une passe : rapport à utiliser à la place du .log voisin')
             ->addOption('chain', null, InputOption::VALUE_NONE, 'Exécute PHPUnit/PHPStan à chaque passe et capture chaque étape (01, 02, …)')
             ->addOption('max-steps', null, InputOption::VALUE_REQUIRED, "Nombre maximal d'étapes en mode --chain", '6')
@@ -86,23 +89,30 @@ final class CaptureFixtureCommand extends Command
         }
 
         $base = $this->fixturesDir . '/' . $name;
+        $kept = [];
         if (is_dir($base)) {
             if (!$input->getOption('force')) {
                 $io->error(sprintf('Le scénario "%s" existe déjà (--force pour le recréer).', $name));
 
                 return Command::FAILURE;
             }
-            (new Filesystem())->remove($base); // un scénario en étapes doit être recréé en entier
+            foreach (Finder::create()->files()->in($base)->name('forbidden.txt') as $file) {
+                $kept[$file->getRelativePathname()] = $file->getContents(); // ex. « 05/forbidden.txt »
+            }
+            (new Filesystem())->remove($base);
         }
 
         if ($chain) {
-            return $this->captureChain($io, $output, $base, $code, max(1, (int) $input->getOption('max-steps')));
+            $exit = $this->captureChain($io, $output, $base, $code, max(1, (int) $input->getOption('max-steps')));
+        } else {
+            $this->captureStep($io, $output, $base, $code, (string) file_get_contents($reportFile));
+            $io->success(sprintf('Cas "%s" créé.', $name));
+            $exit = Command::SUCCESS;
         }
 
-        $this->captureStep($io, $output, $base, $code, (string) file_get_contents($reportFile));
-        $io->success(sprintf('Cas "%s" créé.', $name));
+        $this->restore($io, $base, $kept);
 
-        return Command::SUCCESS;
+        return $exit;
     }
 
     private function captureChain(SymfonyStyle $io, OutputInterface $output, string $base, string $code, int $maxSteps): int
@@ -115,52 +125,70 @@ final class CaptureFixtureCommand extends Command
         }
         $short = basename(str_replace('\\', '/', $sut));
 
+        $io->writeln('Correcteurs, par ordre de passage : ' . implode(', ', array_map($this->short(...), $this->preFixers->names())));
+
+        $original = $code;
+        $applied = [];
+        $stop = sprintf('limite de %d étapes atteinte (--max-steps)', $maxSteps);
+
         for ($step = 1; $step <= $maxSteps; ++$step) {
             $check = $this->generator->check($code, $short);
-
             if ($check['valid']) {
-                $io->success(1 === $step
-                    ? 'Le test est déjà vert : rien à capturer.'
-                    : sprintf('Étape %02d : vert (PHPUnit et PHPStan). Résolu sans LLM en %d correction(s).', $step, $step - 1));
-
-                return Command::SUCCESS;
+                $stop = 1 === $step ? 'le test est déjà vert' : 'vert (PHPUnit, PHPStan et qualité), résolu sans LLM';
+                break;
             }
 
             $io->section(sprintf('Étape %02d : %s rouge', $step, $check['phase']));
-            $patched = $this->captureStep($io, $output, sprintf('%s/%02d', $base, $step), $code, $check['output']);
+            $result = $this->captureStep($io, $output, sprintf('%s/%02d', $base, $step), $code, $check['output']);
 
-            if (null === $patched) {
-                $io->note(sprintf("Étape %02d : plus aucun correcteur déterministe. Le reste revient au LLM : c'est le prochain problème à traiter.", $step));
-
-                return Command::SUCCESS;
+            if (null === $result) {
+                $stop = sprintf('étape %02d : plus aucun correcteur déterministe, le reste revient au LLM', $step);
+                break;
             }
-            $code = $patched;
+            $applied[$step] = $result['fixer'];
+            $code = $result['code'];
         }
 
-        $io->warning(sprintf('Limite de %d étapes atteinte (--max-steps) : scénario non terminé.', $maxSteps));
+        $io->section('Bilan du scénario');
+        $io->table(
+            ['Étape', 'Correcteur appliqué'],
+            array_map(fn (int $s, string $f): array => [sprintf('%02d', $s), $this->short($f)], array_keys($applied), $applied),
+        );
+        $io->writeln('Arrêt : ' . $stop);
+
+        if ($code !== $original) {
+            $fs = new Filesystem();
+            $fs->dumpFile($base . '/final.php', $code);
+            $fs->dumpFile($base . '/final.diff', $this->diff($original, $code, 'original', 'final'));
+            $io->writeln(sprintf('Diff cumulé : %s/final.diff', $base));
+        }
 
         return Command::SUCCESS;
     }
 
-    /** @return string|null le code après une passe de la chaîne, ou null si aucun correcteur ne s'applique */
-    private function captureStep(SymfonyStyle $io, OutputInterface $output, string $dir, string $code, string $rawReport): ?string
+    /**
+     * @return array{code: string, fixer: string}|null  le code après une passe de la chaîne, ou null si aucun correcteur ne s'applique
+     */
+    private function captureStep(SymfonyStyle $io, OutputInterface $output, string $dir, string $code, string $rawReport): ?array
     {
         $report = str_replace(self::PLACEHOLDER, $this->projectDir, $rawReport);
+
+        // Rapport fidèle au pipeline : TestGeneratorV2 ajoute la section « qualité » à la sortie PHPUnit
+        $quality = $this->qualityGate->report($code);
+        if (null !== $quality && !str_contains($report, 'ERREUR DE QUALITÉ')) {
+            $report .= "\n\n" . $quality;
+        }
+
         $fs = new Filesystem();
         $fs->dumpFile($dir . '/input.php', $code);
         $fs->dumpFile($dir . '/report.log', $this->normalize($report));
+        $this->snapshots->saveForReport($report, $code);
 
-        // Les intercepteurs relisent le test par le chemin de la trace : on enregistre l'instantané sous ce nom
-        if (1 === preg_match('#(/\S+Test\.php):\d+#', $report, $m)) {
-            $this->snapshots->save($m[1], $code);
+        $step = $this->preFixers->apply($report, $code);
+        if (null !== $step) {
+            $fs->dumpFile($dir . '/expected.php', $step['code']);
         }
 
-        $patched = $this->preFixers->fix($report, $code);
-        if (null !== $patched) {
-            $fs->dumpFile($dir . '/expected.php', $patched);
-        }
-
-        // Brouillon de hints.txt : affiche la première ligne de chaque indice produit
         $rows = $this->interceptors->inspect($report);
         $firstLines = [];
         foreach ($rows as $row) {
@@ -173,34 +201,42 @@ final class CaptureFixtureCommand extends Command
         }
 
         $sut = $this->coveredClass->read($code);
-        $meta = ['captured' => (new \DateTimeImmutable())->format('Y-m-d')];
+        $meta = ['captured' => date('Y-m-d'), 'fixer' => $step['fixer'] ?? null];
         if (null !== $sut && class_exists($sut)) {
             $meta += ['sut' => $sut, 'sut_sha1' => sha1_file((string) (new \ReflectionClass($sut))->getFileName())];
         }
         $fs->dumpFile($dir . '/meta.json', json_encode($meta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
 
-        // Affichage des indices
+        if (null === $step) {
+            $io->writeln("Correcteur déterministe : aucun ne s'applique (la fixture exigera que la chaîne renvoie null).");
+        } else {
+            $io->writeln(sprintf('Correcteur appliqué : <info>%s</info>. Diff input.php → expected.php :', $this->short($step['fixer'])));
+            $output->writeln($this->diff($code, $step['code']), OutputInterface::OUTPUT_RAW);
+        }
+
         $io->writeln(sprintf('Intercepteurs enregistrés : %d', \count($rows)));
         foreach ($rows as $row) {
             $label = match (true) {
                 null !== $row['error'] => 'ERREUR ' . $row['error'],
                 null !== $row['hint'] => 'indice : ' . strtok($row['hint'], "\n"),
                 $row['supports'] => "reconnaît l'erreur mais ne produit aucun indice",
-                default => null, // ne s'applique pas à ce rapport : on n'encombre pas la sortie
+                default => null,
             };
-            if (null !== $label) {
-                $io->writeln(sprintf(
-                    '  - %s : %s',
-                    basename(str_replace('\\', '/', $row['interceptor'])),
-                    OutputFormatter::escape($label)
-                ));
+            if (null === $label) {
+                continue;
+            }
+            $io->writeln(sprintf('  - %s : %s', $this->short($row['interceptor']), OutputFormatter::escape($label)));
+            if ($output->isVerbose() && null !== $row['hint']) { // -v : texte complet envoyé au LLM
+                $io->writeln(OutputFormatter::escape((string) preg_replace('/^/m', '      | ', $row['hint'])));
             }
         }
-        if ([] === $firstLines) {
-            $io->writeln('Indices LLM : aucun.');
-        }
 
-        return $patched;
+        return $step;
+    }
+
+    private function short(string $class): string
+    {
+        return basename(str_replace('\\', '/', $class));
     }
 
     private function normalize(string $report): string
@@ -214,8 +250,22 @@ final class CaptureFixtureCommand extends Command
         return (string) preg_replace('/^Time: .*\R?/m', '', $clean);
     }
 
-    private function diff(string $before, string $after): string
+    private function diff(string $before, string $after, string $from = 'input.php', string $to = 'expected.php'): string
     {
-        return (new Differ(new UnifiedDiffOutputBuilder("--- input.php\n+++ expected.php\n")))->diff($before, $after);
+        return (new Differ(new UnifiedDiffOutputBuilder(sprintf("--- %s\n+++ %s\n", $from, $to))))->diff($before, $after);
+    }
+
+    /**
+     * @param array<string, string> $kept
+     */
+    private function restore(SymfonyStyle $io, string $base, array $kept): void
+    {
+        foreach ($kept as $relative => $content) {
+            if (is_dir(\dirname($base . '/' . $relative))) {
+                (new Filesystem())->dumpFile($base . '/' . $relative, $content);
+            } else {
+                $io->warning(sprintf('%s non restauré : cette étape n\'existe plus dans la nouvelle capture.', $relative));
+            }
+        }
     }
 }

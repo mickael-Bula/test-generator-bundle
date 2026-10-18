@@ -43,9 +43,10 @@ return static function (ContainerConfigurator $container): void {
     $services->load('Mika\\TestGeneratorBundle\\', '../src/*')
         ->exclude([
             '../src/{DependencyInjection,Dto,Enum,Exception,Resources,TestGeneratorBundle.php}',
-            // Structures de données et visiteurs créés par `new` : jamais des services
+            // Structures de données et visiteurs créés par `new` : ce ne sont jamais des services
             '../src/RepoMap/{RepoMap,EdgeCollector}.php',
-            '../src/Interceptor/Support/{PhpUnitFailure,TypeErrorInfo}.php',
+            '../src/Interceptor/Support/{PhpUnitFailure,TypeErrorInfo,MockCountFinding}.php',
+            '../src/Quality/{QualityViolation,QualityAnalysis}.php',
         ]);
 
     // 3. Enregistrement du Registry d'intercepteurs avec l'itérateur tagué

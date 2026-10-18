@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Extractor;
 
+use Mika\TestGeneratorBundle\Reflection\arrayKeyReads;
 use Mika\TestGeneratorBundle\Reflection\DocTypeResolver;
 
 final class TargetedContextExtractor
@@ -47,7 +48,7 @@ final class TargetedContextExtractor
         }
 
         // 3. Méthodes des dépendances réellement appelées par le SUT
-        $keysRead = $this->arrayKeysRead($source);
+        $keysRead = ArrayKeyReads::of($source);
         $called = [];
         foreach ($dependencyClasses as $dep) {
             foreach ((new \ReflectionClass($dep))->getMethods(\ReflectionMethod::IS_PUBLIC) as $m) {
@@ -217,22 +218,5 @@ final class TargetedContextExtractor
     private function isVendor(\ReflectionMethod $m): bool
     {
         return str_contains((string) $m->getFileName(), DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR);
-    }
-
-    /**
-     * @return array<string, list<string>> méthode appelée => clés de tableau lues sur son retour
-     */
-    private function arrayKeysRead(string $source): array
-    {
-        $keys = [];
-        preg_match_all('/\$(?<var>\w+)\s*=\s*\$this->\w+->(?<method>\w+)\(/', $source, $assigns, PREG_SET_ORDER);
-        foreach ($assigns as $a) {
-            preg_match_all('/\$' . $a['var'] . '\[\'(?<key>\w+)\'\]/', $source, $reads);
-            foreach ($reads['key'] as $k) {
-                $keys[$a['method']][$k] = true;
-            }
-        }
-
-        return array_map('array_keys', $keys);
     }
 }

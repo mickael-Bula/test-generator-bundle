@@ -6,8 +6,10 @@ namespace Mika\TestGeneratorBundle\Service;
 
 use Mika\TestGeneratorBundle\Exception\TestCorrectionException;
 use Mika\TestGeneratorBundle\Interceptor\Support\PreFixerChain;
+use Mika\TestGeneratorBundle\Interceptor\Support\ProblemSignatures;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\PromptBuilder\TestPromptBuilderInterface;
+use Mika\TestGeneratorBundle\Quality\TestQualityGate;
 use Mika\TestGeneratorBundle\Validator\PhpSyntaxValidator;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\DependencyInjection\Attribute\AutowireIterator;
@@ -17,7 +19,8 @@ final class TestGeneratorV2
 {
     private const MAX_PHPUNIT_ATTEMPTS = 3;
     private const MAX_PHPSTAN_ATTEMPTS = 2;
-    private const MAX_PREFIX_PASSES = 5;
+    private const MAX_PREFIX_FAILURES = 3;   // échecs consécutifs
+    private const MAX_PREFIX_PASSES = 20; // Garde-fou absolu
 
     public function __construct(
         private readonly LlmClientFactory $llmFactory,
@@ -25,6 +28,7 @@ final class TestGeneratorV2
         private readonly PhpSyntaxValidator $syntaxValidator,
         private readonly PhpStanRunner $phpStanRunner,
         private readonly PreFixerChain $preFixer,
+        private readonly TestQualityGate $qualityGate,
         #[AutowireIterator('mika_test_generator.prompt_builder')] private readonly iterable $promptBuilders, // Récupère toutes les classes portant ce tag
         #[Autowire('%kernel.project_dir%/var/tmp')] private readonly string $tmpDir = 'var/tmp',
         #[Autowire('%kernel.project_dir%/var/failed_tests')] private readonly string $failedTestsDir = 'var/failed_tests',
@@ -257,44 +261,68 @@ final class TestGeneratorV2
      */
     private function runPhpUnit(string $testCode, string $className): array
     {
-        // Exécution du test PHPUnit
         $result = $this->testRunner->runTest($testCode, $className);
 
-        // Suppression des codes ANSI
         $clean = preg_replace('/\x1b\[[0-9;]*[mK]/', '', $result['output'] ?? '') ?? '';
         $output = '' !== $clean ? $clean : 'Aucune sortie reçue de PHPUnit.';
 
         $hasWarnings = str_contains($output, 'PHP warning:') || str_contains($output, 'Warnings:');
+        $quality = $this->qualityGate->report($testCode);
 
-        if ($result['success'] && !$hasWarnings) {
-            return ['valid' => true, 'output' => $output];
-        }
-        if ($result['success']) {
+        if ($result['success'] && $hasWarnings) {
             $output = "ERREUR DE VALIDATION (AVERTISSEMENT PHP DÉTECTÉ) :\n" . $output;
         }
+        if (null !== $quality) {
+            $output .= "\n\n" . $quality;
+        }
 
-        return ['valid' => false, 'output' => $output];
+        return ['valid' => $result['success'] && !$hasWarnings && null === $quality, 'output' => $output];
     }
 
     /**
      * Exécute PHPUnit avec correction statique
      *
-     * @return array{valid: bool, output: string, code: string}
+     * @return array{valid: bool, output: string, code: string, applied: list<string>}
      */
     private function runWithPreFix(string $testCode, string $className): array
     {
         $run = $this->runPhpUnit($testCode, $className);
+        $problems = ProblemSignatures::of($run['output']);
+        $seen = [sha1($testCode) => true];
+        $skip = [];
+        $applied = [];
+        $failures = 0;
 
-        for ($pass = 0; !$run['valid'] && $pass < self::MAX_PREFIX_PASSES; ++$pass) {
-            $patched = $this->preFixer->fix($run['output'], $testCode);
-            if (null === $patched) {
-                break;
+        for ($pass = 0; !$run['valid'] && $pass < self::MAX_PREFIX_PASSES && $failures < self::MAX_PREFIX_FAILURES; ++$pass) {
+            $step = $this->preFixer->apply($run['output'], $testCode, $skip);
+            if (null === $step || isset($seen[sha1($step['code'])])) {
+                break; // plus aucun correcteur applicable, ou retour à une version déjà vue (cycle)
             }
-            $testCode = $patched;
-            $run = $this->runPhpUnit($testCode, $className);
+            $seen[sha1($step['code'])] = true;
+
+            $next = $this->runPhpUnit($step['code'], $className);
+            $after = ProblemSignatures::of($next['output']);
+
+            $progress = $next['valid']
+                || (ProblemSignatures::isComplete($next['output']) && ProblemSignatures::improves($problems, $after));
+
+            if ($progress) {
+                $testCode = $step['code'];
+                $run = $next;
+                $problems = $after;
+                $skip = [];          // le rapport a changé : tous les correcteurs redeviennent candidats
+                $failures = 0;
+                $applied[] = $step['fixer'];
+                continue;
+            }
+
+            // Aucun problème résolu, ou régression : on garde le code précédent et on écarte ce correcteur
+            $skip[] = $step['fixer'];
+            ++$failures;
         }
 
-        return [...$run, 'code' => $testCode]; // ['valid' => true, 'output' => 'OK', 'code' => '<?php …']
+        // ['valid' => true, 'output' => 'OK', 'code' => '<?php …', 'applied' => '...']
+        return [...$run, 'code' => $testCode, 'applied' => $applied];
     }
 
     /**

@@ -23,6 +23,7 @@ final readonly class SetUpStubShadowingPreFixer implements TestPreFixerInterface
         private Parser $parser,
         private CoveredClassReader $coveredClass,
         private SutDependencyUsage $usage,
+        private SutPropertyFinder $sutPropertyFinder,
     ) {
     }
 
@@ -77,7 +78,7 @@ final readonly class SetUpStubShadowingPreFixer implements TestPreFixerInterface
         }
 
         $sutReflection = new \ReflectionClass($sutClass);
-        $sutProperty = $this->sutProperty($stmts, $sutClass);
+        $sutProperty = $this->sutPropertyFinder->find($stmts, $sutClass);
         $edits = []; // position de début → [longueur, texte] ; longueur 0 = insertion
         $helpers = '';
 
@@ -95,7 +96,7 @@ final readonly class SetUpStubShadowingPreFixer implements TestPreFixerInterface
                 continue; // analyse impossible : on ne touche à rien, le LLM reçoit l'indice
             }
 
-            // a. retrait du stub et de son commentaire dans setUp()
+            // a. Retrait du stub et de son commentaire dans setUp()
             $start = $statement->getStartFilePos();
             foreach ($statement->getComments() as $comment) {
                 $start = min($start, $comment->getStartFilePos());
@@ -103,13 +104,13 @@ final readonly class SetUpStubShadowingPreFixer implements TestPreFixerInterface
             [$from, $length] = SourceSpan::lines($testCode, $start, $statement->getEndFilePos());
             $edits[$from] = [$length, ''];
 
-            // b. le même stub, dans une méthode privée
+            // b. Le même stub, dans une méthode privée
             $body = substr($testCode, $statement->getStartFilePos(), $statement->getEndFilePos() - $statement->getStartFilePos() + 1);
             $bodyIndent = $this->indentAt($testCode, $statement->getStartFilePos());
             $methodIndent = $this->indentAt($testCode, $setUp->getStartFilePos());
             $helpers .= sprintf("\n\n%sprivate function %s(): void\n%s{\n%s%s\n%s}", $methodIndent, $helper, $methodIndent, $bodyIndent, $body, $methodIndent);
 
-            // c. appel explicite dans les tests qui en ont besoin
+            // c. Appel explicite dans les tests qui en ont besoin
             foreach ($tests as $i => $test) {
                 $first = $test->stmts[0] ?? null;
                 if (null === $first || isset($own[$i][$key]) || !$this->callsAny($test, $sutProperty, $sutClass, $reaching)) {
@@ -200,17 +201,6 @@ final readonly class SetUpStubShadowingPreFixer implements TestPreFixerInterface
                 }
 
                 return 1 === \count($names) ? $names[0] : null;
-            }
-        }
-
-        return null;
-    }
-
-    private function sutProperty(array $stmts, string $sutClass): ?string
-    {
-        foreach ((new NodeFinder())->findInstanceOf($stmts, Node\Stmt\Property::class) as $prop) {
-            if ($prop->type instanceof Node\Name && $prop->type->toString() === $sutClass) {
-                return $prop->props[0]->name->toString();
             }
         }
 

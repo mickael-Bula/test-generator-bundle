@@ -58,13 +58,16 @@ final class FailedTestFixturesTest extends KernelTestCase
         }
     }
 
+    /**
+     * @throws \JsonException
+     */
     #[Test]
     #[DataProvider('cases')]
     public function fixtureBehavesAsRecorded(string $dir): void
     {
         // ÉTANT DONNÉ
         self::bootKernel();
-        $container = static::getContainer();
+        $container = FailedTestFixturesTest::getContainer();
         $chain = $container->get(PreFixerChain::class);
         $interceptors = $container->get(ErrorInterceptorRegistry::class);
         $snapshots = $container->get(TestSnapshotStore::class);
@@ -81,6 +84,7 @@ final class FailedTestFixturesTest extends KernelTestCase
         if (1 === preg_match('#(/\S+Test\.php):\d+#', $report, $m)) {
             $snapshots->save($m[1], $input);
         }
+        $snapshots->saveForReport($report, $input);
 
         // QUAND
         $patched = $chain->fix($report, $input);
@@ -107,8 +111,18 @@ final class FailedTestFixturesTest extends KernelTestCase
                 self::assertStringContainsString($needle, $hints, 'Indice absent : ' . $needle . $stale);
             }
         }
+
+        // Si le fichier forbidden.txt existe, on vérifie l'absence d'un indice.
+        if (is_file($dir . '/forbidden.txt')) {
+            foreach (file($dir . '/forbidden.txt', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $needle) {
+                self::assertStringNotContainsString($needle, $hints, 'Indice interdit présent : ' . $needle . $stale);
+            }
+        }
     }
 
+    /**
+     * @throws \JsonException
+     */
     private function stalenessNote(string $dir): string
     {
         if (!is_file($dir . '/meta.json')) {

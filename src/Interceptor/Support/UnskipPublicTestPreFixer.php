@@ -21,6 +21,7 @@ final readonly class UnskipPublicTestPreFixer implements TestPreFixerInterface
         private SkippedTestScanner $scanner,
         private CoveredClassReader $coveredClass,
         private Parser $parser,
+        private SutPropertyFinder $sutPropertyFinder,
     ) {
     }
 
@@ -78,7 +79,9 @@ final readonly class UnskipPublicTestPreFixer implements TestPreFixerInterface
         return sprintf('$this->%s->%s(%s);', $property, $hit['target']->getName(), implode(', ', $args));
     }
 
-    /** Nom de la propriété du test typée avec le SUT (`$sut`, ou autre). */
+    /**
+     * Nom de la propriété du test typée avec le SUT (`$sut`, ou autre).
+     */
     private function sutProperty(string $code, string $sutClass): ?string
     {
         try {
@@ -88,14 +91,7 @@ final readonly class UnskipPublicTestPreFixer implements TestPreFixerInterface
         }
         $traverser = new NodeTraverser();
         $traverser->addVisitor(new NameResolver());
-        $stmts = $traverser->traverse($stmts);
 
-        foreach ((new NodeFinder())->findInstanceOf($stmts, Node\Stmt\Property::class) as $prop) {
-            if ($prop->type instanceof Node\Name && $prop->type->toString() === $sutClass) {
-                return $prop->props[0]->name->toString();
-            }
-        }
-
-        return null;
+        return $this->sutPropertyFinder->find($traverser->traverse($stmts), $sutClass);
     }
 }

@@ -19,6 +19,18 @@ readonly class TestSnapshotStore
         (new Filesystem())->dumpFile($this->pathFor($testFilePath), $code);
     }
 
+    /**
+     * Instantané du test du rapport : par chemin de trace, sinon par nom de classe de test.
+     */
+    public function saveForReport(string $report, string $code): void
+    {
+        if (1 === preg_match('#(/\S+Test\.php):\d+#', $report, $m)) {
+            $this->save($m[1], $code);
+        } elseif (1 === preg_match('/^\d+\)\s+(?:[\w\\\\]+\\\\)?(?<short>\w+Test)::/m', $report, $t)) {
+            $this->save($t['short'] . '.php', $code); // pathFor() ne retient que le nom du fichier
+        }
+    }
+
     /** Chemin de l'instantané du dernier run, ou null. */
     public function find(string $testFilePath): ?string
     {

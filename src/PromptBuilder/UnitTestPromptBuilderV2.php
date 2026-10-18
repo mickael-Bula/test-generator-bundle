@@ -148,6 +148,15 @@ DIRECTIVES DE GÉNÉRATION DES TESTS UNITAIRES :
   sur un objet créé avec `new`. Pour changer le résultat d'une méthode calculée (isXxx, getXxx dérivé), agis sur les données
   qu'elle lit (voir « Code réel » dans le contexte). Si aucun mutateur ne le permet, crée l'objet avec
   `$this->getMockBuilder(\Classe::class)->onlyMethods(['méthode'])->getMock()`.
+- Déclare chaque attente `expects()` AVANT l'appel du SUT (section ÉTANT DONNÉ), jamais dans la section ALORS : 
+  PHPUnit ne compte que les appels faits après `expects()`.
+- Pour un mock appelé dans une boucle du SUT, écris `exactly(N)` avec N = nombre d'itérations × appels par itération, 
+  calculé sur les données du test (taille de la collection passée, bornes de la boucle). 
+  N'utilise jamais `any()` ni `atLeastOnce()` pour contourner un échec de comptage.
+- N'appelle JAMAIS une méthode privée ou protégée de la classe testée, par aucun moyen (Reflection, `setAccessible`, `invoke`, `Closure::bind`) : 
+  couvre-la à travers les méthodes PUBLIQUES qui l'appellent, avec des données qui franchissent ses branches.
+- Interdit : `assertTrue(true)` et toute assertion sur des constantes ou sur un objet que le test vient de créer avec `new`. 
+  Chaque test vérifie une valeur retournée, l'état d'un objet modifié par le SUT, ou un appel de mock (`expects(self::exactly(n))`).
 TEXT;
 
         if (null !== $skillsPrompt && trim($skillsPrompt) !== '') {$systemMessage .= "\n\n========================================\n"

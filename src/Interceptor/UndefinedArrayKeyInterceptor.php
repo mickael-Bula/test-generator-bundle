@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Interceptor;
 
+use Mika\TestGeneratorBundle\Reflection\arrayKeyReads;
+
 /** @noinspection PhpUnused */
 final class UndefinedArrayKeyInterceptor implements ErrorInterceptorInterface
 {
@@ -17,18 +19,29 @@ final class UndefinedArrayKeyInterceptor implements ErrorInterceptorInterface
         $file = '';
         $line = 0;
 
-        if (preg_match(
-            '/([^\r\n:]+\.php):(\d+)\s*\n\s*Undefined array key\s+"([^"]+)"/i',
-            $errorOutput,
-            $matches
-        )) {
-            $file = $matches[1];
-            $line = (int)$matches[2];
-            $missingKey = $matches[3];
-        } elseif (preg_match('/Undefined array key\s+"([^"]+)"/i', $errorOutput,$matches)) {
+        if (preg_match('/^\d+\)\s+(?<file>\S+\.php):(?<line>\d+)\R+Undefined array key\s+"(?<key>[^"]+)"/m', $errorOutput, $matches)) {
+            $file = $matches['file'];
+            $line = (int) $matches['line'];
+            $missingKey = $matches['key'];
+        } elseif (preg_match('/Undefined array key\s+"([^"]+)"/i', $errorOutput, $matches)) {
             $missingKey = $matches[1];
         } else {
             return null;
+        }
+
+        // Toutes les clés que le SUT lit sur le même retour : sinon le LLM en ajoute une par itération
+        $allKeys = '';
+        if ('' !== $file && is_file($file)) {
+            foreach (ArrayKeyReads::of((string) file_get_contents($file)) as $method => $keys) {
+                if (\in_array($missingKey, $keys, true)) {
+                    $allKeys = sprintf(
+                        "\nLe SUT lit sur le retour de `%s()` les clés : %s. Le mock du test doit TOUTES les fournir.",
+                        $method,
+                        implode(', ', $keys)
+                    );
+                    break;
+                }
+            }
         }
 
         $sourceContext = '';
@@ -110,9 +123,14 @@ final class UndefinedArrayKeyInterceptor implements ErrorInterceptorInterface
             . "%s\n"
             . "**ACTION REQUISE DANS LE TEST** :\n"
             . "En analysant le PHPDoc du service injecté ci-dessus, tu peux identifier la méthode source et toutes les clés que le tableau doit obligatoirement contenir. "
-            . "Mets à jour le `willReturn(...)` du mock de ce service dans ton test pour y inclure explicitement la clé `%s` avec une valeur valide.",
-            $missingKey,$line > 0 ? $line : 'inconnue',$contextBlock,
-            $contractBlock,$missingKey
+            . "Mets à jour le `willReturn(...)` du mock de ce service dans ton test pour y inclure explicitement la clé `%s` avec une valeur valide."
+            . "%s. Corrige le willReturn(...) dans la méthode de test concernée, jamais dans setUp() : un stub de setUp() masque celui des tests.",
+            $missingKey,
+            $line > 0 ? $line : 'inconnue',
+            $contextBlock,
+            $contractBlock,
+            $missingKey,
+            $allKeys,
         );
     }
 }

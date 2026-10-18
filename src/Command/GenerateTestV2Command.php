@@ -7,6 +7,7 @@ namespace Mika\TestGeneratorBundle\Command;
 use Mika\TestGeneratorBundle\Enum\TestType;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\Manager\SpecManager;
+use Mika\TestGeneratorBundle\Reflection\SutCallGraph;
 use Mika\TestGeneratorBundle\Resolver\ClassResolver;
 use Mika\TestGeneratorBundle\Resolver\TestPathResolver;
 use Mika\TestGeneratorBundle\Service\TestFinalizer;
@@ -41,6 +42,7 @@ class GenerateTestV2Command extends Command
         private readonly SpecManager                                $specManager,
         private readonly DatabaseResolverCommand                    $databaseResolverCommand,
         private readonly TestFinalizer                              $finalizer,
+        private readonly SutCallGraph $callGraph,
     )
     {
         parent::__construct();
@@ -141,6 +143,21 @@ class GenerateTestV2Command extends Command
 
             $classCode = file_get_contents($filePath);
             $this->io->note(sprintf('Classe ciblée (V2) : %s (%s)', $fqcn, $filePath));
+
+            // Vérifie la visibilité de la méthode testée.
+            $methodOption = $input->getOption('method');
+            if (null !== $methodOption) {
+                $reflection = new \ReflectionClass($fqcn);
+                if ($reflection->hasMethod($methodOption) && !$reflection->getMethod($methodOption)->isPublic()) {
+                    $callers = $this->callGraph->publicCallersOf($reflection, $methodOption);
+                    $this->io->error(sprintf('« %s() » n\'est pas publique : elle ne se teste qu\'à travers les méthodes publiques qui l\'appellent.', $methodOption));
+                    $this->io->note([] !== $callers
+                        ? 'Méthodes publiques qui l\'atteignent : ' . implode(', ', $callers) . ' (relancez avec --method=<l\'une d\'elles>)'
+                        : 'Aucune méthode publique ne l\'atteint.');
+
+                    return Command::FAILURE;
+                }
+            }
         } catch (\InvalidArgumentException|\RuntimeException $e) {
             $this->io->error($e->getMessage());
             return Command::FAILURE;
