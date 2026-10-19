@@ -11,42 +11,50 @@ use Symfony\Component\Finder\Finder;
 
 final class RepoMap
 {
-    /** @var array<string, array{file: string, edges: string[]}> */
+    /**
+     * @var array<string, array{file: string, edges: string[]}>
+     */
     public array $classes = [];
 
     public function build(string $srcDir): void
     {
         $parser = (new ParserFactory())->createForNewestSupportedVersion();
-        foreach (Finder::create()->files()->in($srcDir)->name('*.php') as $f) {
-            $c = new EdgeCollector();
-            $t = new NodeTraverser();
-            $t->addVisitor(new NameResolver());
-            $t->addVisitor($c);
-            $t->traverse($parser->parse($f->getContents()));
-            foreach ($c->edges as $fqcn => $edges) {
+        foreach (Finder::create()->files()->in($srcDir)->name('*.php') as $file) {
+            $collector = new EdgeCollector();
+            $traverser = new NodeTraverser();
+            $traverser->addVisitor(new NameResolver());
+            $traverser->addVisitor($collector);
+            $traverser->traverse($parser->parse($file->getContents()));
+            foreach ($collector->edges as $fqcn => $edges) {
                 $this->classes[$fqcn] = [
-                    'file'  => $f->getRealPath(),
+                    'file'  => $file->getRealPath(),
                     'edges' => array_values(array_unique(array_diff($edges, [$fqcn]))),
                 ];
             }
         }
     }
 
-    /** @return array<string,int> fqcn => profondeur */
+    /**
+     * @return array<string,int> fqcn => profondeur
+     */
     public function expand(array $seeds, int $depth): array
     {
         $seen = [];
         $queue = [];
-        foreach ($seeds as $s) {
-            if (isset($this->classes[$s])) { $seen[$s] = 0; $queue[] = $s; }
+        foreach ($seeds as $seed) {
+            if (isset($this->classes[$seed])) {
+                $seen[$seed] = 0; $queue[] = $seed;
+            }
         }
         while ($queue) {
-            $c = array_shift($queue);
-            if ($seen[$c] >= $depth) continue;
-            foreach ($this->classes[$c]['edges'] as $e) {
-                if (isset($this->classes[$e]) && !isset($seen[$e])) {
-                    $seen[$e] = $seen[$c] + 1;
-                    $queue[] = $e;
+            $collector = array_shift($queue);
+            if ($seen[$collector] >= $depth) {
+                continue;
+            }
+            foreach ($this->classes[$collector]['edges'] as $edge) {
+                if (isset($this->classes[$edge]) && !isset($seen[$edge])) {
+                    $seen[$edge] = $seen[$collector] + 1;
+                    $queue[] = $edge;
                 }
             }
         }

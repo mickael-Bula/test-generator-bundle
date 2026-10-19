@@ -6,7 +6,12 @@ namespace Mika\TestGeneratorBundle\Quality;
 
 final readonly class QualityAnalysis
 {
-    /** @param list<QualityViolation> $violations */
+    /**
+     * Classe DTO garantissant que l'état de l'analyse ou de la violation
+     * reste strictement identique tout au long de l'exécution.
+     *
+     * @param list<QualityViolation> $violations
+     */
     public function __construct(public array $violations, public int $testCount)
     {
     }

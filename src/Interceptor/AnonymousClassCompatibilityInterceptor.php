@@ -7,28 +7,27 @@ namespace Mika\TestGeneratorBundle\Interceptor;
 /** @noinspection PhpUnused */
 final class AnonymousClassCompatibilityInterceptor implements ErrorInterceptorInterface
 {
+    private const PATTERN = '/Could not check compatibility between (?<left>.+?) and (?<right>.+?), because (?<kind>[a-z]+) (?<missing>[\w\\\\]+) is not available/';
+
     public function supports(string $errorOutput): bool
     {
-        return str_contains($errorOutput, 'Could not check compatibility between') && str_contains($errorOutput, 'is not available');
+        return 1 === preg_match(self::PATTERN, $errorOutput);
     }
 
     public function intercept(string $errorOutput): ?string
     {
-        if (!preg_match(
-            '/Could not check compatibility between.+because class\s+(\S+)\s+is not available/i',
-            $errorOutput,$matches
-        )) {
+        if (!preg_match(self::PATTERN, $errorOutput,$matches)) {
             return null;
         }
 
-        $missingClassName =$matches[1];
+        $missingClassName = $matches['missing'];
 
         return sprintf(
             "INDICE DE CORRECTION CLASSE ANONYME (COMPATIBILITÉ DE SIGNATURE) :\n"
             . "Erreur fatale : La classe `%s` n'est pas disponible ou résolue dans la signature de méthode de ta classe anonyme.\n"
             . "Règle PHP pour les classes anonymes implémentant une interface : "
             . "**Tous** les types d'arguments dans les signatures de méthodes (`execute`, etc.) doivent utiliser leur **FQCN complet** "
-            . "(ex : `\\App\\Entity\\Position`, `\\App\\Dto\\MarketData\\CacDailyDto`).\n"
+            . "(ex : `\\App\\Entity\\MaClasse`, `\\App\\Dto\\MonDto`).\n"
             . "Modifie tes classes anonymes pour remplacer les noms courts par leurs chemins de namespace complets dans les signatures.",
             $missingClassName
         );

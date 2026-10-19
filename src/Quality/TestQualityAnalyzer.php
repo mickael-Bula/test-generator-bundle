@@ -40,6 +40,7 @@ final readonly class TestQualityAnalyzer
         $sutClass = $this->coveredClass->read($code);
         $sut = null !== $sutClass && class_exists($sutClass) ? new \ReflectionClass($sutClass) : null;
 
+        // On parcourt la liste des méthodes retournées par `$class->getMethods()` que l'on passe successivement en paramètre de la closure `$this->isTest(...)`
         $tests = array_values(array_filter($class->getMethods(), $this->isTest(...)));
         if ([] === $tests) {
             return new QualityAnalysis(
@@ -66,15 +67,15 @@ final readonly class TestQualityAnalyzer
         return new QualityAnalysis($violations, \count($tests));
     }
 
-    private function isTest(Node\Stmt\ClassMethod $m): bool
+    private function isTest(Node\Stmt\ClassMethod $method): bool
     {
-        if (!$m->isPublic() || $m->isStatic()) {
+        if (!$method->isPublic() || $method->isStatic()) {
             return false;
         }
-        if (str_starts_with(strtolower($m->name->toString()), 'test')) {
+        if (str_starts_with(strtolower($method->name->toString()), 'test')) {
             return true;
         }
-        foreach ($m->attrGroups as $group) {
+        foreach ($method->attrGroups as $group) {
             foreach ($group->attrs as $attr) {
                 if ('PHPUnit\Framework\Attributes\Test' === $attr->name->toString()) {
                     return true;
@@ -91,13 +92,24 @@ final readonly class TestQualityAnalyzer
     private function nonPublicReflections(Node\Stmt\ClassMethod $test, \ReflectionClass $sut): array
     {
         $found = [];
-        $nodes = (new NodeFinder())->find($test->stmts ?? [], static fn (Node $n): bool => $n instanceof Node\Expr\MethodCall || $n instanceof Node\Expr\New_);
+        $nodes = (new NodeFinder())->find(
+            $test->stmts ?? [],
+            static fn (Node $n): bool => $n instanceof Node\Expr\MethodCall || $n instanceof Node\Expr\New_
+        );
 
         foreach ($nodes as $n) {
             $arg = null;
-            if ($n instanceof Node\Expr\MethodCall && $n->name instanceof Node\Identifier && 'getmethod' === strtolower($n->name->toString())) {
+            if (
+                $n instanceof Node\Expr\MethodCall
+                && $n->name instanceof Node\Identifier
+                && 'getmethod' === strtolower($n->name->toString())
+            ) {
                 $arg = $n->args[0] ?? null;
-            } elseif ($n instanceof Node\Expr\New_ && $n->class instanceof Node\Name && 'reflectionmethod' === strtolower($n->class->toString())) {
+            } elseif (
+                $n instanceof Node\Expr\New_
+                && $n->class instanceof Node\Name
+                && 'reflectionmethod' === strtolower($n->class->toString())
+            ) {
                 $arg = $n->args[1] ?? $n->args[0] ?? null; // new ReflectionMethod($objetOuClasse, 'nom') ou 'Classe::nom'
             }
 

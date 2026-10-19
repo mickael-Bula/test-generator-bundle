@@ -83,8 +83,12 @@ final readonly class AssertionMismatchInterceptor implements ErrorInterceptorInt
             && $n->getStartLine() <= $f['line'] && $f['line'] <= $n->getEndLine());
 
         $md = sprintf("\n- `%s` (ligne %d)", $f['test'], $f['line']);
+
+        // On supprime de l'assertion les commentaires d'étape ('//ALORS...).
         if (null !== $assertion) {
-            $md .= ' : `' . trim((string) preg_replace('/\s+/', ' ', $printer->prettyPrint([$assertion]))) . '`';
+            $bare = clone $assertion;
+            $bare->setAttribute('comments', []);
+            $md .= ' : `' . trim((string) preg_replace('/\s+/', ' ', $printer->prettyPrint([$bare]))) . '`';
         }
         $md .= sprintf("\n  - obtenu `%s`, attendu `%s`", $f['actual'], $f['expected']);
 

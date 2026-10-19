@@ -6,6 +6,10 @@ namespace Mika\TestGeneratorBundle\Quality;
 
 use PhpParser\Node;
 
+/**
+ * DTO Instanciant un objet contenant le détail du problème
+ * (type d'erreur no-tests, nom de la classe, message explicatif, nœud AST lié).
+ */
 final readonly class QualityViolation
 {
     public const PRIVATE_CALL = 'private-call';
