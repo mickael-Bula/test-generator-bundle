@@ -17,10 +17,11 @@ final readonly class TestQualityAnalyzer
     public function __construct(
         private Parser $parser,
         private CoveredClassReader $coveredClass,
+        private CommentPolicy $comments,
     ) {
     }
 
-    public function analyze(string $code): QualityAnalysis
+    public function analyze(string $code, ?string $baseline = null): QualityAnalysis
     {
         try {
             $stmts = $this->parser->parse($code) ?? [];
@@ -49,9 +50,14 @@ final readonly class TestQualityAnalyzer
             );
         }
 
+        $existing = null === $baseline ? [] : array_flip($this->methodNames($baseline));
+
         $violations = [];
         foreach ($tests as $test) {
             $name = $test->name->toString();
+            if (isset($existing[$name])) {
+                continue; // test déjà présent dans le fichier d'origine : on n'y touche pas
+            }
             if (null !== $sut) {
                 foreach ($this->nonPublicReflections($test, $sut) as $method) {
                     $violations[] = new QualityViolation(
@@ -62,6 +68,36 @@ final readonly class TestQualityAnalyzer
                 }
             }
             array_push($violations, ...$this->trivialAssertions($test, $testClass));
+        }
+
+        if (null === $baseline) {
+            // Commentaires interdits : un seul signalement par méthode (ou « classLevel » hors de toute méthode)
+            $ranges = [];
+            foreach ($class->getMethods() as $m) {
+                $start = $m->getStartFilePos();
+                if (null !== $doc = $m->getDocComment()) {
+                    $start = min($start, $doc->getStartFilePos());
+                }
+                $ranges[$m->name->toString()] = [$start, $m->getEndFilePos()];
+            }
+            $perOwner = [];
+            foreach ($this->comments->violations($code) as $c) {
+                $owner = 'classLevel';
+                foreach ($ranges as $method => [$start, $end]) {
+                    if ($c['pos'] >= $start && $c['pos'] <= $end) {
+                        $owner = $method;
+                        break;
+                    }
+                }
+                $perOwner[$owner][] = $c['line'];
+            }
+            foreach ($perOwner as $owner => $lines) {
+                $violations[] = new QualityViolation(
+                    QualityViolation::FORBIDDEN_COMMENT, $testClass, $owner,
+                    sprintf('%d commentaire(s) interdit(s) (lignes %s)', \count($lines), implode(', ', $lines)),
+                    null,
+                );
+            }
         }
 
         return new QualityAnalysis($violations, \count($tests));
@@ -229,5 +265,22 @@ final readonly class TestQualityAnalyzer
             $e instanceof Node\Expr\Array_ => [] === array_filter($e->items, fn ($i): bool => null === $i || !$this->isConstant($i->value)),
             default => false,
         };
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function methodNames(string $code): array
+    {
+        try {
+            $stmts = $this->parser->parse($code) ?? [];
+        } catch (Error) {
+            return [];
+        }
+
+        return array_map(
+            static fn (Node\Stmt\ClassMethod $m): string => $m->name->toString(),
+            (new NodeFinder())->findInstanceOf($stmts, Node\Stmt\ClassMethod::class),
+        );
     }
 }

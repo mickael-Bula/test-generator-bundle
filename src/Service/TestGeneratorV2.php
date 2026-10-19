@@ -21,6 +21,7 @@ final class TestGeneratorV2
     private const MAX_PHPSTAN_ATTEMPTS = 2;
     private const MAX_PREFIX_FAILURES = 3;   // échecs consécutifs
     private const MAX_PREFIX_PASSES = 20; // Garde-fou absolu
+    private ?string $baseline = null; // test existant en cours de fusion : la porte ne juge que le nouveau code.
 
     public function __construct(
         private readonly LlmClientFactory $llmFactory,
@@ -32,6 +33,7 @@ final class TestGeneratorV2
         #[AutowireIterator('mika_test_generator.prompt_builder')] private readonly iterable $promptBuilders, // Récupère toutes les classes portant ce tag
         #[Autowire('%kernel.project_dir%/var/tmp')] private readonly string $tmpDir = 'var/tmp',
         #[Autowire('%kernel.project_dir%/var/failed_tests')] private readonly string $failedTestsDir = 'var/failed_tests',
+        #[Autowire('%env(bool:default::MIKA_TEST_TRACE)%')] private readonly bool $trace = false,
         private readonly Filesystem $filesystem = new Filesystem(),
     ) {
         if (!$this->filesystem->exists($this->tmpDir)) {
@@ -58,6 +60,7 @@ final class TestGeneratorV2
         ?string $provider = null,
         ?string $startFromTestCode = null,
     ): string {
+        $this->baseline = $existingTestCode;
         $client = $this->llmFactory->getClient();
         $targetModel = $model ?? $this->llmFactory->getDefaultModel();
 
@@ -111,6 +114,14 @@ final class TestGeneratorV2
             $rawTestCode = $client->call($messages, $targetModel);
             $testCode = $pending ?? $this->cleanLlmOutput($rawTestCode);
             $pending = null; // On s'assure qu'aucune fixture n'est réutilisée dans la boucle
+
+            // Si MIKA_TEST_TRACE=1, on enregistre les sorties brutes de chaque tentative (utilisées ensuite comme fixtures).
+            if ($this->trace) {
+                $this->filesystem->dumpFile(sprintf(
+                    '%s/attempts/%s_%s_attempt%d.php',
+                    rtrim($this->failedTestsDir, '/\\'), date('Y-m-d_H-i-s'), $className, $phpunitAttempt,
+                ), $testCode);
+            }
 
             // Validation de la syntaxe PHP
             $syntaxResult = $this->syntaxValidator->validate($testCode);
@@ -267,7 +278,7 @@ final class TestGeneratorV2
         $output = '' !== $clean ? $clean : 'Aucune sortie reçue de PHPUnit.';
 
         $hasWarnings = str_contains($output, 'PHP warning:') || str_contains($output, 'Warnings:');
-        $quality = $this->qualityGate->report($testCode);
+        $quality = $this->qualityGate->report($testCode, $this->baseline);
 
         if ($result['success'] && $hasWarnings) {
             $output = "ERREUR DE VALIDATION (AVERTISSEMENT PHP DÉTECTÉ) :\n" . $output;
@@ -381,6 +392,9 @@ final class TestGeneratorV2
      */
     public function check(string $testCode, string $className): array
     {
+        // On s'assure qu'aucune valeur laissée par une géneration précédente ne fausse le contrôle.
+        $this->baseline = null;
+
         $run = $this->runPhpUnit($testCode, $className);
         if (!$run['valid']) {
             return [...$run, 'phase' => 'PHPUnit'];
@@ -398,6 +412,9 @@ final class TestGeneratorV2
      */
     public function replay(string $testCode, string $className): array
     {
+        // On s'assure qu'aucune valeur laissée par une géneration précédente ne fausse le contrôle.
+        $this->baseline = null;
+
         $run = $this->runWithPreFix($testCode, $className);
         if (!$run['valid']) {
             return [...$run, 'phase' => 'PHPUnit'];

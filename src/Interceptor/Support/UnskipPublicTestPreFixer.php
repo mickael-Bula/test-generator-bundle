@@ -76,7 +76,14 @@ final readonly class UnskipPublicTestPreFixer implements TestPreFixerInterface
             }
         }
 
-        return sprintf('$this->%s->%s(%s);', $property, $hit['target']->getName(), implode(', ', $args));
+        $assign = '';
+        $type = $hit['target']->getReturnType();
+        if (null !== $type && !\in_array((string) $type, ['void', 'never'], true)) {
+            $name = !isset($locals['result']) ? 'result' : (!isset($locals['actual']) ? 'actual' : null);
+            $assign = null === $name ? '' : '$' . $name . ' = ';
+        }
+
+        return sprintf('%s$this->%s->%s(%s);', $assign, $property, $hit['target']->getName(), implode(', ', $args));
     }
 
     /**

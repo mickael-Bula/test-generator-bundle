@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Interceptor;
 
+use PHPUnit\Framework\TestCase;
+
 /** @noinspection PhpUnused */
 final readonly class UndefinedMethodInterceptor implements ErrorInterceptorInterface
 {
@@ -25,6 +27,8 @@ final readonly class UndefinedMethodInterceptor implements ErrorInterceptorInter
             [$class, $method] = explode('::', $pair);
             if (class_exists($class) || interface_exists($class)) {
                 $md .= $this->hint(new \ReflectionClass($class), $method);
+            } elseif (str_ends_with($class, 'Test')) {
+                $md .= $this->testClassHint($method);
             }
         }
 
@@ -78,5 +82,24 @@ final readonly class UndefinedMethodInterceptor implements ErrorInterceptorInter
         $lines = \array_slice(file($file, FILE_IGNORE_NEW_LINES) ?: [], $m->getStartLine() - 1, $m->getEndLine() - $m->getStartLine() + 1);
 
         return \count($lines) <= 15 ? implode("\n", $lines) : '// (corps trop long)';
+    }
+
+    private function testClassHint(string $method): string
+    {
+        $expect = array_map(
+            static fn (\ReflectionMethod $m): string => '`' . $m->getName() . '()`',
+            array_filter(
+                (new \ReflectionClass(TestCase::class))->getMethods(\ReflectionMethod::IS_PUBLIC),
+                static fn (\ReflectionMethod $m): bool => str_starts_with($m->getName(), 'expect'),
+            ),
+        );
+        sort($expect);
+
+        return sprintf('### Méthode inexistante sur la classe de test : `$this->%s()`', $method) . "\n"
+            . sprintf("- `%s()` n'est ni une méthode de PHPUnit, ni un helper défini dans le test.\n", $method)
+            . '- Attentes d\'exception réellement disponibles : ' . implode(', ', $expect) . ".\n"
+            . "- Correction : appelle l'une d'elles AVANT l'action (`\$this->expectExceptionMessage('…')`), "
+            . "ou définis le helper comme méthode `private` du test, ou supprime l'appel. "
+            . "Une valeur attendue se passe par un jeu de données (`#[DataProvider]`), pas par une méthode inventée.\n";
     }
 }

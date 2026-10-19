@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Mika\TestGeneratorBundle\Resolver;
 
 use Mika\TestGeneratorBundle\Interceptor\Support\RepoMapProvider;
+use Psr\Cache\InvalidArgumentException;
 
 final readonly class MissingClassResolver
 {
@@ -38,7 +39,10 @@ final readonly class MissingClassResolver
         return ['', []];
     }
 
-    /** @return list<string> */
+    /**
+     * @return list<string>
+     * @throws InvalidArgumentException
+     */
     public function similar(string $short): array
     {
         $scores = [];
@@ -78,7 +82,9 @@ final readonly class MissingClassResolver
         return array_values(array_unique($found));
     }
 
-    /** @return list<string> */
+    /**
+     * @return list<string>
+     */
     private function fromSutImports(string $short, ?string $sut): array
     {
         if (null === $sut || !class_exists($sut) || !($file = (new \ReflectionClass($sut))->getFileName())) {
@@ -93,7 +99,10 @@ final readonly class MissingClassResolver
         ));
     }
 
-    /** @return list<string> */
+    /**
+     * @return list<string>
+     * @throws InvalidArgumentException
+     */
     private function fromRepoMap(string $short, ?string $sut): array
     {
         $map = $this->maps->get();
@@ -110,7 +119,9 @@ final readonly class MissingClassResolver
         return $matches;
     }
 
-    /** @return list<\ReflectionNamedType> */
+    /**
+     * @return list<\ReflectionNamedType>
+     */
     private function namedTypes(?\ReflectionType $type): array
     {
         return match (true) {

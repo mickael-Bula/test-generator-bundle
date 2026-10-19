@@ -9,6 +9,7 @@ use Mika\TestGeneratorBundle\Interceptor\Support\RepoMapProvider;
 use Mika\TestGeneratorBundle\Interceptor\Support\SeedExtractor;
 use Mika\TestGeneratorBundle\Parser\TypeErrorInfo;
 use Mika\TestGeneratorBundle\Renderer\SkeletonRenderer;
+use Psr\Cache\InvalidArgumentException;
 use Psr\Log\LoggerInterface;
 
 /** @noinspection PhpUnused */
@@ -32,6 +33,9 @@ final readonly class NullArgumentTypeErrorInterceptor implements ErrorIntercepto
         return 'null' === TypeErrorInfo::fromOutput($errorOutput)?->given;
     }
 
+    /**
+     * @throws InvalidArgumentException
+     */
     public function intercept(string $errorOutput): ?string
     {
         $failure = $this->locator->locate($errorOutput);

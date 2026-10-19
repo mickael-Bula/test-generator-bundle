@@ -16,11 +16,20 @@ final readonly class PrivateReflectionTestPreFixer implements TestPreFixerInterf
 
     public function fix(string $errorOutput, string $testCode): ?string
     {
+        $targets = QualityReportReader::targets($errorOutput, QualityViolation::PRIVATE_CALL);   // TRIVIAL_ASSERTION pour l'autre
+        if ([] === $targets) {
+            return null;
+        }
+
         $analysis = $this->analyzer->analyze($testCode);
 
         $spans = []; // début => fin de chaque test visant une méthode non publique
         foreach ($analysis->violations as $v) {
-            if (QualityViolation::PRIVATE_CALL === $v->rule && $v->node instanceof Node\Stmt\ClassMethod) {
+            if (
+                QualityViolation::PRIVATE_CALL === $v->rule
+                && $v->node instanceof Node\Stmt\ClassMethod
+                && isset($targets[$v->test])
+            ) {
                 $spans[$v->node->getStartFilePos()] = $v->node->getEndFilePos();
             }
         }

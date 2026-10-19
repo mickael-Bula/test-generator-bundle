@@ -13,10 +13,10 @@ final class ProblemSignatures
     {
         $set = [];
 
-        // Erreurs, échecs, tests ignorés ou risqués : « 1) Classe::test » puis le message
-        preg_match_all('/^\d+\)\s+[\w\\\\]+::(?<test>\w+)[^\r\n]*\R(?<msg>[^\r\n]+)/m', $phpUnitOutput, $m, PREG_SET_ORDER);
-        foreach ($m as $e) {
-            $set[$e['test'] . ' :: ' . self::normalize($e['msg'])] = true;
+        // PHPStan : « - Ligne 233 : message »
+        preg_match_all('/^- Ligne \d+ : (?<msg>.+)$/m', $phpUnitOutput, $s, PREG_SET_ORDER);
+        foreach ($s as $e) {
+            $set['phpstan :: ' . self::normalize($e['msg'])] = true;
         }
 
         // Avertissements : « 1) /chemin/Fichier.php:654 » puis le message
@@ -48,7 +48,7 @@ final class ProblemSignatures
         }
         foreach (array_keys($after) as $signature) {
             $test = strstr($signature, ' :: ', true) ?: $signature;
-            if ('(avertissement)' !== $test && !isset($known[$test])) {
+            if (!\in_array($test, ['(avertissement)', 'phpstan'], true) && !isset($known[$test])) {
                 return false; // régression : un test sain jusque-là échoue
             }
         }
@@ -59,6 +59,6 @@ final class ProblemSignatures
     private static function normalize(string $message): string
     {
         // Numéros de ligne et chemins changent à chaque correction : seule la nature de l'erreur compte
-        return trim((string) preg_replace('~%PROJECT_DIR%\S*|/\S+\.php(?::\d+)?|\bline \d+|:\d+\b~', '', $message));
+        return trim((string) preg_replace('~%PROJECT_DIR%\S*|/\S+\.php(?::\d+)?|\bline \d+|\(lignes? [\d, ]+\)|:\d+\b~', '', $message));
     }
 }

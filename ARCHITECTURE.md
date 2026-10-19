@@ -173,6 +173,12 @@ La boucle s’arrête dans l’un de ces trois états :
 - **Aucun correcteur ne s’applique** : la dernière étape est le prochain problème à traiter. C’est l’objet de votre méthode un problème à la fois.
 - **Limite** `--max-steps` atteinte.
 
+#### Commande pour afficher toute la chaîne, avec diff, étape max modifiée et mode verbose
+
+```bash
+XDEBUG_MODE=off php bin/console llm:fixture:capture position-manager--run-1 var/failed_tests/2026-10-16_22-50-42_MaClasse_FailedTestV2.php --chain --force --max-steps=8 -v
+```
+
 ### hint
 
 `hints.txt` contient une phrase par ligne. Chacune doit apparaître dans le texte que les intercepteurs enverraient au LLM pour ce rapport.
@@ -278,6 +284,7 @@ Parcours attendu de la chaîne :
 
 Priorités : 
 - Skipped 100, 
+- CommentCleaner 99,
 - PrivateReflection 95,
 - Unskip 90, 
 - SetUpStub 80, 
@@ -312,7 +319,7 @@ grep '"fixer"' tests/Fixtures/FailedTests/position-manager--run-1/*/meta.json
 for d in tests/Fixtures/FailedTests/position-manager--run-1/[0-9][0-9]; do [ -f "$d/expected.php" ] || echo "$d"; done
 ```
 
-## Commande recensant les intecepteurs
+## Commande recensant les intercepteurs
 
 ```bash
 XDEBUG_MODE=off php bin/console llm:interceptors:census
@@ -326,3 +333,48 @@ XDEBUG_MODE=off php bin/console llm:interceptors:census
 | Paires fréquentes | élevé | Deux intercepteurs répondent aux mêmes erreurs : comparer leurs consignes et les fusionner. |
 
 Pour chaque intercepteur conservé, ajouter un cas de fixture avec une ligne dans `hints.txt `: le recensement n’en dit pas plus que les rapports générés.
+
+#### Option --pair
+
+```bash
+XDEBUG_MODE=off php bin/console llm:interceptors:census --pair=ExpectsOnNonMockInterceptor+StubOnRealObjectInterceptor
+```
+
+L'option sur la commande permet de comparer deux intercepteurs et de trancher sur des doublons possibles.
+Si les deux textes parlent de la même erreur et ne se contredisent pas, 
+conservez celui qui donne le plus d’information (le code du getter, l’ordre des corrections). Sinon, corrigez-les d’abord.
+
+### Variable d'environnement MIKA_TEST_TRACE
+
+Permet d'enregistrer les sorties brutes de chaque tentative produite par le LLM. 
+Elles viennent alimenter les cas de tests sous `var/failed_tests/attempts/`.
+
+### Varier les sources de rapports
+
+Pour augmenter les cas de test et obtenir des erreurs différentes, 
+voici une commande qui boucle sur les classes du dossier `src\Service` et qui génère des cas.
+
+```bash
+for c in src/Service/*.php; do MIKA_TEST_TRACE=1 XDEBUG_MODE=off php bin/console llm:generate:test:v2 "$c"; done
+```
+
+### Varier les modèles
+
+La même commande avec l'option `--model` permet de générer des cas de test avec un LLM différents, susceptible de rencontrer d'autres erreurs :
+
+```bash
+for c in src/Service/*.php; do MIKA_TEST_TRACE=1 XDEBUG_MODE=off php bin/console llm:generate:test:v2 "$c" --model="mistral"; done
+```
+
+### Commande classant les problèmes
+
+La commande exécute PHPUnit et PHPStan plusieurs fois par fichier : prévoir quelques minutes pour 50 fichiers.
+
+La métrique à suivre au fil des correctifs est le rapport « résolus sans LLM » / « non résolus ». 
+Après chaque nouveau correcteur, relancer la commande : si ce taux ne monte pas, le correcteur ne sert que sur le cas qui l’a motivé.
+
+```bash
+XDEBUG_MODE=off php bin/console llm:fixture:benchmark
+```
+
+Relancer `vendor/bin/phpunit --filter FailedTestFixturesTest` après chaque modification d’un correcteur ou d’un intercepteur.

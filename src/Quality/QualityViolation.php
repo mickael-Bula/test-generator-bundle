@@ -16,6 +16,7 @@ final readonly class QualityViolation
     public const TRIVIAL_ASSERTION = 'trivial-assertion';
     public const TRIVIAL_ONLY = 'trivial-only';
     public const NO_TESTS = 'no-tests';
+    public const FORBIDDEN_COMMENT = 'forbidden-comment';
 
     public function __construct(
         public string $rule,

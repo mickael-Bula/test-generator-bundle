@@ -13,6 +13,7 @@ use Mika\TestGeneratorBundle\Manager\SpecManager;
 use Mika\TestGeneratorBundle\Resolver\ClassResolver;
 use Mika\TestGeneratorBundle\Resolver\TestPathResolver;
 use Mika\TestGeneratorBundle\Service\TestGenerator;
+use Mika\TestGeneratorBundle\Util\TimeFormater;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Exception\ExceptionInterface;
@@ -42,6 +43,7 @@ class GenerateTestCommand extends Command
         private readonly TestPathResolver $pathResolver,
         private readonly SpecManager $specManager,
         private readonly DatabaseResolverCommand $databaseResolverCommand,
+        private readonly TimeFormater $timeFormater,
     ) {
         parent::__construct();
 
@@ -392,24 +394,19 @@ class GenerateTestCommand extends Command
         );
     }
 
+    /**
+     * @throws \Exception
+     */
     private function displayExecutionTime(\DateTimeImmutable $startTime, float $startMicrotime): void
     {
-        $endTime = new \DateTimeImmutable();
-        $durationInSeconds = round(microtime(true) - $startMicrotime, 2);
-
-        if ($durationInSeconds >= 60) {
-            $minutes = (int) ($durationInSeconds / 60);
-            $seconds = round(fmod($durationInSeconds, 60), 1);
-            $formattedDuration = sprintf('%dm %ss', $minutes, $seconds);
-        } else {
-            $formattedDuration = sprintf('%.2fs', $durationInSeconds);
-        }
+        // Chaque valeur de la liste est un tableau contenant une paire clé-valeur affichée sous forme de table dans le terminal.
+        [$formatedStartTime, $formatedEndTime, $formattedDuration] = $this->timeFormater->displayExecutionTime($startTime, $startMicrotime);
 
         $this->io->newLine();
         $this->io->definitionList(
-            ['Début' => $startTime->format('H:i:s')],
-            ['Fin' => $endTime->format('H:i:s')],
-            ['Durée totale' => $formattedDuration]
+            $formatedStartTime,
+            $formatedEndTime,
+            $formattedDuration,
         );
     }
 

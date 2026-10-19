@@ -12,6 +12,7 @@ use Mika\TestGeneratorBundle\Resolver\ClassResolver;
 use Mika\TestGeneratorBundle\Resolver\TestPathResolver;
 use Mika\TestGeneratorBundle\Service\TestFinalizer;
 use Mika\TestGeneratorBundle\Service\TestGeneratorV2;
+use Mika\TestGeneratorBundle\Util\TimeFormater;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Exception\ExceptionInterface;
@@ -34,15 +35,16 @@ class GenerateTestV2Command extends Command
     private string $normalizedProjectDir;
 
     public function __construct(
-        private readonly TestGeneratorV2                            $testGenerator,
-        private readonly LlmClientFactory                           $llmFactory,
+        private readonly TestGeneratorV2 $testGenerator,
+        private readonly LlmClientFactory $llmFactory,
         #[Autowire('%kernel.project_dir%')] private readonly string $projectDir,
-        private readonly ClassResolver                              $classResolver,
-        private readonly TestPathResolver                           $pathResolver,
-        private readonly SpecManager                                $specManager,
-        private readonly DatabaseResolverCommand                    $databaseResolverCommand,
-        private readonly TestFinalizer                              $finalizer,
+        private readonly ClassResolver $classResolver,
+        private readonly TestPathResolver $pathResolver,
+        private readonly SpecManager $specManager,
+        private readonly DatabaseResolverCommand $databaseResolverCommand,
+        private readonly TestFinalizer $finalizer,
         private readonly SutCallGraph $callGraph,
+        private readonly TimeFormater $timeFormater,
     )
     {
         parent::__construct();
@@ -260,13 +262,16 @@ class GenerateTestV2Command extends Command
         }
     }
 
+    /**
+     * @throws \Exception
+     */
     private function displayExecutionTime(\DateTimeImmutable $startTime, float $startMicrotime): void
     {
-        $durationInSeconds = round(microtime(true) - $startMicrotime, 2);
+        [$formatedStartTime,, $formattedDuration] = $this->timeFormater->displayExecutionTime($startTime, $startMicrotime);
         $this->io->newLine();
         $this->io->definitionList(
-            ['Début' => $startTime->format('H:i:s')],
-            ['Durée totale' => sprintf('%.2fs', $durationInSeconds)]
+            $formatedStartTime,
+            $formattedDuration,
         );
     }
 }

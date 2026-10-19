@@ -4,10 +4,15 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Interceptor;
 
+use Mika\TestGeneratorBundle\Resolver\MissingClassResolver;
+
 /** @noinspection PhpUnused */
-final class AnonymousClassCompatibilityInterceptor implements ErrorInterceptorInterface
+final readonly class AnonymousClassCompatibilityInterceptor implements ErrorInterceptorInterface
 {
+    // « …between class@anonymous::execute(App\X $x): void and App\Contract::execute(App\X $x): void, because class App\Tests\Dynamic\X is not available »
     private const PATTERN = '/Could not check compatibility between (?<left>.+?) and (?<right>.+?), because (?<kind>[a-z]+) (?<missing>[\w\\\\]+) is not available/';
+
+    public function __construct(private MissingClassResolver $resolver) {}
 
     public function supports(string $errorOutput): bool
     {
@@ -16,20 +21,28 @@ final class AnonymousClassCompatibilityInterceptor implements ErrorInterceptorIn
 
     public function intercept(string $errorOutput): ?string
     {
-        if (!preg_match(self::PATTERN, $errorOutput,$matches)) {
+        if (1 !== preg_match(self::PATTERN, $errorOutput, $m)) {
             return null;
         }
 
-        $missingClassName = $matches['missing'];
+        $short = basename(str_replace('\\', '/', $m['missing']));
+        [, $candidates] = $this->resolver->resolve($short, null);
 
-        return sprintf(
-            "INDICE DE CORRECTION CLASSE ANONYME (COMPATIBILITÉ DE SIGNATURE) :\n"
-            . "Erreur fatale : La classe `%s` n'est pas disponible ou résolue dans la signature de méthode de ta classe anonyme.\n"
-            . "Règle PHP pour les classes anonymes implémentant une interface : "
-            . "**Tous** les types d'arguments dans les signatures de méthodes (`execute`, etc.) doivent utiliser leur **FQCN complet** "
-            . "(ex : `\\App\\Entity\\MaClasse`, `\\App\\Dto\\MonDto`).\n"
-            . "Modifie tes classes anonymes pour remplacer les noms courts par leurs chemins de namespace complets dans les signatures.",
-            $missingClassName
-        );
+        $real = match (true) {
+            1 === \count($candidates) => sprintf("- Classe réelle : `\\%s`\n", $candidates[0]),
+            [] !== $candidates => '- Classes de ce nom : ' . implode(', ', array_map(static fn (string $c): string => "`\\$c`", $candidates)) . "\n",
+            default => '',
+        };
+
+        return "### Classe anonyme : signature incompatible avec l'interface (erreur fatale)\n"
+            . sprintf(
+                "- Cause : le nom court `%s` n'est pas importé dans la signature de ta classe anonyme. "
+                . "PHP l'a résolu dans le namespace du test (`%s`), qui n'existe pas.\n", $short, $m['missing']
+            )
+            . $real
+            . sprintf("- Signature de ta classe anonyme : `%s`\n", $m['left'])
+            . sprintf("- Signature attendue par l'interface (noms déjà complets) : `%s`\n", $m['right'])
+            . "- Correction : recopie la signature de l'interface en préfixant CHAQUE classe d'un antislash (`\\App\\Entity\\X`), "
+            . "arguments et type de retour compris.\n";
     }
 }

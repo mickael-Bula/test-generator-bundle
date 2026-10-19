@@ -15,9 +15,14 @@ final readonly class TrivialAssertionPreFixer implements TestPreFixerInterface
 
     public function fix(string $errorOutput, string $testCode): ?string
     {
+        $targets = QualityReportReader::targets($errorOutput, QualityViolation::TRIVIAL_ASSERTION);
+        if ([] === $targets) {
+            return null;
+        }
+
         $spans = [];
         foreach ($this->analyzer->analyze($testCode)->violations as $v) {
-            if (QualityViolation::TRIVIAL_ASSERTION === $v->rule && null !== $v->node) {
+            if (QualityViolation::TRIVIAL_ASSERTION === $v->rule && null !== $v->node && isset($targets[$v->test])) {
                 $spans[$v->node->getStartFilePos()] = $v->node->getEndFilePos();
             }
         }

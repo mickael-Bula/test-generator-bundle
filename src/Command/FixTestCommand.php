@@ -15,6 +15,7 @@ use Mika\TestGeneratorBundle\Resolver\TestPathResolver;
 use Mika\TestGeneratorBundle\Service\TestFinalizer;
 use Mika\TestGeneratorBundle\Service\TestGeneratorV2;
 use Mika\TestGeneratorBundle\Service\TestSnapshotStore;
+use Mika\TestGeneratorBundle\Util\TimeFormater;
 use Mika\TestGeneratorBundle\Validator\PhpSyntaxValidator;
 use SebastianBergmann\Diff\Differ;
 use SebastianBergmann\Diff\Output\UnifiedDiffOutputBuilder;
@@ -50,6 +51,7 @@ class FixTestCommand extends Command
         private readonly ErrorInterceptorRegistry $interceptors,
         private readonly TestSnapshotStore $snapshots,
         private readonly CoveredClassReader $coveredClass,
+        private readonly TimeFormater $timeFormater,
     ) {
         parent::__construct();
 
@@ -311,12 +313,17 @@ class FixTestCommand extends Command
         return str_replace($this->normalizedProjectDir . '/', '', str_replace('\\', '/', $path));
     }
 
+    /**
+     * @throws \Exception
+     */
     private function displayExecutionTime(\DateTimeImmutable $startTime, float $startMicrotime): void
     {
+        [$formatedStartTime,, $formattedDuration] = $this->timeFormater->displayExecutionTime($startTime, $startMicrotime);
+
         $this->io->newLine();
         $this->io->definitionList(
-            ['Début' => $startTime->format('H:i:s')],
-            ['Durée totale' => sprintf('%.2fs', round(microtime(true) - $startMicrotime, 2))]
+            $formatedStartTime,
+            $formattedDuration,
         );
     }
 }

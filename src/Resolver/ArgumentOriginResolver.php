@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Mika\TestGeneratorBundle\Resolver;
 
 use Mika\TestGeneratorBundle\Parser\TypeErrorInfo;
+use Mika\TestGeneratorBundle\Service\TestSnapshotStore;
 use PhpParser\Node;
 use PhpParser\NodeFinder;
 use PhpParser\Parser;
@@ -14,7 +15,7 @@ final class ArgumentOriginResolver
 {
     private Standard $printer;
 
-    public function __construct(private readonly Parser $parser)
+    public function __construct(private Parser $parser, private TestSnapshotStore $snapshots)
     {
         $this->printer = new Standard();
     }
@@ -26,7 +27,12 @@ final class ArgumentOriginResolver
             return null;
         }
 
-        $stmts  = $this->parser->parse(file_get_contents($error->file));
+        $path = is_file($error->file) ? $error->file : $this->snapshots->find($error->file);
+        if (null === $path) {
+            return null;
+        }
+
+        $stmts = $this->parser->parse((string) file_get_contents($path));
         $finder = new NodeFinder();
         $covers = fn(Node $node): bool => $node->getStartLine() <= $error->line && $error->line <= $node->getEndLine();
 

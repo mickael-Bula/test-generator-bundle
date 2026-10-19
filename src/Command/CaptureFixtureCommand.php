@@ -125,6 +125,12 @@ final class CaptureFixtureCommand extends Command
         }
         $short = basename(str_replace('\\', '/', $sut));
 
+        if (1 !== preg_match('/\bclass\s+' . preg_quote($short, '/') . 'DynamicTest\b/', $code)) {
+            $io->error(sprintf('Le runner exécute tests/Dynamic/%1$sDynamicTest.php : la classe du test doit s\'appeler %1$sDynamicTest.', $short));
+
+            return Command::FAILURE;
+        }
+
         $io->writeln('Correcteurs, par ordre de passage : ' . implode(', ', array_map($this->short(...), $this->preFixers->names())));
 
         $original = $code;
@@ -229,6 +235,11 @@ final class CaptureFixtureCommand extends Command
             if ($output->isVerbose() && null !== $row['hint']) { // -v : texte complet envoyé au LLM
                 $io->writeln(OutputFormatter::escape((string) preg_replace('/^/m', '      | ', $row['hint'])));
             }
+        }
+
+        if (null === $step && [] === $firstLines) {
+            $io->writeln('Aucun correcteur ni indice. Début du rapport :');
+            $io->writeln(OutputFormatter::escape(implode("\n", \array_slice(explode("\n", trim($report)), 0, 12))));
         }
 
         return $step;

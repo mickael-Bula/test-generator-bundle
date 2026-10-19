@@ -53,6 +53,7 @@ final readonly class QualityViolationInterceptor implements ErrorInterceptorInte
                 'trivial-only' => "  - Remplace-la par une vraie vérification : valeur retournée, état d'un objet modifié par le SUT "
                     . "(`assertSame(expression, \$objet->getX())`) ou appel de mock (`expects(self::exactly(n))` déclaré AVANT l'appel). "
                     . "`assertTrue(true)` et `assertInstanceOf` sur un objet créé par `new` ne vérifient rien.\n",
+                'forbidden-comment' => "  - Supprime ces commentaires : seuls `// ÉTANT DONNÉ`, `// QUAND` et `// ALORS` (seuls sur leur ligne, sans texte) sont autorisés.\n",
                 default => "  - La classe ne contient aucun test exécutable : régénère-la à partir des méthodes PUBLIQUES.\n",
             };
         }
