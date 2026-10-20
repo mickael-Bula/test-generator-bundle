@@ -110,6 +110,10 @@ final class InterceptorCensusCommand extends Command
             $io->warning('Aucun rapport où les deux intercepteurs produisent un indice.');
         }
 
+        if (2 === \count($wanted)) {
+            return Command::SUCCESS; // on a demandé une paire : pas de tableaux
+        }
+
         uasort($stats, static fn (array $a, array $b): int => [$a['hints'], $a['supports']] <=> [$b['hints'], $b['supports']]);
         $io->title(sprintf(
             '%d rapports, %d scénarios distincts, %d intercepteurs',

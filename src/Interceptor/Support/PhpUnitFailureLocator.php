@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Mika\TestGeneratorBundle\Interceptor\Support;
 
 use Mika\TestGeneratorBundle\Service\TestSnapshotStore;
+use Psr\Cache\InvalidArgumentException;
 
 final readonly class PhpUnitFailureLocator
 {
@@ -64,6 +65,9 @@ final readonly class PhpUnitFailureLocator
         }
     }
 
+    /**
+     * @throws InvalidArgumentException
+     */
     private function findSut(string $output, ?string $testClass): ?string
     {
         $classes = $this->maps->get()->classes;

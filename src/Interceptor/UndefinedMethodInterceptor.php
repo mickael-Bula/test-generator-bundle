@@ -35,15 +35,15 @@ final readonly class UndefinedMethodInterceptor implements ErrorInterceptorInter
         return '' === $md ? null : $md . "N'appelle que des méthodes existantes de ces listes ; n'en invente aucune.\n";
     }
 
-    private function hint(\ReflectionClass $rc, string $missing): string
+    private function hint(\ReflectionClass $reflectionClass, string $missing): string
     {
         $base = strtolower((string) preg_replace('/^(set|get|is|has|add|remove)(?=[A-Z])/', '', $missing));
         $publics = array_values(array_filter(
-            $rc->getMethods(\ReflectionMethod::IS_PUBLIC),
+            $reflectionClass->getMethods(\ReflectionMethod::IS_PUBLIC),
             static fn (\ReflectionMethod $m): bool => !$m->isConstructor(),
         ));
 
-        $md = sprintf("### Méthode inexistante : `\\%s::%s()`\n", $rc->getName(), $missing);
+        $md = sprintf("### Méthode inexistante : `\\%s::%s()`\n", $reflectionClass->getName(), $missing);
 
         foreach ($publics as $m) {
             if ('' !== $base && str_contains(strtolower($m->getName()), $base)) {
@@ -56,6 +56,15 @@ final readonly class UndefinedMethodInterceptor implements ErrorInterceptorInter
             fn (\ReflectionMethod $m): string => '`' . $this->signature($m) . '`',
             array_filter($publics, static fn (\ReflectionMethod $m): bool => 1 === preg_match('/^(set|add|remove)[A-Z]/', $m->getName())),
         );
+
+        $constructor = $reflectionClass->getConstructor();
+        if (null !== $constructor && $constructor->getNumberOfParameters() > 0) {
+            $md .= sprintf(
+                "- Constructeur : `new \\%s%s`\n",
+                $reflectionClass->getName(),
+                substr($this->signature($constructor), \strlen('__construct'))
+            );
+        }
 
         return $md . '- Mutateurs disponibles : ' . ([] !== $mutators ? implode(', ', $mutators) : 'aucun') . "\n";
     }

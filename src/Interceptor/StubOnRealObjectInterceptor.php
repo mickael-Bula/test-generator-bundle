@@ -32,7 +32,7 @@ final readonly class StubOnRealObjectInterceptor implements ErrorInterceptorInte
         }
         $stubs = $this->finder->find((string) file_get_contents($file));
         if ([] === $stubs) {
-            return null; // le receveur est une propriété : MockPropertyTypeFixer / UndefinedMockMethodInterceptor
+            return $this->fromMessage($errorOutput); // le receveur est une propriété : MockPropertyTypeFixer / UndefinedMockMethodInterceptor
         }
 
         $md = "### `expects()` / `method()` appelés sur un objet RÉEL\n"
@@ -62,5 +62,24 @@ final readonly class StubOnRealObjectInterceptor implements ErrorInterceptorInte
             . "1. Supprime le stub et donne à l'objet l'état voulu avec ses vrais mutateurs (le code ci-dessus montre ce que le getter lit).\n"
             . "2. Si aucun mutateur ne permet cet état : `\$this->getMockBuilder(\\Classe::class)->onlyMethods(['méthode'])->getMock()`.\n"
             . "Ne change rien d'autre dans le test.\n";
+    }
+
+    private function fromMessage(string $output): ?string
+    {
+        if (0 === preg_match_all('/Call to (?:an )?undefined method (?<class>[\w\\\\]+)::(?:expects|method)\(\)/', $output, $m)) {
+            return null;
+        }
+        $sut = $this->locator->locate($output)->sut;
+
+        $md = "### `expects()` / `method()` appelés sur un objet qui n'est pas un mock\n";
+        foreach (array_unique($m['class']) as $class) {
+            $md .= sprintf("- Classe concernée : `\\%s`.\n", $class);
+            $md .= $class === $sut
+                ? "  - C'est la classe testée : appelle directement sa vraie méthode, sans `expects()`.\n"
+                : "  - Dépendance : crée-la avec `createMock()` (propriété typée `\\{$class}&\\PHPUnit\\Framework\\MockObject\\MockObject`). "
+                . "Entité ou DTO : donne-lui l'état voulu avec ses mutateurs.\n";
+        }
+
+        return $md;
     }
 }
