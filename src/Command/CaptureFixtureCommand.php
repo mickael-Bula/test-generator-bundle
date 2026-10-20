@@ -119,12 +119,18 @@ final class CaptureFixtureCommand extends Command
     {
         $sut = $this->coveredClass->read($code);
         if (null === $sut) {
-            $io->error('Classe testée introuvable (#[CoversClass] absent) : nécessaire pour exécuter le test.');
+            $io->error(1 === preg_match('/#\[CoversClass\(/', $code)
+                ? 'Le nom donné à #[CoversClass(...)] n\'est pas résolu : ajoutez son `use`, ou écrivez son FQCN (`\App\...::class`).'
+                : 'Classe testée introuvable : ajoutez #[CoversClass(MaClasse::class)] au test.');
+
+            return Command::FAILURE;
+        }
+        if (!class_exists($sut)) {
+            $io->error(sprintf('La classe %s n\'existe pas (autoload) : créez-la, ou vérifiez son namespace.', $sut));
 
             return Command::FAILURE;
         }
         $short = basename(str_replace('\\', '/', $sut));
-
         if (1 !== preg_match('/\bclass\s+' . preg_quote($short, '/') . 'DynamicTest\b/', $code)) {
             $io->error(sprintf('Le runner exécute tests/Dynamic/%1$sDynamicTest.php : la classe du test doit s\'appeler %1$sDynamicTest.', $short));
 

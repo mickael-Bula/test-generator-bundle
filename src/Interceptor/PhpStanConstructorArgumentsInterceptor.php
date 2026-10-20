@@ -40,13 +40,15 @@ final class PhpStanConstructorArgumentsInterceptor implements ErrorInterceptorIn
             $reflection = new \ReflectionClass($class);
             $constructor = $reflection->getConstructor();
 
-            if (null === $constructor) {
-                $md .= "  - Cette classe n'a AUCUN constructeur : PHP ignore sans erreur les arguments passés à `new`. Le test passe, "
+            if (null === $constructor || 0 === $constructor->getNumberOfParameters()) {
+                $md .= "  - Le constructeur de cette classe n'accepte AUCUN argument : "
+                    . "PHP ignore sans erreur ceux qu'on lui passe. Le test passe, "
                     . "mais les valeurs ne sont PAS appliquées à l'objet.\n"
                     . "  - Correction : `\$x = new \\$class();` puis un mutateur par valeur :\n";
                 foreach ($this->mutators($reflection) as $signature) {
                     $md .= "      $signature\n";
                 }
+                $md .= "  - Un identifiant généré par la base n'a en général pas de setter : ne l'affecte pas.\n";
             } else {
                 $md .= sprintf("  - Signature réelle : `__construct(%s)`\n", implode(', ', array_map(
                     static fn (\ReflectionParameter $p): string => trim(($p->getType() ?? '') . ' $' . $p->getName()

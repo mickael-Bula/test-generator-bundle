@@ -15,7 +15,8 @@ final class ArgumentOriginResolver
 {
     private Standard $printer;
 
-    public function __construct(private Parser $parser, private TestSnapshotStore $snapshots)
+    public function __construct(
+        private readonly Parser $parser, private readonly TestSnapshotStore $snapshots)
     {
         $this->printer = new Standard();
     }

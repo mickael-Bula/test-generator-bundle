@@ -397,7 +397,9 @@ final class TestGeneratorV2
 
         $run = $this->runPhpUnit($testCode, $className);
         if (!$run['valid']) {
-            return [...$run, 'phase' => 'PHPUnit'];
+            $phpunitGreen = 1 === preg_match('/^OK\b/m', $run['output']) && str_contains($run['output'], 'ERREUR DE QUALITÉ');
+
+            return [...$run, 'phase' => $phpunitGreen ? 'Qualité' : 'PHPUnit'];
         }
 
         $stan = $this->runPhpStan($testCode, $className);

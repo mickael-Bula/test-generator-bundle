@@ -95,18 +95,20 @@ final readonly class UndefinedMethodInterceptor implements ErrorInterceptorInter
 
     private function testClassHint(string $method): string
     {
-        $expect = array_map(
-            static fn (\ReflectionMethod $m): string => '`' . $m->getName() . '()`',
-            array_filter(
-                (new \ReflectionClass(TestCase::class))->getMethods(\ReflectionMethod::IS_PUBLIC),
-                static fn (\ReflectionMethod $m): bool => str_starts_with($m->getName(), 'expect'),
-            ),
+        $names = array_map(
+            static fn (\ReflectionMethod $m): string => $m->getName(),
+            (new \ReflectionClass(TestCase::class))
+                ->getMethods(\ReflectionMethod::IS_PUBLIC | \ReflectionMethod::IS_PROTECTED),
         );
+        $expect = array_values(array_filter($names, static fn (string $n): bool => str_starts_with($n, 'expectException')));
         sort($expect);
+        $list = [] !== $expect
+            ? implode(', ', array_map(static fn (string $n): string => "`$n()`", $expect))
+            : '`expectException()`, `expectExceptionMessage()`, `expectExceptionCode()`';
 
         return sprintf('### Méthode inexistante sur la classe de test : `$this->%s()`', $method) . "\n"
             . sprintf("- `%s()` n'est ni une méthode de PHPUnit, ni un helper défini dans le test.\n", $method)
-            . '- Attentes d\'exception réellement disponibles : ' . implode(', ', $expect) . ".\n"
+            . '- Attentes d\'exception réellement disponibles : ' . $list. ".\n"
             . "- Correction : appelle l'une d'elles AVANT l'action (`\$this->expectExceptionMessage('…')`), "
             . "ou définis le helper comme méthode `private` du test, ou supprime l'appel. "
             . "Une valeur attendue se passe par un jeu de données (`#[DataProvider]`), pas par une méthode inventée.\n";
