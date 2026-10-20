@@ -24,9 +24,13 @@ final readonly class SetUpStubShadowingPreFixer implements TestPreFixerInterface
         private CoveredClassReader $coveredClass,
         private SutDependencyUsage $usage,
         private SutPropertyFinder $sutPropertyFinder,
+        private SourceSpan $sourceSpan,
     ) {
     }
 
+    /**
+     * @throws \ReflectionException
+     */
     public function fix(string $errorOutput, string $testCode): ?string
     {
         $sutClass = $this->coveredClass->read($testCode);
@@ -106,8 +110,8 @@ final readonly class SetUpStubShadowingPreFixer implements TestPreFixerInterface
 
             // b. Le même stub, dans une méthode privée
             $body = substr($testCode, $statement->getStartFilePos(), $statement->getEndFilePos() - $statement->getStartFilePos() + 1);
-            $bodyIndent = $this->indentAt($testCode, $statement->getStartFilePos());
-            $methodIndent = $this->indentAt($testCode, $setUp->getStartFilePos());
+            $bodyIndent = $this->sourceSpan->indentAt($testCode, $statement->getStartFilePos());
+            $methodIndent = $this->sourceSpan->indentAt($testCode, $setUp->getStartFilePos());
             $helpers .= sprintf("\n\n%sprivate function %s(): void\n%s{\n%s%s\n%s}", $methodIndent, $helper, $methodIndent, $bodyIndent, $body, $methodIndent);
 
             // c. Appel explicite dans les tests qui en ont besoin
@@ -117,7 +121,7 @@ final readonly class SetUpStubShadowingPreFixer implements TestPreFixerInterface
                     continue;
                 }
                 $pos = $first->getStartFilePos();
-                $edits[$pos] = [0, ($edits[$pos][1] ?? '') . sprintf('$this->%s();', $helper) . "\n" . $this->indentAt($testCode, $pos)];
+                $edits[$pos] = [0, ($edits[$pos][1] ?? '') . sprintf('$this->%s();', $helper) . "\n" . $this->sourceSpan->indentAt($testCode, $pos)];
             }
         }
         if ([] === $edits) {
@@ -236,14 +240,5 @@ final readonly class SetUpStubShadowingPreFixer implements TestPreFixerInterface
         }
 
         return false;
-    }
-
-    private function indentAt(string $code, int $pos): string
-    {
-        $before = substr($code, 0, $pos);
-        $newline = strrpos($before, "\n");
-        $line = false === $newline ? $before : substr($before, $newline + 1);
-
-        return '' === trim($line) ? $line : '';
     }
 }

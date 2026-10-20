@@ -8,6 +8,8 @@ use Symfony\Component\DependencyInjection\Attribute\AsTaggedItem;
 
 /**
  * « actually called 0 times » alors que le test déclare `expects()` APRÈS l'appel du SUT : on le remonte avant le QUAND.
+ *
+ * @noinspection PhpUnused
  */
 #[AsTaggedItem(priority: 45)]
 final readonly class LateExpectationPreFixer implements TestPreFixerInterface

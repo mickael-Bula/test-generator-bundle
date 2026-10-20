@@ -53,7 +53,7 @@ Est-il nécessaire de transmettre la Repo-Map dans ce prompt, sachant que l'on p
 - Voir de quelle manière agréger les tests de méthodes réussis pour une même classe : comment les réunir dans une seule classe avec un même constructeur ?
 
 Si la V2 réussi à générer des tests sans erreurs, il faudra supprimer : 
-- la commande GenerateTestCommand.php
+- la commande GenerateTestCommand.php, mais en veillant à récupérer le setup de la BDD pour les tests fonctionnels
 - PhpUnitFixerPromptBuilder.php
 - PhpUnitFixerPromptBuilder.php
 - UnitTestPromptBuilder.php
@@ -61,11 +61,7 @@ Si la V2 réussi à générer des tests sans erreurs, il faudra supprimer :
 - les fixer Skills ?
 - FixerSkillResolver.php ?
 
-## Modifications Claude
-
-Remplacer la variable Ns par Namespace dans `services.php` et dans la classe `SeedExtractor`.
-Voir à réactiver l'intercepteur EntityOrObjectTypeErrorInterceptor après avoir modifié la condition d'activation.
-Idem pour `DtoConstructorInterceptor.php`.
+## Prompt vs Skills ?
 
 Des directives ont été ajoutées au fil de l'eau dans UnitTestPromptBuilderV2 (et autres) : déplacer dans des skills conditionnels pour alléger ?
 
@@ -170,8 +166,8 @@ php bin/console llm:fixture:capture ma-classe--run-1 var/failed_tests/<test>_Fai
 
 La boucle s’arrête dans l’un de ces trois états :
 - **Vert** : le scénario est résolu sans LLM.
-- **Aucun correcteur ne s’applique** : la dernière étape est le prochain problème à traiter. C’est l’objet de votre méthode un problème à la fois.
-- **Limite** `--max-steps` atteinte.
+- **Aucun correcteur ne s’applique** : la dernière étape est le prochain problème à traiter. C’est l’objet même de la méthode, qui traite un problème à la fois.
+- **Limite** `--max-steps` atteinte. La limite peut être augmentée avec le flag `--max-steps`.
 
 #### Commande pour afficher toute la chaîne, avec diff, étape max modifiée et mode verbose
 
@@ -287,7 +283,8 @@ Priorités :
 - CommentCleaner 99,
 - PrivateReflection 95,
 - Unskip 90, 
-- SetUpStub 80, 
+- SetUpStub 80,
+- UndefinedVariableArgument 70,
 - Literal 60, 
 - StubOnReal 50, 
 - LateExpectation 45, 
@@ -299,22 +296,25 @@ Priorités :
 
 ## Procédure pour les diffs
 
-# Un correctif d'une étape
+### A. Un correctif d'une étape
+
 ```bash
 diff -u tests/Fixtures/FailedTests/position-manager--run-1/06/input.php tests/Fixtures/FailedTests/position-manager--run-1/06/expected.php
 ```
 
-# Tout le scénario, du test d'origine à l'état final (écrit par la commande révisée)
+### B. Tout le scénario, du test d'origine à l'état final (écrit par la commande révisée)
 ```bash
 less tests/Fixtures/FailedTests/position-manager--run-1/final.diff
 ```
 
-# Quel correcteur à chaque étape
+### C. Quel correcteur à chaque étape
+
 ```bash
 grep '"fixer"' tests/Fixtures/FailedTests/position-manager--run-1/*/meta.json
 ```
 
-# Étapes sans correcteur
+## Recenser les étapes sans correcteur
+
 ```bash
 for d in tests/Fixtures/FailedTests/position-manager--run-1/[0-9][0-9]; do [ -f "$d/expected.php" ] || echo "$d"; done
 ```

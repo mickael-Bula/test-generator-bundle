@@ -25,4 +25,13 @@ final class SourceSpan
 
         return [$start, $length];
     }
+
+    public static function indentAt(string $code, int $pos): string
+    {
+        $before = substr($code, 0, $pos);
+        $newline = strrpos($before, "\n");
+        $line = false === $newline ? $before : substr($before, $newline + 1);
+
+        return '' === trim($line) ? $line : '';
+    }
 }
