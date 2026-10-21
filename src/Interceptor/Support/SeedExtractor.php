@@ -14,9 +14,10 @@ final readonly class SeedExtractor
     /**
      * @throws InvalidArgumentException
      */
-    public function extract(string $phpunitOutput, string $testFile, string $sut): array
+    public function extract(string $phpunitOutput, ?string $testFile = null, ?string $sut = null): array
     {
-        $seeds = [$sut];
+        $classes = $this->maps->get()->classes;
+        $seeds = null !== $sut ? [$sut] : [];
 
         // FQCN cités (message d'erreur, trace)
         preg_match_all('/' . preg_quote($this->rootNamespace, '/') . '[\w\\\\]+/', $phpunitOutput, $m);
@@ -26,7 +27,7 @@ final readonly class SeedExtractor
 
         // Fichiers src/ de la trace -> classes
         $byFile = array_column(
-            array_map(fn($c, $d) => ['f' => $d['file'], 'c' => $c], array_keys($this->maps->get()->classes), $this->maps->get()->classes),
+            array_map(fn($c, $d) => ['f' => $d['file'], 'c' => $c], array_keys($classes), $classes),
             'c', 'f'
         );
         preg_match_all('#(/\S+?\.php):\d+#', $phpunitOutput, $f);
@@ -34,9 +35,13 @@ final readonly class SeedExtractor
             if (isset($byFile[$file])) $seeds[] = $byFile[$file];
         }
 
-        // Classes importées par le test (mocks, collaborateurs)
-        preg_match_all('/^use\s+(' . preg_quote($this->rootNamespace, '/') . '[\w\\\\]+);/m', file_get_contents($testFile), $u);
+        $imports = [];
+        if (null !== $testFile && is_file($testFile)) {
+            // Classes importées par le test (mocks, collaborateurs)
+            preg_match_all('/^use\s+(' . preg_quote($this->rootNamespace, '/') . '[\w\\\\]+);/m', (string) file_get_contents($testFile), $u);
+            $imports = $u[1];
+        }
 
-        return array_values(array_unique([...$seeds, ...$u[1]]));
+        return array_values(array_unique([...$seeds, ...$imports]));
     }
 }

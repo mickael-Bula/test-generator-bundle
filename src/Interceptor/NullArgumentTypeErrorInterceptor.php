@@ -42,9 +42,6 @@ final readonly class NullArgumentTypeErrorInterceptor implements ErrorIntercepto
 
         $seeds = $this->seeds->extract($errorOutput, $failure->testFile, $failure->sut);
         $layers = $this->maps->get()->expand($seeds, $this->maxDepth); // fqcn => profondeur
-        if ([] === $layers) {
-            return null;
-        }
         asort($layers);
 
         $parts = [];
