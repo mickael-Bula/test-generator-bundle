@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Interceptor\Support;
 
+use Mika\TestGeneratorBundle\Resolver\CoveredClassReader;
 use Mika\TestGeneratorBundle\Service\TestSnapshotStore;
 use Psr\Cache\InvalidArgumentException;
 
@@ -14,9 +15,13 @@ final readonly class PhpUnitFailureLocator
     public function __construct(
         private RepoMapProvider $maps,
         private TestSnapshotStore $snapshots,
+        private CoveredClassReader $coveredClass,
     ) {
     }
 
+    /**
+     * @throws InvalidArgumentException
+     */
     public function locate(string $output): PhpUnitFailure
     {
         preg_match(self::PATTERN, $output, $t);
@@ -26,11 +31,16 @@ final readonly class PhpUnitFailureLocator
             preg_match('/(?<c>[\w\\\\]+Test)::\$\w+/', $output, $t); // PHPStan : "Property X\FooTest::$bar …"
         }
 
+        $testFile = $this->findTestFile($output, $testClass);
+        $covered = null !== $testFile && is_file($testFile)
+            ? $this->coveredClass->read((string) file_get_contents($testFile))
+            : null;
+
         return new PhpUnitFailure(
             $testClass,
             $t['m'] ?? null,
-            $this->findTestFile($output, $testClass),
-            $this->findSut($output, $testClass),
+            $testFile,
+            null !== $covered && class_exists($covered) ? $covered : $this->findSut($output, $testClass),
         );
     }
 

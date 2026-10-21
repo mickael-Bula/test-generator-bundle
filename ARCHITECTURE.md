@@ -287,6 +287,7 @@ Priorités :
 - PrivateReflection 95,
 - Unskip 90, 
 - SetUpStub 80,
+- VoidAssignment 75,
 - UndefinedVariableArgument 70,
 - Literal 60, 
 - StubOnReal 50, 

@@ -157,6 +157,9 @@ DIRECTIVES DE GÉNÉRATION DES TESTS UNITAIRES :
   couvre-la à travers les méthodes PUBLIQUES qui l'appellent, avec des données qui franchissent ses branches.
 - Interdit : `assertTrue(true)` et toute assertion sur des constantes ou sur un objet que le test vient de créer avec `new`. 
   Chaque test vérifie une valeur retournée, l'état d'un objet modifié par le SUT, ou un appel de mock (`expects(self::exactly(n))`).
+- Les mutateurs (`setXxx`) retournent `void` : n'affecte JAMAIS leur résultat.
+  `$user = (new User())->setX('a')` donne `null`. 
+  Crée l'objet, puis appelle ses mutateurs un par un : `$user = new User(); $user->setX('a');`.
 TEXT;
 
         if (null !== $skillsPrompt && trim($skillsPrompt) !== '') {$systemMessage .= "\n\n========================================\n"
