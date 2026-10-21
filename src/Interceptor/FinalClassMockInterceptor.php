@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Mika\TestGeneratorBundle\Interceptor;
 
 use Mika\TestGeneratorBundle\Interceptor\Support\PhpUnitFailureLocator;
+use Psr\Cache\InvalidArgumentException;
 
 /**
  * Lit les types des signatures publiques du SUT, via le localisateur.
@@ -22,15 +23,24 @@ final class FinalClassMockInterceptor implements ErrorInterceptorInterface
         return 1 === preg_match(self::PATTERN, $errorOutput);
     }
 
+    /**
+     * @throws \ReflectionException
+     * @throws InvalidArgumentException
+     */
     public function intercept(string $errorOutput): ?string
     {
         if (0 === preg_match_all(self::PATTERN, $errorOutput, $m)) {
             return null;
         }
 
-        $sutTypes = $this->sutTypes($this->locator->locate($errorOutput)->sut);
+        $sut = $this->locator->locate($errorOutput)->sut;
+        $sutTypes = $this->sutTypes($sut);
 
-        $md = "### Classe `final` : `createMock()` est impossible\n";
+        $md = "### Classe `final` : `createMock()` est impossible\n"
+            . (null !== $sut
+                ? sprintf("- Classe testée (SUT) : `\\%s`\n", $sut)
+                : "- Classe testée (SUT) : introuvable (`#[CoversClass]` absent ou classe non chargeable)\n");
+
         foreach (array_unique($m['class']) as $class) {
             $class = ltrim($class, '\\');
             $md .= sprintf(
