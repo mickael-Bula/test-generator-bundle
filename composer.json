@@ -31,7 +31,8 @@
         "symfony/ai-gemini-platform": "^0.12",
         "symfony/dotenv": "^7.4",
         "ext-libxml": "*",
-        "ext-simplexml": "*"
+        "ext-simplexml": "*",
+      "ext-mbstring": "*"
     },
     "require-dev": {
         "phpstan/phpstan": "^1.11|^2.0",

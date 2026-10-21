@@ -24,8 +24,7 @@ final class FinalClassMockInterceptor implements ErrorInterceptorInterface
     }
 
     /**
-     * @throws \ReflectionException
-     * @throws InvalidArgumentException
+     * @throws \ReflectionException|InvalidArgumentException
      */
     public function intercept(string $errorOutput): ?string
     {
