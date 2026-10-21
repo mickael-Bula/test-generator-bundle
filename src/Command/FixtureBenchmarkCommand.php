@@ -59,6 +59,8 @@ final class FixtureBenchmarkCommand extends Command
             $code = (string) file_get_contents($file);
             $sut = $this->coveredClass->read($code);
             if (null === $sut || !str_contains($code, 'namespace App\Tests\Dynamic;')) {
+                // On indique quelle part du corpus n'est pas rejoué.
+                $io->writeln(sprintf('<comment>ignoré : %s</comment>', basename($file)));
                 continue;
             }
 
@@ -82,17 +84,20 @@ final class FixtureBenchmarkCommand extends Command
             }
         }
 
-        $io->table(['Forme du problème', 'occurrences', 'fichiers', 'indice LLM'], array_map(
-            static fn (string $shape, array $r): array => [$shape, $r['n'], \count($r['files']), $r['covered'] ? 'oui' : '<error>aucun</error>'],
-            \array_slice(array_keys($remaining), 0, 15),
-            \array_slice($remaining, 0, 15),
+        $io->section('Résultat par fichier');
+        $io->table(['Fichier', 'Résultat', 'Corrections appliquées'], $rows);
+
+        $total = array_sum($counts);
+        $io->writeln(sprintf(
+            'Déjà verts : %d. Résolus sans LLM : %d. Non résolus : %d (sur %d).',
+            $counts['déjà vert'], $counts['résolu sans LLM'], $counts['non résolu'], $total,
         ));
 
         uasort($remaining, static fn (array $a, array $b): int => [\count($b['files']), $b['n']] <=> [\count($a['files']), $a['n']]);
         if ([] !== $remaining) {
             $io->section('Problèmes restants, du plus répandu au moins répandu (candidats pour le prochain correcteur)');
-            $io->table(['Forme du problème', 'occurrences', 'fichiers'], array_map(
-                static fn (string $shape, array $r): array => [$shape, $r['n'], \count($r['files'])],
+            $io->table(['Forme du problème', 'occurrences', 'fichiers', 'indice LLM'], array_map(
+                static fn (string $shape, array $r): array => [$shape, $r['n'], \count($r['files']), $r['covered'] ? 'oui' : '<error>aucun</error>'],
                 \array_slice(array_keys($remaining), 0, 15),
                 \array_slice($remaining, 0, 15),
             ));

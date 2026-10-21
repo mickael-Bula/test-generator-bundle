@@ -38,7 +38,7 @@ final class ConstructorArgumentCountInterceptor implements ErrorInterceptorInter
                         : 'mixed';
 
                     $params[] = sprintf(
-                        '%s $\%s\%s',
+                        '%s $%s%s',
                         $typeName,
                         $param->getName(),
                         $param->isOptional() ? ' [optionnel]' : ' [requis]'

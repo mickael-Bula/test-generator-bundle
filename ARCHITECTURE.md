@@ -88,15 +88,16 @@ php bin/console llm:fix:test PositionManager --model=qwen3.5 --dry-run
 
 Le fichier d’entrée n’est jamais modifié. Le résultat est écrit dans `<fichier>.fixed.php`, ou dans `--output`, ou nulle part avec `--dry-run`.
 
-Le cycle de travail sur un problème devient : copier la paire `.php` et `.log` dans un dossier de cas, 
-écrire ou ajuster le correcteur, relancer `--report` ou `--no-llm` jusqu’à ce que le diff soit le bon, puis seulement tester avec le LLM.
+Le cycle de travail sur un problème devient : depuis le dossier `var/failed_tests`, copier la paire `.php` et `.log` dans un dossier de cas, 
+écrire ou ajuster le correcteur, relancer `bin/console llm:fix:test PositionManager` avec `--report` ou `--no-llm` jusqu’à ce que le diff soit le bon, 
+puis seulement tester avec le LLM.
 
 ### Points d’attention
 - **`--report` dépend de `TestSnapshotStore`**. Sans lui, les intercepteurs qui relisent le test ne verront rien dans ce mode.
 - **Deux exécutions ne doivent pas tourner en parallèle** : le runner écrit puis supprime `tests/Dynamic/{Classe}DynamicTest.php`.
 - **Les tests existants sont convertis puis restaurés** : un `PositionManagerTest` dans `App\Tests\Unit\Service` passe temporairement en `App\Tests\Dynamic`, 
   puis reprend son namespace à l’écriture. Si les en-têtes ne se convertissent pas, la commande s’arrête avant d’exécuter quoi que ce soit.
-- **`--no-llm` met le test en conditions réelles** : il exécute vraiment PHPUnit et PHPStan sur le projet hôte. Le seul effet persistant est le fichier `.fixed.php`.
+- **`--no-llm` met le test en conditions réelles** : il exécute vraiment PHPUnit et PHPStan sur le projet hôte. Le seul effet persistant est le fichier `*.fixed.php`.
 
 ### Suite possible
 
@@ -105,6 +106,8 @@ Un test PHPUnit paramétré parcourrait un dossier de cas, appliquerait la chaî
 et comparerait à un `expected.php`. Chaque problème récurrent corrigé laisserait ainsi un test qui empêche son retour.
 
 ## Commande CaptureFixtureCommand
+
+Permet de capturer les échecs du LLM pour alimenter des fixtures pour la commande `llm:fix:test`.
 
 ### Principe
 Un cas est un dossier, et un test paramétré le rejoue contre les vrais services : `PreFixerChain` et `ErrorInterceptorRegistry`.
@@ -122,22 +125,20 @@ Une seule passe est comparée.
 Dans la vraie boucle, PHPUnit est relancé entre deux passes, et le rapport est refait. 
 Rejouer plusieurs passes sur un rapport périmé ne ferait rien de réaliste.
 
-Permet de capturer les échecs du LLM pour alimenter des fixtures pour la commande `llm:fix:test`.
-
-Dans le pipeline réel, c’est PHPUnit qui les enchaîne : runWithPreFix() exécute PHPUnit, applique un correctif, réexécute PHPUnit, et ainsi de suite. 
+Dans le pipeline réel, c’est PHPUnit qui les enchaîne : `runWithPreFix()` exécute PHPUnit, applique un correctif, réexécute PHPUnit, et ainsi de suite. 
 Chaque passe a donc son propre rapport. Pour simuler ce comportement sans appel du LLM :
 
 ```bash
 php bin/console llm:fix:test maClasse --no-llm # Pour exécuter la boucle complète sans LLM
 ```
-Pour obtenir un enregistrement de chaque passe dans son propre fichier (crée un dossier par étape (01, 02, …).
+Pour obtenir un enregistrement de chaque passe dans son propre fichier (crée un dossier par étape (01, 02, …) :
 
 ```bash
-php bin/console llm:fixture:capture ma-classe--run-1 var/failed_tests/01_test_FailedTestV2.php --no-llm --chain # enregistre le diff 
+php bin/console llm:fixture:capture ma-classe--run-1 var/failed_tests/01_test_FailedTestV2.php --no-llm --chain 
 ```
 
 ```bash
-php bin/console llm:fixture:capture ma-classe--run-1 var/failed_tests/01_test_FailedTestV2.php # enregistre le diff 
+php bin/console llm:fixture:capture ma-classe--run-1 var/failed_tests/01_test_FailedTestV2.php
 php bin/console llm:fixture:capture ma-classe--run-1 var/failed_tests/01_test_FailedTestV2.php --report='tests/Fixtures/FailedTests/ma-classe--run-1-methods/report.log' # substitue ce fichier au .log appairé
 ```
 
@@ -150,7 +151,7 @@ L’accepter, c’est relire le diff puis le committer.
 - Modification de plusieurs cas d’un coup : `UPDATE_FIXTURES=1 vendor/bin/phpunit --filter FailedTestFixturesTest` réécrit tous les `expected.php`. 
   Relisez ensuite git diff, et pour un scénario en étapes, recapturez-le : sinon `stepsAreChained` échouera.
 
-Pour l'obtenir : `diff -u tests/Fixtures/FailedTests/ma-classe--run-1/input.php tests/Fixtures/FailedTests/maClasse--run-1/expected.php`
+Pour obtenir ce diff : `diff -u tests/Fixtures/FailedTests/ma-classe--run-1/input.php tests/Fixtures/FailedTests/maClasse--run-1/expected.php`
 
 Après avoir modifié un correcteur, il est possible d'afficher le diff sans écrire dans un fichier :
 
@@ -169,7 +170,9 @@ La boucle s’arrête dans l’un de ces trois états :
 - **Aucun correcteur ne s’applique** : la dernière étape est le prochain problème à traiter. C’est l’objet même de la méthode, qui traite un problème à la fois.
 - **Limite** `--max-steps` atteinte. La limite peut être augmentée avec le flag `--max-steps`.
 
-#### Commande pour afficher toute la chaîne, avec diff, étape max modifiée et mode verbose
+#### Afficher toute la chaîne
+
+La commande `llm:fix:test` permet de capturer les échecs du LLM afin d'alimenter les fixtures :
 
 ```bash
 XDEBUG_MODE=off php bin/console llm:fixture:capture position-manager--run-1 var/failed_tests/2026-10-16_22-50-42_MaClasse_FailedTestV2.php --chain --force --max-steps=8 -v
@@ -258,7 +261,7 @@ PHPUnit\Framework\MockObject\IncompatibleReturnValueException: Method calculateB
 Exécuter la commande :
 
 ```bash
-XDEBUG_MODE=off php bin/console llm:fixture:capture literal-stub-return tests/Fixtures/literal-stub-return/input.php --report=tests/Fixtures/literal-stub-return/report.log
+XDEBUG_MODE=off php bin/console llm:fixture:capture literal-stub-return tests/Fixtures/literal-stub-return/input.php
 
 Intercepteurs enregistrés : 22
 Indices LLM : aucun.
@@ -378,3 +381,46 @@ XDEBUG_MODE=off php bin/console llm:fixture:benchmark
 ```
 
 Relancer `vendor/bin/phpunit --filter FailedTestFixturesTest` après chaque modification d’un correcteur ou d’un intercepteur.
+
+
+### TODO
+
+J'ai exécuté la commande : `php bin/console llm:fix:test var/failed_tests/2026-10-19_16-34-26_StrategyManager_FailedTestV2.php`
+```bash
+ Début d'exécution (fix V2) : 00:10:19
+
+ ! [NOTE] Test : var/failed_tests/2026-10-19_16-34-26_StrategyManager_FailedTestV2.php                                  
+
+ ! [NOTE] Classe ciblée (V2) : App\Service\StrategyManager                                                              
+ !        (/home/bulam/projects/webtrader_assetmapper/src/Service/StrategyManager.php)                                  
+
+Correction V2 pour : StrategyManager
+====================================
+
+ // Reprise du test fourni, correction via la boucle V2 (qwen3-coder-32k:latest)...                                     
+
+                                                                                                                        
+ [ERROR] Échec de la correction :                                                                                       
+                                                                                                                        
+
+Échec PHPStan pour StrategyManager après 2 tentatives. Sauvegardé dans : /home/bulam/projects/webtrader_assetmapper/var/failed_tests/2026-10-20_22-33-04_StrategyManager_FailedTestV2.php
+
+ -------------- ----------- 
+  Début          00:10:19   
+  Durée totale   22m 49.7s  
+```
+Le test est en erreur en raison de PHPStan : 
+
+```text
+- Ligne 233 : Class App\Entity\Position constructor invoked with 2 parameters, 0 required.
+- Ligne 243 : Call to an undefined method App\Tests\Dynamic\StrategyManagerDynamicTest::getExpectedExceptionMessage().
+- Ligne 277 : Class App\Entity\Position constructor invoked with 2 parameters, 0 required.
+- Ligne 287 : Call to an undefined method App\Tests\Dynamic\StrategyManagerDynamicTest::getExpectedExceptionMessage().
+- Ligne 364 : Call to an undefined method App\Tests\Dynamic\StrategyManagerDynamicTest::getExpectedExceptionMessage().
+```
+
+QUESTIONS : 
+- Comment reconnaître et corriger l'intercepteur ? 
+- Faut-il capturer le test avec la commande `XDEBUG_MODE=off php bin/console llm:fixture:capture literal-stub-return tests/Fixtures/literal-stub-return/input.php` ?
+- Faut-il créer un cas de test avec le script `SCRIPT_CREATE_FIXTURES.sh` ?
+- Ou créer un cas de test manuel ?
