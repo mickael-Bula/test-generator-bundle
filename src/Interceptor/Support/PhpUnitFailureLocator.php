@@ -24,12 +24,10 @@ final readonly class PhpUnitFailureLocator
      */
     public function locate(string $output): PhpUnitFailure
     {
-        preg_match(self::PATTERN, $output, $t);
-        $testClass = $t['c'] ?? null;
-
-        if (!preg_match(self::PATTERN, $output, $t)) {
-            preg_match('/(?<c>[\w\\\\]+Test)::\$\w+/', $output, $t); // PHPStan : "Property X\FooTest::$bar …"
+        if (1 !== preg_match(self::PATTERN, $output, $t)) {
+            preg_match('/(?<c>[\w\\\\]+Test)::\$\w+/', $output, $t); // PHPStan : « Property X\FooTest::$bar … »
         }
+        $testClass = $t['c'] ?? null;
 
         $testFile = $this->findTestFile($output, $testClass);
         $covered = null !== $testFile && is_file($testFile)
