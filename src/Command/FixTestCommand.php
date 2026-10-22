@@ -221,6 +221,12 @@ class FixTestCommand extends Command
     {
         $run = $this->testGenerator->replay($code, $shortClassName);
 
+        $applied = array_map(static fn (string $f): string => basename(str_replace('\\', '/', $f)), $run['applied'] ?? []);
+        $this->io->writeln('Corrections appliquées : ' . ([] === $applied ? 'aucune' : implode(', ', $applied)));
+        foreach ($run['rejected'] ?? [] as [$fixer, $reason]) {
+            $this->io->writeln(sprintf('<comment>Correction rejetée : %s (%s)</comment>', basename(str_replace('\\', '/', $fixer)), $reason));
+        }
+
         $this->io->section(sprintf('%s : %s', $run['phase'], $run['valid'] ? 'vert' : 'rouge'));
         if (!$run['valid']) {
             $this->io->writeln(OutputFormatter::escape(trim($run['output'])));

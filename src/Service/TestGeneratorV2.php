@@ -303,6 +303,7 @@ final class TestGeneratorV2
         $skip = [];
         $applied = [];
         $failures = 0;
+        $rejected = [];
 
         for ($pass = 0; !$run['valid'] && $pass < self::MAX_PREFIX_PASSES && $failures < self::MAX_PREFIX_FAILURES; ++$pass) {
             $step = $this->preFixer->apply($run['output'], $testCode, $skip);
@@ -327,13 +328,17 @@ final class TestGeneratorV2
                 continue;
             }
 
-            // Aucun problème résolu, ou régression : on garde le code précédent et on écarte ce correcteur
+            // Aucun problème résolu, ou régression : on garde le code précédent et on écarte ce correcteur (on affiche la raison du rejet).
+            $reason = !ProblemSignatures::isComplete($next['output'])
+                ? 'rapport incomplet après la correction (erreur fatale ou de syntaxe)'
+                : 'aucun problème résolu, ou un test sain est devenu rouge';
+            $rejected[] = [$step['fixer'], $reason];
             $skip[] = $step['fixer'];
             ++$failures;
         }
 
         // ['valid' => true, 'output' => 'OK', 'code' => '<?php …', 'applied' => '...']
-        return [...$run, 'code' => $testCode, 'applied' => $applied];
+        return [...$run, 'code' => $testCode, 'applied' => $applied, 'rejected' => $rejected];
     }
 
     /**
@@ -425,14 +430,23 @@ final class TestGeneratorV2
         $stan = $this->runPhpStanWithPreFix($run['code'], $className);
         if ($stan['success'] && $stan['code'] !== $run['code']) {
             // un correctif PHPStan a modifié le test : PHPUnit doit le revalider
-            return [...$this->runWithPreFix($stan['code'], $className), 'phase' => 'PHPUnit'];
+            $again = $this->runWithPreFix($stan['code'], $className);
+
+            return [
+                ...$again, // On place $again en premier pour que ses clés 'applied'/'rejected' soient écrasées
+                'applied' => [...$run['applied'], ...$again['applied']],
+                'rejected' => [...$run['rejected'], ...$again['rejected']],
+                'phase' => 'PHPUnit',
+            ];
         }
 
         return [
             'valid' => $stan['success'],
             'output' => $stan['output'],
             'code' => $stan['code'],
-            'phase' => 'PHPStan'
+            'phase' => 'PHPStan',
+            'applied' => $run['applied'],
+            'rejected' => $run['rejected'],
         ];
     }
 

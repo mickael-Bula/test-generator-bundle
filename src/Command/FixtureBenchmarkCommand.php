@@ -11,6 +11,7 @@ use Mika\TestGeneratorBundle\Service\TestGeneratorV2;
 use Mika\TestGeneratorBundle\Service\TestSnapshotStore;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -68,11 +69,16 @@ final class FixtureBenchmarkCommand extends Command
             $applied = \count($result['applied'] ?? []);
             $verdict = $result['valid'] ? (0 === $applied ? 'déjà vert' : 'résolu sans LLM') : 'non résolu';
             ++$counts[$verdict];
-            $rows[] = [basename($file), $verdict, $applied];
+            $rows[] = [basename($file), $verdict, $result['phase'] ?? '-', $applied, \count($result['rejected'] ?? [])];
 
             if (!$result['valid']) {
                 $this->snapshots->saveForReport($result['output'], $result['code']);
-                foreach ($this->blocks($result['output']) as $signature => $block) {
+                $blocks = $this->blocks($result['output']);
+                if ([] === $blocks) {
+                    $io->writeln(sprintf('<comment>%s : aucun problème reconnu dans la sortie. Début :</comment>', basename($file)));
+                    $io->writeln(OutputFormatter::escape(implode("\n", \array_slice(explode("\n", trim($result['output'])), 0, 6))));
+                }
+                foreach ($blocks as $signature => $block) {
                     $shape = $this->shape($signature);
                     $remaining[$shape]['n'] = ($remaining[$shape]['n'] ?? 0) + 1;
                     $remaining[$shape]['files'][basename($file)] = true;

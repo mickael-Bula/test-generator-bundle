@@ -15,8 +15,7 @@ use Psr\Cache\InvalidArgumentException;
 /** @noinspection PhpUnused */
 final readonly class MockParameterMismatchInterceptor implements ErrorInterceptorInterface
 {
-    private const ENTRY = '/Expectation failed for method name is "(?<method>\w+)" when invoked (?<times>\d+) times?\.\RParameter (?<index>\d+) for invocation (?<class>[\w\\\\]+)::\w+\(/';
-
+    private const ENTRY = '/Expectation failed for method name is "(?<method>\w+)" when invoked (?<times>\d+) times?\.?\RParameter (?<index>\d+) for invocation (?<class>[\w\\\\]+)::\w+\(/';
     public function __construct(
         private PhpUnitFailureLocator $locator,
         private Parser $parser,
@@ -54,8 +53,17 @@ final readonly class MockParameterMismatchInterceptor implements ErrorIntercepto
                     $md .= sprintf("  - %s : `%s`\n", '-' === $d['s'] ? 'attendu par le test' : 'passé par le SUT ', trim($d['l']));
                 }
             }
-            foreach ($this->callSites($sut, $m['method']) as $site) {
-                $md .= "  - Appel dans le SUT, $site\n";
+            $exact = null;
+            if (1 === preg_match('#(?<file>\S+/src/\S+\.php):(?<line>\d+)#', $chunk, $s) && is_file($s['file'])) {
+                $source = file($s['file'], FILE_IGNORE_NEW_LINES) ?: [];
+                $exact = $source[(int) $s['line'] - 1] ?? null;
+            }
+            if (null !== $exact) {
+                $md .= sprintf("  - Appel fautif dans le SUT (ligne %d) : `%s`\n", (int) $s['line'], trim($exact));
+            } else {
+                foreach ($this->callSites($sut, $m['method']) as $site) {
+                    $md .= "  - Appel dans le SUT, $site\n";
+                }
             }
         }
 
