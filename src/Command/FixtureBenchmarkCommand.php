@@ -91,7 +91,7 @@ final class FixtureBenchmarkCommand extends Command
         }
 
         $io->section('Résultat par fichier');
-        $io->table(['Fichier', 'Résultat', 'Corrections appliquées'], $rows);
+        $io->table(['Fichier', 'Résultat', 'Phase', 'Corrigés', 'Rejetés'], $rows);
 
         $total = array_sum($counts);
         $io->writeln(sprintf(
@@ -140,9 +140,9 @@ final class FixtureBenchmarkCommand extends Command
                 return;
             }
             $text = implode("\n", $chunk);
-            foreach (array_keys(ProblemSignatures::of($text)) as $signature) {
+            $signature = array_key_first(ProblemSignatures::of($text));
+            if (null !== $signature) {
                 $blocks[$signature] = ('' !== $header ? $header . "\n\n" : '') . $text;
-                break;
             }
             $chunk = [];
         };

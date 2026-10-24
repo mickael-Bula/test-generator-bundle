@@ -44,7 +44,7 @@ readonly class PhpUnitTestRunner
         $process = new Process([
             $phpunitBin,
             $testFilePath,
-            '--colors=always',
+            '--colors=never',
             '--fail-on-skipped',
             '--fail-on-incomplete',
             '--fail-on-risky',

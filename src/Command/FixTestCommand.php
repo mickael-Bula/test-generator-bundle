@@ -148,7 +148,10 @@ class FixTestCommand extends Command
                     return Command::FAILURE;
                 }
                 $this->io->title(sprintf('Analyse du rapport pour : %s', $shortClassName));
-                $result = $this->analyzeReport($code, (string) file_get_contents($reportPath));
+                $result = $this->analyzeReport(
+                    $code,
+                    str_replace('%PROJECT_DIR%', $this->projectDir, (string) file_get_contents($reportPath)),
+                );
                 $exit = Command::SUCCESS; // simple analyse : pas de verdict
             } elseif ($input->getOption('no-llm')) {
                 $this->io->title(sprintf('Relance le jeu de tests sans LLM pour : %s', $shortClassName));
@@ -223,8 +226,15 @@ class FixTestCommand extends Command
 
         $applied = array_map(static fn (string $f): string => basename(str_replace('\\', '/', $f)), $run['applied'] ?? []);
         $this->io->writeln('Corrections appliquées : ' . ([] === $applied ? 'aucune' : implode(', ', $applied)));
-        foreach ($run['rejected'] ?? [] as [$fixer, $reason]) {
+        foreach ($run['rejected'] ?? [] as [$fixer, $reason, $delta]) {
             $this->io->writeln(sprintf('<comment>Correction rejetée : %s (%s)</comment>', basename(str_replace('\\', '/', $fixer)), $reason));
+            $this->io->writeln(sprintf(
+                '    signatures avant : %d ; après : %d ; disparues : %d ; apparues : %d',
+                $delta['before'], $delta['after'], \count($delta['disappeared']), \count($delta['appeared']),
+            ));
+            foreach (\array_slice($delta['regressed'], 0, 5) as $signature) {
+                $this->io->writeln('    régression : ' . OutputFormatter::escape($signature));
+            }
         }
 
         $this->io->section(sprintf('%s : %s', $run['phase'], $run['valid'] ? 'vert' : 'rouge'));

@@ -274,7 +274,8 @@ final class TestGeneratorV2
     {
         $result = $this->testRunner->runTest($testCode, $className);
 
-        $clean = preg_replace('/\x1b\[[0-9;]*[mK]/', '', $result['output'] ?? '') ?? '';
+        $clean = preg_replace('/\x1b\[[0-?]*[ -\/]*[@-~]/', '', $result['output'] ?? '') ?? '';
+        $clean = str_replace(["\r\n", "\r"], "\n", $clean);
         $output = '' !== $clean ? $clean : 'Aucune sortie reçue de PHPUnit.';
 
         $hasWarnings = str_contains($output, 'PHP warning:') || str_contains($output, 'Warnings:');
@@ -316,7 +317,8 @@ final class TestGeneratorV2
             $after = ProblemSignatures::of($next['output']);
 
             $progress = $next['valid']
-                || (ProblemSignatures::isComplete($next['output']) && ProblemSignatures::improves($problems, $after));
+                || (ProblemSignatures::isComplete($next['output'])
+                    && (!ProblemSignatures::isComplete($run['output']) || ProblemSignatures::improves($problems, $after)));
 
             if ($progress) {
                 $testCode = $step['code'];
@@ -328,11 +330,15 @@ final class TestGeneratorV2
                 continue;
             }
 
+            $delta = ProblemSignatures::compare($problems, $after) + ['before' => \count($problems), 'after' => \count($after)];
+
             // Aucun problème résolu, ou régression : on garde le code précédent et on écarte ce correcteur (on affiche la raison du rejet).
-            $reason = !ProblemSignatures::isComplete($next['output'])
-                ? 'rapport incomplet après la correction (erreur fatale ou de syntaxe)'
-                : 'aucun problème résolu, ou un test sain est devenu rouge';
-            $rejected[] = [$step['fixer'], $reason];
+            $reason = match (true) {
+                !ProblemSignatures::isComplete($next['output']) => 'rapport incomplet après la correction (erreur fatale ou de syntaxe)',
+                [] !== $delta['regressed'] => 'régression : un test sain est devenu rouge',
+                default => 'aucun problème résolu',
+            };
+            $rejected[] = [$step['fixer'], $reason, $delta];
             $skip[] = $step['fixer'];
             ++$failures;
         }
@@ -375,20 +381,23 @@ final class TestGeneratorV2
     {
         $result = $this->runPhpStan($testCode, $className);
         $initial = $result['output']; // rapport du code tel que reçu
+        $applied = [];
 
         for ($pass = 0; !$result['success'] && $pass < self::MAX_PREFIX_PASSES; ++$pass) {
-            $patched = $this->preFixer->fix($result['output'], $testCode);
-            if (null === $patched) {
+            $step = $this->preFixer->apply($result['output'], $testCode);
+            if (null === $step) {
                 break;
             }
-            $testCode = $patched;
+            $testCode = $step['code'];
+            $applied[] = $step['fixer'];
             $result = $this->runPhpStan($testCode, $className);
         }
 
         return [
             ...$result, // étend le tableau ['success' => true, 'output' => '<php...'],
             'code' => $testCode, // et ajoute les clés
-            'initial' => $initial
+            'initial' => $initial,
+            'applied' => $applied,
         ];
     }
 
@@ -434,7 +443,7 @@ final class TestGeneratorV2
 
             return [
                 ...$again, // On place $again en premier pour que ses clés 'applied'/'rejected' soient écrasées
-                'applied' => [...$run['applied'], ...$again['applied']],
+                'applied' => [...$run['applied'], ...$stan['applied'], ...$again['applied']],
                 'rejected' => [...$run['rejected'], ...$again['rejected']],
                 'phase' => 'PHPUnit',
             ];
@@ -445,7 +454,7 @@ final class TestGeneratorV2
             'output' => $stan['output'],
             'code' => $stan['code'],
             'phase' => 'PHPStan',
-            'applied' => $run['applied'],
+            'applied' => [...$run['applied'], ...$stan['applied']],
             'rejected' => $run['rejected'],
         ];
     }
