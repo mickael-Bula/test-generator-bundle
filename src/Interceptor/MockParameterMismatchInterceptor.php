@@ -15,7 +15,10 @@ use Psr\Cache\InvalidArgumentException;
 /** @noinspection PhpUnused */
 final readonly class MockParameterMismatchInterceptor implements ErrorInterceptorInterface
 {
+    // language=RegExp
     private const ENTRY = '/Expectation failed for method name is "(?<method>\w+)" when invoked (?<times>\d+) times?\.?\RParameter (?<index>\d+) for invocation (?<class>[\w\\\\]+)::\w+\(/';
+    private const SOURCE_LINE = '#(?<file>\S+/src/\S+\.php):(?<line>\d+)#';
+
     public function __construct(
         private PhpUnitFailureLocator $locator,
         private Parser $parser,
@@ -53,25 +56,36 @@ final readonly class MockParameterMismatchInterceptor implements ErrorIntercepto
                     $md .= sprintf("  - %s : `%s`\n", '-' === $d['s'] ? 'attendu par le test' : 'passé par le SUT ', trim($d['l']));
                 }
             }
-            $exact = null;
-            if (1 === preg_match('#(?<file>\S+/src/\S+\.php):(?<line>\d+)#', $chunk, $s) && is_file($s['file'])) {
-                $source = file($s['file'], FILE_IGNORE_NEW_LINES) ?: [];
-                $exact = $source[(int) $s['line'] - 1] ?? null;
-            }
-            if (null !== $exact) {
-                $md .= sprintf("  - Appel fautif dans le SUT (ligne %d) : `%s`\n", (int) $s['line'], trim($exact));
-            } else {
-                foreach ($this->callSites($sut, $m['method']) as $site) {
-                    $md .= "  - Appel dans le SUT, $site\n";
-                }
-            }
+
+            // La trace donne l'appel exact ; à défaut, tous les appels de la méthode dans le SUT
+            $md .= $this->faultySite($chunk) ?? $this->allSites($sut, $m['method']);
         }
 
-        return "### Arguments d'un mock différents de `with(...)`\n" . $md
+        return '' === $md ? null : "### Arguments d'un mock différents de `with(...)`\n" . $md
             . "\nCorrection :\n"
             . "- Le SUT fait foi : aligne `with(...)` sur les arguments qu'il passe, ou adapte les DONNÉES si l'argument dépend d'une condition du SUT.\n"
             . "- Si la méthode est appelée PLUSIEURS fois avec des arguments différents, un seul `with()` ne peut pas convenir (`withConsecutive()` n'existe plus depuis PHPUnit 10) : "
             . "utilise `->willReturnCallback(function (...\$args) { ... })` qui répond selon les arguments reçus, ou ajuste le nombre d'appels attendus.\n";
+    }
+
+    private function faultySite(string $chunk): ?string
+    {
+        if (1 !== preg_match(self::SOURCE_LINE, $chunk, $s) || !is_file($s['file'])) {
+            return null;
+        }
+        $line = (file($s['file'], FILE_IGNORE_NEW_LINES) ?: [])[(int) $s['line'] - 1] ?? null;
+
+        return null === $line ? null : sprintf("  - Appel fautif dans le SUT (ligne %d) : `%s`\n", (int) $s['line'], trim($line));
+    }
+
+    private function allSites(?string $sut, string $method): string
+    {
+        $out = '';
+        foreach ($this->callSites($sut, $method) as $site) {
+            $out .= "  - Appel dans le SUT, $site\n";
+        }
+
+        return $out;
     }
 
     /**

@@ -235,6 +235,13 @@ class FixTestCommand extends Command
             foreach (\array_slice($delta['regressed'], 0, 5) as $signature) {
                 $this->io->writeln('    régression : ' . OutputFormatter::escape($signature));
             }
+            // Ajout du diff tenté dans le rejet
+            if ($this->io->isVerbose()) {
+                foreach (\array_slice($delta['signatures'], 0, 6) as $signature) {
+                    $this->io->writeln('    problème avant : ' . OutputFormatter::escape($signature));
+                }
+                $this->io->writeln(OutputFormatter::escape($delta['patch']));
+            }
         }
 
         $this->io->section(sprintf('%s : %s', $run['phase'], $run['valid'] ? 'vert' : 'rouge'));

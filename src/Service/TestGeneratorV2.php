@@ -11,6 +11,8 @@ use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\PromptBuilder\TestPromptBuilderInterface;
 use Mika\TestGeneratorBundle\Quality\TestQualityGate;
 use Mika\TestGeneratorBundle\Validator\PhpSyntaxValidator;
+use SebastianBergmann\Diff\Differ;
+use SebastianBergmann\Diff\Output\UnifiedDiffOutputBuilder;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\DependencyInjection\Attribute\AutowireIterator;
 use Symfony\Component\Filesystem\Filesystem;
@@ -330,7 +332,13 @@ final class TestGeneratorV2
                 continue;
             }
 
-            $delta = ProblemSignatures::compare($problems, $after) + ['before' => \count($problems), 'after' => \count($after)];
+            $delta = [
+                ...ProblemSignatures::compare($problems, $after),
+                'before' => \count($problems),
+                'after' => \count($after),
+                'signatures' => array_keys($problems),
+                'patch' => $this->unifiedDiff($testCode, $step['code']),
+            ];
 
             // Aucun problème résolu, ou régression : on garde le code précédent et on écarte ce correcteur (on affiche la raison du rejet).
             $reason = match (true) {
@@ -562,5 +570,10 @@ final class TestGeneratorV2
         }
 
         throw new \InvalidArgumentException(sprintf('Aucun prompt builder trouvé pour le type "%s".', $type));
+    }
+
+    private function unifiedDiff(string $before, string $after): string
+    {
+        return (new Differ(new UnifiedDiffOutputBuilder("--- avant\n+++ après\n")))->diff($before, $after);
     }
 }
