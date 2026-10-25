@@ -381,10 +381,14 @@ Après chaque nouveau correcteur, relancer la commande : si ce taux ne monte pas
 XDEBUG_MODE=off php bin/console llm:fixture:benchmark
 ```
 
-Relancer `vendor/bin/phpunit --filter FailedTestFixturesTest` après chaque modification d’un correcteur ou d’un intercepteur.
+>NOTE : Relancer `vendor/bin/phpunit --filter FailedTestFixturesTest` après chaque modification d’un correcteur ou d’un intercepteur.
 
+#### Interpréter les résultats
 
-### TODO
+Un rejet avec régression désigne un correctif qui casse un test. 
+Un rejet avec aucun problème résolu désigne un correctif sans effet mesurable : il est soit inutile, soit contourné par un défaut de mesure.
+
+### TODO 
 
 J'ai exécuté la commande : `php bin/console llm:fix:test var/failed_tests/2026-10-19_16-34-26_StrategyManager_FailedTestV2.php`
 ```bash

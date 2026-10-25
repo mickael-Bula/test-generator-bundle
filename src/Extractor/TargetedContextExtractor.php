@@ -71,7 +71,15 @@ final class TargetedContextExtractor
         $blueprints = [];
         foreach (array_unique($m[1]) as $class) {
             if ($class !== $fqcn && !\in_array($class, $dependencyClasses, true) && class_exists($class)) {
-                $blueprints[] = $this->blueprint($class, $source);
+                $blueprints[$class] = $this->blueprint($class, $source);
+            }
+        }
+
+        // Enums importés par le SUT : cités dans son code même s'ils n'apparaissent dans aucune signature
+        preg_match_all('/^use\s+([\w\\\\]+)\s*;/m', $source, $imports);
+        foreach (array_unique($imports[1]) as $imported) {
+            if (enum_exists($imported)) {
+                $blueprints[$imported] = $this->blueprint($imported, $source);
             }
         }
 
@@ -96,11 +104,22 @@ final class TargetedContextExtractor
     {
         $rc = new \ReflectionClass($fqcn);
 
+        // On extrait les cas des Enums
         if ($rc->isEnum()) {
-            return sprintf('Enum \%s : %s', $fqcn, implode(', ', array_map(
-                static fn (\ReflectionEnumUnitCase $c): string => '\\' . $fqcn . '::' . $c->getName(),
-                (new \ReflectionEnum($fqcn))->getCases(),
-            )));
+            $enum = new \ReflectionEnum($fqcn);
+            $cases = [];
+            foreach ($enum->getCases() as $case) {
+                /** @var \ReflectionEnumUnitCase|\ReflectionEnumBackedCase $case */
+                $cases[] = '\\' . $fqcn . '::' . $case->getName()
+                    . ($case instanceof \ReflectionEnumBackedCase ? ' = ' . var_export($case->getBackingValue(), true) : '');
+            }
+
+            return sprintf(
+                'Enum \%s%s : %s',
+                $fqcn,
+                $enum->isBacked() ? ' (backed par ' . $enum->getBackingType() . ')' : '',
+                implode(', ', $cases),
+            );
         }
 
         $lines = [sprintf('Objet : \%s', $fqcn)];

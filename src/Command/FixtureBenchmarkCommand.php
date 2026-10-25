@@ -71,6 +71,16 @@ final class FixtureBenchmarkCommand extends Command
             ++$counts[$verdict];
             $rows[] = [basename($file), $verdict, $result['phase'] ?? '-', $applied, \count($result['rejected'] ?? [])];
 
+            foreach ($result['rejected'] ?? [] as [$fixer, $reason, $delta]) {
+                $io->writeln(sprintf(
+                    '<comment>%s : %s rejeté (%s ; signatures avant %d, après %d, disparues %d)</comment>',
+                    basename($file),
+                    basename(str_replace('\\', '/', $fixer)),
+                    $reason,
+                    $delta['before'], $delta['after'], \count($delta['disappeared']),
+                ));
+            }
+
             if (!$result['valid']) {
                 $this->snapshots->saveForReport($result['output'], $result['code']);
                 $blocks = $this->blocks($result['output']);

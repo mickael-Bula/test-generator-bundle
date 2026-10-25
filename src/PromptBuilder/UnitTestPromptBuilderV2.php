@@ -9,6 +9,9 @@ use Mika\TestGeneratorBundle\Extractor\TargetedContextExtractor;
 use Mika\TestGeneratorBundle\Resolver\SkillResolver;
 use Mika\TestGeneratorBundle\Spec\SpecSanitizer;
 
+/**
+ * @noinspection PhpUnused
+ */
 #[AsTestPromptBuilder(type: 'unit_v2')]
 readonly class UnitTestPromptBuilderV2 implements TestPromptBuilderInterface
 {
@@ -160,6 +163,8 @@ DIRECTIVES DE GÉNÉRATION DES TESTS UNITAIRES :
 - Les mutateurs (`setXxx`) retournent `void` : n'affecte JAMAIS leur résultat.
   `$user = (new User())->setX('a')` donne `null`. 
   Crée l'objet, puis appelle ses mutateurs un par un : `$user = new User(); $user->setX('a');`.
+- Pour un enum, n'utilise QUE les cas listés dans le contexte (nom et valeur). 
+  Si une méthode attend un enum en paramètre typé, ne teste pas de valeur invalide : PHP la refuse avant l'appel.
 TEXT;
 
         if (null !== $skillsPrompt && trim($skillsPrompt) !== '') {$systemMessage .= "\n\n========================================\n"
