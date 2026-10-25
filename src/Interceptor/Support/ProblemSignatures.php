@@ -62,12 +62,19 @@ final class ProblemSignatures
         ];
     }
 
-    /** Progrès : au moins un problème a disparu, et aucun test sain jusque-là n'a de problème. */
-    public static function improves(array $before, array $after): bool
+    /**
+     * Progrès : un problème a disparu, ou le même problème survient plus loin (plus d'assertions exécutées).
+     * Jamais de régression.
+     */
+    public static function improves(array $before, array $after, ?int $assertionsBefore = null, ?int $assertionsAfter = null): bool
     {
         $delta = self::compare($before, $after);
+        if ([] !== $delta['regressed']) {
+            return false;
+        }
 
-        return [] === $delta['regressed'] && [] !== $delta['disappeared'];
+        return [] !== $delta['disappeared']
+            || (null !== $assertionsBefore && null !== $assertionsAfter && $assertionsAfter > $assertionsBefore);
     }
 
     private static function normalize(string $message): string
@@ -82,5 +89,20 @@ final class ProblemSignatures
         $output = (string) preg_replace('/\x1b\[[0-?]*[ -\/]*[@-~]/', '', $output);
 
         return str_replace(["\r\n", "\r"], "\n", $output);
+    }
+
+    /**
+     * Nombre d'assertions exécutées, lu dans le bilan PHPUnit ; null si le bilan est absent.
+     */
+    public static function assertions(string $output): ?int
+    {
+        $output = self::clean($output);
+        if (1 === preg_match('/^Tests: \d+, Assertions: (?<n>\d+)/m', $output, $m)
+            || 1 === preg_match('/^OK \(\d+ tests?, (?<n>\d+) assertions?\)/m', $output, $m)
+        ) {
+            return (int) $m['n'];
+        }
+
+        return null;
     }
 }

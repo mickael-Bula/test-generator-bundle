@@ -320,7 +320,12 @@ final class TestGeneratorV2
 
             $progress = $next['valid']
                 || (ProblemSignatures::isComplete($next['output'])
-                    && (!ProblemSignatures::isComplete($run['output']) || ProblemSignatures::improves($problems, $after)));
+                    && (!ProblemSignatures::isComplete($run['output'])
+                        || ProblemSignatures::improves(
+                            $problems, $after,
+                            ProblemSignatures::assertions($run['output']),
+                            ProblemSignatures::assertions($next['output']),
+                        )));
 
             if ($progress) {
                 $testCode = $step['code'];

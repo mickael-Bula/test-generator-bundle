@@ -10,9 +10,12 @@ use PhpParser\NodeFinder;
 use PhpParser\Parser;
 use Symfony\Component\DependencyInjection\Attribute\AsTaggedItem;
 
+
+/** @noinspection PhpUnused */
 #[AsTaggedItem(priority: 40)]
 final readonly class FloatPrecisionPreFixer implements TestPreFixerInterface
 {
+    // language=RegExp
     private const PATTERN = '/^\d+\)\s+[\w\\\\]+::(?<test>\w+)[^\r\n]*\RFailed asserting that (?<actual>-?\d+(?:\.\d+)?(?:E[+-]?\d+)?) (?:is identical to|matches expected|is equal to) (?<expected>-?\d+(?:\.\d+)?(?:E[+-]?\d+)?)\.\R+\S+Test\.php:(?<line>\d+)/m';
 
     public function __construct(private Parser $parser)
@@ -23,12 +26,13 @@ final readonly class FloatPrecisionPreFixer implements TestPreFixerInterface
     {
         preg_match_all(self::PATTERN, $errorOutput, $m, PREG_SET_ORDER);
 
-        $targets = [];
+        $targets = []; // [test, ligne, tout le test ?]
         foreach ($m as $e) {
             $diff = abs((float) $e['actual'] - (float) $e['expected']);
             $isFloat = 1 === preg_match('/[.eE]/', $e['actual'] . $e['expected']);
             if ($isFloat && $diff <= 1.0E-9 * max(1.0, abs((float) $e['expected'])) && $diff <= 1.0E-6) {
-                $targets[] = [$e['test'], (int) $e['line']]; // pure imprécision de représentation
+                // `0` contre `0.0` : même valeur, type différent, donc toutes les assertSame à littéral flottant du test sont concernées
+                $targets[] = [$e['test'], (int) $e['line'], 0.0 === $diff && $e['actual'] !== $e['expected']];
             }
         }
         if ([] === $targets) {
@@ -41,22 +45,26 @@ final readonly class FloatPrecisionPreFixer implements TestPreFixerInterface
             return null;
         }
 
+        $isFloatLiteral = static fn (Node $v): bool => $v instanceof Node\Scalar\Float_
+            || ($v instanceof Node\Expr\UnaryMinus && $v->expr instanceof Node\Scalar\Float_);
+        $isAssertion = static fn (Node $n): bool => ($n instanceof Node\Expr\StaticCall || $n instanceof Node\Expr\MethodCall)
+            && $n->name instanceof Node\Identifier
+            && \in_array($n->name->toString(), ['assertSame', 'assertEquals'], true)
+            && \count($n->args) >= 2
+            && $n->args[0] instanceof Node\Arg && !$n->args[0]->unpack
+            && $n->args[1] instanceof Node\Arg && !$n->args[1]->unpack;
+
         $finder = new NodeFinder();
         $edits = []; // position de début => [longueur, texte]
-        foreach ($targets as [$test, $line]) {
+        foreach ($targets as [$test, $line, $wholeTest]) {
             $method = $finder->findFirst($stmts, static fn (Node $n): bool => $n instanceof Node\Stmt\ClassMethod && $n->name->toString() === $test);
-            $call = $finder->findFirst($method?->stmts ?? [], static fn (Node $n): bool => ($n instanceof Node\Expr\StaticCall || $n instanceof Node\Expr\MethodCall)
-                && $n->name instanceof Node\Identifier
-                && \in_array($n->name->toString(), ['assertSame', 'assertEquals'], true)
-                && \count($n->args) >= 2
-                && $n->getStartLine() <= $line && $line <= $n->getEndLine());
-            if (null === $call || $call->args[0]->unpack || $call->args[1]->unpack) {
-                continue;
-            }
+            $calls = $finder->find($method?->stmts ?? [], static fn (Node $n): bool => $isAssertion($n)
+                && ($wholeTest ? $isFloatLiteral($n->args[0]->value) : ($n->getStartLine() <= $line && $line <= $n->getEndLine())));
 
-            $name = $call->name;
-            $edits[$name->getStartFilePos()] = [$name->getEndFilePos() - $name->getStartFilePos() + 1, 'assertEqualsWithDelta'];
-            $edits[$call->args[1]->getEndFilePos() + 1] = [0, ', 0.000001']; // le message éventuel devient le 4e argument
+            foreach ($calls as $call) {
+                $edits[$call->name->getStartFilePos()] = [$call->name->getEndFilePos() - $call->name->getStartFilePos() + 1, 'assertEqualsWithDelta'];
+                $edits[$call->args[1]->getEndFilePos() + 1] = [0, ', 0.000001']; // le message éventuel devient le 4e argument
+            }
         }
         if ([] === $edits) {
             return null;
