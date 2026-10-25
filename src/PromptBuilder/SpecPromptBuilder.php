@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\PromptBuilder;
 
+use Mika\TestGeneratorBundle\Reflection\EnumCases;
+
 class SpecPromptBuilder
 {
     /**
@@ -208,6 +210,24 @@ PROMPT;
             }
             $block .= '- Dépendances du constructeur (seules autorisées dans `dependenciesToMock` et `mockExpectations`) : '
                 . ([] === $deps ? 'aucune' : implode(', ', $deps)) . "\n";
+        }
+
+        $enums = [];
+        foreach ($rc->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+            foreach ($method->getParameters() as $p) {
+                $type = $p->getType();
+                if ($type instanceof \ReflectionNamedType && !$type->isBuiltin() && enum_exists($type->getName())) {
+                    $enums[$type->getName()] = array_keys(EnumCases::of($type->getName())['cases'] ?? []);
+                }
+            }
+        }
+        foreach ($enums as $enum => $names) {
+            $block .= sprintf(
+                "- Enum `\\%s` : seuls ces cas existent : %s. Dans `inputs`, "
+                . "désigne un cas par son nom exact (une chaîne), jamais par un objet ; n'en invente aucun.\n",
+                $enum,
+                implode(', ', \array_slice($names, 0, 20)),
+            );
         }
 
         return $block;

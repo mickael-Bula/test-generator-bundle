@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Spec;
 
+use Mika\TestGeneratorBundle\Reflection\EnumCases;
 use PhpParser\Error;
 use PhpParser\Node;
 use PhpParser\NodeFinder;
@@ -11,7 +12,7 @@ use PhpParser\Parser;
 
 final readonly class SpecSanitizer
 {
-    public function __construct(private Parser $parser)
+    public function __construct(private Parser $parser, private ?LoggerInterface $logger = null)
     {
     }
 
@@ -29,6 +30,10 @@ final readonly class SpecSanitizer
                     continue; // privée, protégée ou inexistante : aucun test direct possible
                 }
                 $chunk = $this->dropSutMocks($chunk, $sutFqcn);
+                $chunk = $this->normalizeEnumInputs($chunk, $rc->getMethod($m['name']));
+                if (null === $chunk) {
+                    continue; // plus aucun cas exploitable pour cette méthode
+                }
             }
             $kept[] = trim($chunk);
         }
@@ -113,5 +118,85 @@ final readonly class SpecSanitizer
         }
 
         return $coverage;
+    }
+
+    /**
+     * @return string|null le bloc normalisé, ou null s'il ne reste aucun cas
+     */
+    private function normalizeEnumInputs(string $chunk, \ReflectionMethod $method): ?string
+    {
+        $enums = []; // paramètre => [enum, nullable]
+        foreach ($method->getParameters() as $p) {
+            $type = $p->getType();
+            if ($type instanceof \ReflectionNamedType && !$type->isBuiltin() && enum_exists($type->getName())) {
+                $enums[$p->getName()] = [$type->getName(), $type->allowsNull()];
+            }
+        }
+        if ([] === $enums) {
+            return $chunk;
+        }
+
+        $parts = preg_split('/(?=^#### )/m', $chunk) ?: [$chunk];
+        $kept = [array_shift($parts)]; // en-tête de la section
+        $cases = 0;
+
+        foreach ($parts as $block) {
+            $isError = str_contains($block, '**Type** : `ERROR`') || str_contains($block, '**Exception attendue**');
+            $dropped = false;
+
+            $block = (string) preg_replace_callback(
+                '/`\$(?<name>\w+)` = `(?<value>[^`]*)`/',
+                function (array $m) use ($enums, $isError, $method, &$dropped): string {
+                    if (!isset($enums[$m['name']])) {
+                        return $m[0];
+                    }
+                    [$enum, $nullable] = $enums[$m['name']];
+                    if ($nullable && 'null' === strtolower(trim($m['value']))) {
+                        return $m[0];
+                    }
+
+                    $case = EnumCases::resolve($enum, $m['value']);
+                    if (null === $case) {
+                        // Cas d'erreur : PHP refuserait l'appel avant d'entrer dans la méthode, le scénario ne teste que PHP
+                        $first = array_key_first(EnumCases::of($enum)['cases'] ?? []);
+                        if ($isError || null === $first) {
+                            $dropped = true;
+                            $this->logger?->info(
+                                sprintf('Spec : cas écarté, `%s` n\'est pas un cas de %s (%s::%s).',
+                                    $m['value'],
+                                    $enum,
+                                    $method->class,
+                                    $method->name,
+                                )
+                            );
+
+                            return $m[0];
+                        }
+                        // Scénario nominal : l'appel est valable, seule la valeur d'enum était inventée
+                        $this->logger?->info(
+                            sprintf(
+                                'Spec : `%s` remplacé par %s::%s (%s::%s).',
+                                $m['value'],
+                                $enum,
+                                $first,
+                                $method->class,
+                                $method->name,
+                            )
+                        );
+                        $case = (string) $first;
+                    }
+
+                    return sprintf('`$%s` = `\%s::%s`', $m['name'], $enum, $case);
+                },
+                $block,
+            );
+
+            if (!$dropped) {
+                $kept[] = $block;
+                ++$cases;
+            }
+        }
+
+        return 0 === $cases ? null : implode('', $kept);
     }
 }
