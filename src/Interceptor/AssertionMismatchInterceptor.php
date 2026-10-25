@@ -92,7 +92,7 @@ final readonly class AssertionMismatchInterceptor implements ErrorInterceptorInt
         }
         $md .= sprintf("\n  - obtenu `%s`, attendu `%s`", $f['actual'], $f['expected']);
 
-        $inputs = $this->inputs($body, $assertion, $printer);
+        $inputs = $this->inputs($body, $printer);
         if ('number' === $f['kind']) {
             $expected = (float) $f['expected'];
             if (0.0 !== $expected) {
@@ -121,18 +121,32 @@ final readonly class AssertionMismatchInterceptor implements ErrorInterceptorInt
         };
     }
 
-    /** @return array<string, string> valeur flottante => littéral tel qu'écrit, hors assertion en échec */
-    private function inputs(array $body, ?Node $assertion, Standard $printer): array
+    /**
+     * @return array<string, string> valeur flottante => littéral, hors de TOUTES les assertions
+     */
+    private function inputs(array $body, Standard $printer): array
     {
-        $inputs = [];
+        $finder = new NodeFinder();
+
+        $spans = [];
+        foreach ($finder->findInstanceOf($body, Node\Stmt\Expression::class) as $statement) {
+            $call = $statement->expr;
+            if (($call instanceof Node\Expr\StaticCall || $call instanceof Node\Expr\MethodCall)
+                && $call->name instanceof Node\Identifier && str_starts_with($call->name->toString(), 'assert')) {
+                $spans[] = [$statement->getStartFilePos(), $statement->getEndFilePos()];
+            }
+        }
 
         /** @var list<Node\Scalar\Int_|Node\Scalar\Float_|Node\Scalar\String_> $literals */
-        $literals = (new NodeFinder())->find($body, static fn (Node $n): bool => $n instanceof Node\Scalar\Int_ || $n instanceof Node\Scalar\Float_
+        $literals = $finder->find($body, static fn (Node $n): bool => $n instanceof Node\Scalar\Int_ || $n instanceof Node\Scalar\Float_
             || ($n instanceof Node\Scalar\String_ && is_numeric($n->value)));
 
+        $inputs = [];
         foreach ($literals as $literal) {
-            if (null !== $assertion && $literal->getStartFilePos() >= $assertion->getStartFilePos() && $literal->getEndFilePos() <= $assertion->getEndFilePos()) {
-                continue;
+            foreach ($spans as [$from, $to]) {
+                if ($literal->getStartFilePos() >= $from && $literal->getEndFilePos() <= $to) {
+                    continue 2;
+                }
             }
             $inputs[(string) (float) $literal->value] ??= trim($printer->prettyPrintExpr($literal), "'");
         }
@@ -162,6 +176,18 @@ final readonly class AssertionMismatchInterceptor implements ErrorInterceptorInt
             $code = MethodSource::full($m);
             $md .= sprintf("\n  - Code réel de `%s::%s()` :", $sut->getShortName(), $m->getName())
                 . (null !== $code ? "\n" . preg_replace('/^/m', '        ', $code) : ' (trop long : lis sa signature et déduis la logique)');
+
+            // Méthodes de la classe appelées par celle-ci : sans elles, un résultat issu d'un calcul intermédiaire n'est pas vérifiable
+            if (null !== $code && preg_match_all('/\$this->(\w+)\(/', $code, $helpers)) {
+                foreach (\array_slice(array_unique($helpers[1]), 0, 3) as $helper) {
+                    if ($helper !== $m->getName() && $sut->hasMethod($helper) && null !== $helperCode = MethodSource::full($sut->getMethod($helper), 15)) {
+                        $md .= sprintf(
+                            "\n  - Code réel de `%s::%s()` (appelée par la précédente) :\n%s",
+                            $sut->getShortName(), $helper, preg_replace('/^/m', '        ', $helperCode),
+                        );
+                    }
+                }
+            }
         }
 
         return $md;

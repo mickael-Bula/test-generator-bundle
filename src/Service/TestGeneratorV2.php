@@ -32,6 +32,7 @@ final class TestGeneratorV2
         private readonly PhpStanRunner $phpStanRunner,
         private readonly PreFixerChain $preFixer,
         private readonly TestQualityGate $qualityGate,
+        private readonly TestSnapshotStore $snapshots,
         #[AutowireIterator('mika_test_generator.prompt_builder')] private readonly iterable $promptBuilders, // Récupère toutes les classes portant ce tag
         #[Autowire('%kernel.project_dir%/var/tmp')] private readonly string $tmpDir = 'var/tmp',
         #[Autowire('%kernel.project_dir%/var/failed_tests')] private readonly string $failedTestsDir = 'var/failed_tests',
@@ -355,6 +356,9 @@ final class TestGeneratorV2
             $skip[] = $step['fixer'];
             ++$failures;
         }
+
+        // Le runner a gardé l'instantané du dernier code exécuté, qui peut être un candidat rejeté : on rétablit celui du code retenu.
+        $this->snapshots->save($className . 'DynamicTest.php', $testCode);
 
         // ['valid' => true, 'output' => 'OK', 'code' => '<?php …', 'applied' => '...']
         return [...$run, 'code' => $testCode, 'applied' => $applied, 'rejected' => $rejected];

@@ -45,8 +45,19 @@ final readonly class CommentPolicy
             $item = ['pos' => $token->pos, 'length' => \strlen($token->text), 'line' => $token->line, 'replacement' => null];
 
             if ($token->is(T_DOC_COMMENT)) {
-                if (isset($attached[$token->pos]) || !str_contains($token->text, '@var')) {
-                    $found[] = $item;
+                if (!isset($attached[$token->pos])) {
+                    if (!str_contains($token->text, '@var')) {
+                        $found[] = $item; // docblock libre : interdit ; `@var` d'une propriété ou d'une variable : conservé
+                    }
+                    continue;
+                }
+
+                // Docblock d'une classe, d'une méthode ou d'une fonction : on garde ses annotations de type (PHPStan en a besoin)
+                $reduced = $this->reduceDocblock($token->text, $code, $token->pos);
+                if (null === $reduced) {
+                    $found[] = $item; // aucune annotation de type : suppression
+                } elseif ($reduced !== $token->text) {
+                    $found[] = ['replacement' => $reduced] + $item; // description retirée, annotations conservées
                 }
                 continue;
             }
@@ -101,5 +112,34 @@ final readonly class CommentPolicy
         }
 
         return $code;
+    }
+
+    /**
+     * @return string|null docblock réduit à ses annotations `@return` / `@param` ; null s'il n'en contient aucune ;
+     *                     $doc tel quel s'il est trop complexe pour être réécrit sans risque
+     */
+    private function reduceDocblock(string $doc, string $code, int $pos): ?string
+    {
+        $lines = array_map(
+            static fn (string $l): string => trim((string) preg_replace('/^\s*(?:\/\*\*|\*\/|\*)\s?/', '', $l)),
+            explode("\n", $doc),
+        );
+
+        $tags = array_values(array_filter($lines, static fn (string $l): bool => 1 === preg_match('/^@(?:return|param)\s/', $l)));
+        if ([] === $tags) {
+            return null;
+        }
+        foreach ($tags as $tag) {
+            if (substr_count($tag, '<') !== substr_count($tag, '>') || substr_count($tag, '{') !== substr_count($tag, '}')) {
+                return $doc; // annotation étalée sur plusieurs lignes : on ne réécrit pas
+            }
+        }
+
+        $newline = strrpos(substr($code, 0, $pos), "\n");
+        $lineStart = false === $newline ? 0 : $newline + 1;
+        $indent = substr($code, $lineStart, $pos - $lineStart);
+        $indent = '' === trim($indent) ? $indent : '';
+
+        return "/**\n" . implode('', array_map(static fn (string $t): string => $indent . ' * ' . $t . "\n", $tags)) . $indent . ' */';
     }
 }

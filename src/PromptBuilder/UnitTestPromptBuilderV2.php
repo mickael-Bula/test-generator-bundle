@@ -134,6 +134,8 @@ DIRECTIVES DE GÉNÉRATION DES TESTS UNITAIRES :
   // QUAND
   // ALORS
 - Pour les exceptions (`$this->expectException`), place l'attente sous `// ALORS` et l'action qui la déclenche sous `// QUAND` en tout dernier.
+- Aucun commentaire explicatif ni PHPDoc de description. 
+  Seules annotations autorisées : `@var` d'une propriété, et `@return iterable<…>` / `@param` d'un fournisseur de données (PHPStan les exige).
 6. STUBS, ASSERTIONS ET MÉTHODES TESTÉES :
 - Ne configure JAMAIS de stub (`->method(...)`) dans `setUp()` : PHPUnit applique le PREMIER stub enregistré qui correspond à l'appel,
   un stub de `setUp()` masque donc ceux des tests. Pour une base partagée, crée une méthode privée `stubXxx(...)`
