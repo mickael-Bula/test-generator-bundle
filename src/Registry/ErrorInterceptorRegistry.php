@@ -6,6 +6,7 @@ namespace Mika\TestGeneratorBundle\Registry;
 
 use Mika\TestGeneratorBundle\Interceptor\ErrorInterceptorInterface;
 use Psr\Log\LoggerInterface;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 final readonly class ErrorInterceptorRegistry
 {
@@ -14,6 +15,7 @@ final readonly class ErrorInterceptorRegistry
         private iterable $interceptors,
         private int $maxChars = 10000,
         private ?LoggerInterface $logger = null,
+        #[Autowire('%kernel.project_dir%')] private string $projectDir = '',
     ) {
     }
 
@@ -24,6 +26,10 @@ final readonly class ErrorInterceptorRegistry
      */
     public function inspect(string $errorOutput): array
     {
+        if ('' !== $this->projectDir) {
+            $errorOutput = str_replace('%PROJECT_DIR%', $this->projectDir, $errorOutput);
+        }
+
         $rows = [];
         foreach ($this->interceptors as $interceptor) {
             $row = [
