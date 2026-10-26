@@ -146,20 +146,26 @@ Ton unique rôle est d'analyser le code source d'une classe PHP et de concevoir 
 PROMPT;
     }
 
+    /**
+     * @throws \ReflectionException
+     */
     private function buildUserPrompt(string $classCode, string $fqcn, ?string $methodName, string $type): string
     {
         $prompt = sprintf(
             "Voici le code source de la classe PHP à analyser (`%s`) pour générer une suite de tests de type **%s** :\n\n```php\n%s\n```",
             $fqcn,
             strtoupper($type),
-            $classCode
+            $classCode,
         );
+
+        // Faits calculés par réflexion : méthodes publiques, dépendances du constructeur, cas d'Enum
+        $prompt .= $this->referenceBlock($fqcn, $type);
 
         if ($methodName) {
             $prompt .= sprintf(
                 "\n\n ATTENTION : L'utilisateur souhaite cibler en priorité la méthode `%s()`. "
                 . 'Concentre ton analyse sur cette méthode et ses interactions.',
-                $methodName
+                $methodName,
             );
         }
 

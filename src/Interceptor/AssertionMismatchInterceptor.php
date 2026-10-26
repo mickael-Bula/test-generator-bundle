@@ -11,6 +11,7 @@ use PhpParser\Node;
 use PhpParser\NodeFinder;
 use PhpParser\Parser;
 use PhpParser\PrettyPrinter\Standard;
+use Psr\Cache\InvalidArgumentException;
 
 /** @noinspection PhpUnused */
 final readonly class AssertionMismatchInterceptor implements ErrorInterceptorInterface
@@ -30,6 +31,9 @@ final readonly class AssertionMismatchInterceptor implements ErrorInterceptorInt
         return [] !== $this->failures($errorOutput);
     }
 
+    /**
+     * @throws InvalidArgumentException
+     */
     public function intercept(string $errorOutput): ?string
     {
         $failures = $this->failures($errorOutput);
