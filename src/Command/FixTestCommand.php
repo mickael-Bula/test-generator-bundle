@@ -198,7 +198,7 @@ class FixTestCommand extends Command
             $result['code'] = $final['code'];
         }
 
-        $this->emit($input, $output, $testFile, $code, $result['code'], $originalNamespace, $shortClassName);
+        $this->emit($input, $output, $testFile, $code, $result['code'], $originalNamespace, $shortClassName, $result['green']);
         $this->displayExecutionTime($startTime, $startMicrotime);
 
         return $exit;
@@ -271,6 +271,7 @@ class FixTestCommand extends Command
         string $after,
         ?string $originalNamespace,
         string $shortClassName,
+        bool $green,
     ): void {
         $this->io->section('Diff (avant → après)');
         $diff = $this->diff($before, $after);
@@ -287,7 +288,11 @@ class FixTestCommand extends Command
 
         $target = $input->getOption('output') ?? preg_replace('/\.php$/', '.fixed.php', $testFile);
         file_put_contents($target, $code);
-        $this->io->success(sprintf('Résultat écrit dans : %s', $this->relative($target)));
+
+        $message = sprintf('Résultat écrit dans : %s', $this->relative($target));
+        $green
+            ? $this->io->success($message)
+            : $this->io->warning($message . ' (corrigé partiellement : le test est encore rouge)');
     }
 
     /** @return array{0: ?string, 1: ?string} [test, rapport .log voisin] */
