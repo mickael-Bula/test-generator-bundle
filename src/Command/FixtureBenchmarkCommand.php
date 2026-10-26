@@ -43,6 +43,12 @@ final class FixtureBenchmarkCommand extends Command
             'Nombre maximal de fichiers rejoués',
             '50'
         );
+        $this->addOption(
+            'since',
+            null,
+            InputOption::VALUE_REQUIRED,
+            'Ne rejoue que les fichiers dont le préfixe de date (AAAA-MM-JJ) est supérieur ou égal'
+        );
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -50,7 +56,9 @@ final class FixtureBenchmarkCommand extends Command
         $io = new SymfonyStyle($input, $output);
 
         $files = array_merge(glob($this->failedDir . '/*_FailedTestV2.php') ?: [], glob($this->failedDir . '/attempts/*.php') ?: []);
-        $files = \array_slice($files, 0, max(1, (int) $input->getOption('limit')));
+        if (null !== $since = $input->getOption('since')) {
+            $files = array_values(array_filter($files, static fn (string $f): bool => substr(basename($f), 0, 10) >= $since));
+        }
 
         $rows = [];
         $remaining = []; // forme du problème => [occurrences, fichiers]

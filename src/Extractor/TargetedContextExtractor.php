@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Extractor;
 
-use Mika\TestGeneratorBundle\Reflection\arrayKeyReads;
+use Mika\TestGeneratorBundle\Reflection\ArrayKeyReads;
 use Mika\TestGeneratorBundle\Reflection\DocTypeResolver;
 
 final class TargetedContextExtractor

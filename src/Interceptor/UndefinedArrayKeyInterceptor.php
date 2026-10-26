@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Interceptor;
 
-use Mika\TestGeneratorBundle\Reflection\arrayKeyReads;
+use Mika\TestGeneratorBundle\Reflection\ArrayKeyReads;
 
 /** @noinspection PhpUnused */
 final class UndefinedArrayKeyInterceptor implements ErrorInterceptorInterface
