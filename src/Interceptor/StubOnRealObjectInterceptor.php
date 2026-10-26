@@ -7,6 +7,7 @@ namespace Mika\TestGeneratorBundle\Interceptor;
 use Mika\TestGeneratorBundle\Extractor\MethodSource;
 use Mika\TestGeneratorBundle\Interceptor\Support\PhpUnitFailureLocator;
 use Mika\TestGeneratorBundle\Interceptor\Support\RealObjectStubFinder;
+use Psr\Cache\InvalidArgumentException;
 
 /** @noinspection PhpUnused */
 final readonly class StubOnRealObjectInterceptor implements ErrorInterceptorInterface
@@ -24,6 +25,9 @@ final readonly class StubOnRealObjectInterceptor implements ErrorInterceptorInte
         return 1 === preg_match(self::TRIGGER, $errorOutput);
     }
 
+    /**
+     * @throws InvalidArgumentException
+     */
     public function intercept(string $errorOutput): ?string
     {
         $file = $this->locator->locate($errorOutput)->testFile;
@@ -52,7 +56,7 @@ final readonly class StubOnRealObjectInterceptor implements ErrorInterceptorInte
             $rc = new \ReflectionClass($s['class']);
             foreach ($s['methods'] as $name) {
                 if ($rc->hasMethod($name) && null !== $body = MethodSource::ofComputed($rc->getMethod($name))) {
-                    $md .= "  Code réel de `$name()` :\n" . preg_replace('/^/m', '      ', $body) . "\n";
+                    $md .= "  Code réel de `$name()` :\n" . MethodSource::fenced($body, '    ') . "\n";
                 }
             }
         }
@@ -64,6 +68,9 @@ final readonly class StubOnRealObjectInterceptor implements ErrorInterceptorInte
             . "Ne change rien d'autre dans le test.\n";
     }
 
+    /**
+     * @throws InvalidArgumentException
+     */
     private function fromMessage(string $output): ?string
     {
         if (0 === preg_match_all('/Call to (?:an )?undefined method (?<class>[\w\\\\]+)::(?:expects|method)\(\)/', $output, $m)) {

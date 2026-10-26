@@ -15,6 +15,7 @@ use PhpParser\NodeTraverser;
 use PhpParser\NodeVisitor\NameResolver;
 use PhpParser\Parser;
 use PhpParser\PrettyPrinter\Standard;
+use Psr\Cache\InvalidArgumentException;
 
 /** @noinspection PhpUnused */
 final readonly class RiskyTestAssertionInterceptor implements ErrorInterceptorInterface
@@ -35,7 +36,7 @@ final readonly class RiskyTestAssertionInterceptor implements ErrorInterceptorIn
     }
 
     /**
-     * @throws \ReflectionException
+     * @throws \ReflectionException|InvalidArgumentException
      */
     public function intercept(string $errorOutput): ?string
     {
@@ -209,7 +210,7 @@ final readonly class RiskyTestAssertionInterceptor implements ErrorInterceptorIn
                 "  - Code réel de `%s::%s()` :\n%s\n",
                 $m->getDeclaringClass()->getShortName(),
                 $m->getName(),
-                preg_replace('/^/m', '        ', $code)
+                MethodSource::fenced($code, '    ')
             );
     }
 

@@ -16,8 +16,11 @@ use Psr\Cache\InvalidArgumentException;
 /** @noinspection PhpUnused */
 final readonly class AssertionMismatchInterceptor implements ErrorInterceptorInterface
 {
+    // language=RegExp
     private const FAILURE = '/^\d+\)\s+[\w\\\\]+::(?<test>\w+)[^\r\n]*\R(?<msg>Failed asserting that [^\r\n]+)\R+\S+Test\.php:(?<line>\d+)/m';
+    // language=RegExp
     private const NUMBER = '/^Failed asserting that (?<actual>-?\d+(?:\.\d+)?(?:E[+-]?\d+)?) (?:is identical to|matches expected|is equal to) (?<expected>-?\d+(?:\.\d+)?(?:E[+-]?\d+)?)\.$/';
+    // language=RegExp
     private const BOOLEAN = '/^Failed asserting that (?<actual>true|false) is (?<expected>true|false)\.$/';
 
     public function __construct(
@@ -120,7 +123,10 @@ final readonly class AssertionMismatchInterceptor implements ErrorInterceptorInt
         return match (true) {
             [] === $inputs => 'données du test indisponibles : recalcule depuis le code ci-dessous.',
             null !== $node && !$literal => "l'attendu est une expression : vérifie que sa formule est celle du code ci-dessous.",
-            isset($inputs[(string) (float) $expected]) => sprintf('`%s` figure parmi les données du test : le test attend peut-être une donnée au lieu du résultat.', $expected),
+            isset($inputs[(string) (float) $expected]) => sprintf(
+                '`%s` figure parmi les données du test : le test attend peut-être une donnée au lieu du résultat.',
+                $expected
+            ),
             default => sprintf("`%s` n'apparaît dans aucune donnée du test : c'est un résultat calculé de tête.", $expected),
         };
     }
@@ -160,6 +166,8 @@ final readonly class AssertionMismatchInterceptor implements ErrorInterceptorInt
 
     /**
      * Code réel des méthodes publiques du SUT qui sont appelées par le test avant l'assertion.
+     *
+     * @param Node\Stmt\Expression|null $assertion
      */
     private function sutCode(array $body, ?Node $assertion, ?\ReflectionClass $sut): string
     {
@@ -175,26 +183,76 @@ final readonly class AssertionMismatchInterceptor implements ErrorInterceptorInt
             }
         }
 
+        $key = $this->testedKey($assertion);
+
         $md = '';
         foreach (\array_slice($called, 0, 2) as $m) {
             $code = MethodSource::full($m);
             $md .= sprintf("\n  - Code réel de `%s::%s()` :", $sut->getShortName(), $m->getName())
-                . (null !== $code ? "\n" . preg_replace('/^/m', '        ', $code) : ' (trop long : lis sa signature et déduis la logique)');
+                . (null !== $code ? "\n" . MethodSource::fenced($code, '    ') : ' (trop long : lis sa signature et déduis la logique)');
+            if (null === $code) {
+                continue;
+            }
 
-            // Méthodes de la classe appelées par celle-ci : sans elles, un résultat issu d'un calcul intermédiaire n'est pas vérifiable
-            if (null !== $code && preg_match_all('/\$this->(\w+)\(/', $code, $helpers)) {
-                foreach (\array_slice(array_unique($helpers[1]), 0, 3) as $helper) {
-                    if ($helper !== $m->getName() && $sut->hasMethod($helper) && null !== $helperCode = MethodSource::full($sut->getMethod($helper), 15)) {
-                        $md .= sprintf(
-                            "\n  - Code réel de `%s::%s()` (appelée par la précédente) :\n%s",
-                            $sut->getShortName(), $helper, preg_replace('/^/m', '        ', $helperCode),
-                        );
-                    }
+            // Seules les méthodes dont dépend la valeur testée : sans elles, un résultat intermédiaire n'est pas vérifiable
+            foreach (\array_slice($this->helpersFor($code, $key), 0, 3) as $helper) {
+                if ($helper !== $m->getName() && $sut->hasMethod($helper) && null !== $helperCode = MethodSource::full($sut->getMethod($helper), 15)) {
+                    $md .= sprintf(
+                        "\n  - Code réel de `%s::%s()` (utilisée pour calculer la valeur testée) :\n%s",
+                        $sut->getShortName(), $helper, MethodSource::fenced($helperCode, '    '),
+                    );
                 }
             }
         }
 
         return $md;
+    }
+
+    /**
+     * Clé de tableau testée : `$result['exposure_value']` donne `exposure_value`.
+     * Null si l'assertion ne vise pas une clé littérale.
+     */
+    private function testedKey(?Node $assertion): ?string
+    {
+        $call = $assertion instanceof Node\Stmt\Expression ? $assertion->expr : null;
+        if (!($call instanceof Node\Expr\StaticCall || $call instanceof Node\Expr\MethodCall)) {
+            return null;
+        }
+        $arg = $call->args[1] ?? $call->args[0] ?? null; // assertSame(attendu, obtenu) ; assertTrue(obtenu)
+        $actual = $arg instanceof Node\Arg ? $arg->value : null;
+
+        return $actual instanceof Node\Expr\ArrayDimFetch && $actual->dim instanceof Node\Scalar\String_ ? $actual->dim->value : null;
+    }
+
+    /**
+     * Méthodes de $this dont dépend la valeur testée, sur un niveau : celles appelées sur la ligne qui construit la clé,
+     * ou sur les lignes qui affectent les variables de cette ligne. Sans clé, on part des lignes `return`.
+     *
+     * @return list<string>
+     */
+    private function helpersFor(string $code, ?string $key): array
+    {
+        $lines = explode("\n", $code);
+        $needle = null === $key ? 'return ' : "'" . $key . "'";
+
+        $variables = [];
+        $helpers = [];
+        foreach ($lines as $line) {
+            if (str_contains($line, $needle)) {
+                preg_match_all('/\$(\w+)/', $line, $v);
+                $variables = [...$variables, ...$v[1]];
+                preg_match_all('/\$this->(\w+)\(/', $line, $h);
+                $helpers = [...$helpers, ...$h[1]];
+            }
+        }
+        foreach ($lines as $line) {
+            if (1 === preg_match('/^\s*\$(?<var>\w+)\s*[-+*\/.]?=\s*(?<rhs>.+)$/', $line, $a) && \in_array($a['var'], $variables, true)) {
+                preg_match_all('/\$this->(\w+)\(/', $a['rhs'], $h);
+                $helpers = [...$helpers, ...$h[1]];
+            }
+        }
+
+        return array_values(array_unique($helpers));
     }
 
     private function procedure(array $failures): string

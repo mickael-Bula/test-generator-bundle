@@ -10,10 +10,14 @@ use Mika\TestGeneratorBundle\Reflection\EnumCases;
 use Mika\TestGeneratorBundle\Service\TestSnapshotStore;
 use Psr\Cache\InvalidArgumentException;
 
-/** @noinspection PhpUnused */
+/**
+ * @noinspection PhpUnused
+ */
 final readonly class EnumCaseInterceptor implements ErrorInterceptorInterface
 {
-    private const UNDEFINED = '/(?:Error: Undefined constant|Access to undefined constant) (?<class>[\w\\\\]+)::(?<case>\w+)/';
+    // language=RegExp
+    private const UNDEFINED = '/(?:Error: |Message was: ")?(?:Undefined constant|Access to undefined constant) (?<class>[\w\\\\]+)::(?<case>\w+)/';
+    // language=RegExp
     private const VALUE = '/ValueError: "(?<value>[^"]*)" is not a valid backing value for enum "?(?<enum>[\w\\\\]+)"?/';
     private const TEST_LINE = '#(?<file>\S+Test\.php):(?<line>\d+)#';
     private const SRC_LINE = '#(?<file>\S+/src/\S+\.php):(?<line>\d+)#';
@@ -24,11 +28,17 @@ final readonly class EnumCaseInterceptor implements ErrorInterceptorInterface
     ) {
     }
 
+    /**
+     * @throws InvalidArgumentException
+     */
     public function supports(string $errorOutput): bool
     {
         return [] !== $this->blocks($errorOutput);
     }
 
+    /**
+     * @throws InvalidArgumentException
+     */
     public function intercept(string $errorOutput): ?string
     {
         $blocks = $this->blocks($errorOutput);
@@ -63,7 +73,13 @@ final readonly class EnumCaseInterceptor implements ErrorInterceptorInterface
                 continue; // pas un enum (constante de classe ordinaire), ou déjà décrit
             }
             $seen[$enum . '::' . $e['case'][0]] = true;
-            $blocks[] = $this->undefined($enum, $e['case'][0], $catalog, $this->lineAfter($output, $e[0][1], self::TEST_LINE));
+            $blocks[] = $this->undefined(
+                $enum,
+                $e['case'][0],
+                $catalog,
+                $this->lineAfter($output, $e[0][1], self::TEST_LINE),
+                $this->lineAt($output, $e[0][1]),
+            );
         }
 
         preg_match_all(self::VALUE, $output, $m, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
@@ -87,7 +103,7 @@ final readonly class EnumCaseInterceptor implements ErrorInterceptorInterface
     /**
      * @param array{backing: ?string, cases: array<string, string|int|null>} $catalog
      */
-    private function undefined(string $enum, string $case, array $catalog, ?string $testLine): string
+    private function undefined(string $enum, string $case, array $catalog, ?string $testLine, string $context): string
     {
         $exact = EnumCases::exact($case, $catalog['cases']);
         $close = EnumCases::closest($case, $catalog['cases']);
@@ -107,6 +123,13 @@ final readonly class EnumCaseInterceptor implements ErrorInterceptorInterface
             ),
             default => '',
         };
+
+        // Pour un test d’exception, l’indice doit dire que le test attendait une exception qui n’est jamais atteinte
+        if (str_contains($context, 'matches expected exception')) {
+            $md .= "  - Le test attend une exception, mais ce cas inexistant lève une `Error` AVANT l'appel du SUT. "
+                . "Corrige d'abord le cas ; si l'enum est le type d'un paramètre, "
+                . "un cas invalide n'atteindra jamais le SUT (PHP le refuse) : supprime alors ce scénario.\n";
+        }
 
         return $md . (null !== $testLine ? sprintf("  - Ligne du test : `%s`\n", $testLine) : '');
     }
@@ -188,5 +211,17 @@ final readonly class EnumCaseInterceptor implements ErrorInterceptorInterface
         $lines = null === $file ? [] : (file($file, FILE_IGNORE_NEW_LINES) ?: []);
 
         return isset($lines[(int) $x['line'] - 1]) ? trim($lines[(int) $x['line'] - 1]) : null;
+    }
+
+    /**
+     * La ligne du rapport qui contient l'offset : elle porte le message d'erreur complet.
+     */
+    private function lineAt(string $output, int $offset): string
+    {
+        $start = strrpos(substr($output, 0, $offset), "\n");
+        $start = false === $start ? 0 : $start + 1;
+        $end = strpos($output, "\n", $offset);
+
+        return substr($output, $start, (false === $end ? \strlen($output) : $end) - $start);
     }
 }

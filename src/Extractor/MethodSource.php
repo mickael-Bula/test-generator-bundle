@@ -41,4 +41,12 @@ final class MethodSource
 
         return \count($lines) <= $maxLines ? implode("\n", $lines) : null;
     }
+
+    /**
+     * Bloc de code PHP encadré par des clôtures Markdown, indenté de $indent.
+     */
+    public static function fenced(string $code, string $indent = '  '): string
+    {
+        return $indent . "```php\n" . preg_replace('/^/m', $indent, $code) . "\n" . $indent . '```';
+    }
 }

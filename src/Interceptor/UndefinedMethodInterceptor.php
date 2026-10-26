@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Interceptor;
 
+use Mika\TestGeneratorBundle\Extractor\MethodSource;
 use PHPUnit\Framework\TestCase;
 
 /** @noinspection PhpUnused */
@@ -47,7 +48,7 @@ final readonly class UndefinedMethodInterceptor implements ErrorInterceptorInter
 
         foreach ($publics as $m) {
             if ('' !== $base && str_contains(strtolower($m->getName()), $base)) {
-                $md .= sprintf("- Méthode proche : `%s`\n%s\n", $this->signature($m), preg_replace('/^/m', '      ', $this->source($m)));
+                $md .= sprintf("- Méthode proche : `%s`\n%s\n", $this->signature($m), MethodSource::fenced($this->source($m), '    '));
                 $md .= "  Si elle est calculée (pas de setter), agis sur les données qu'elle lit.\n";
             }
         }
