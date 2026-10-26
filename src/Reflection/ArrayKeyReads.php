@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Reflection;
 
-final class arrayKeyReads
+final class ArrayKeyReads
 {
     /**
      * @return array<string, list<string>> méthode appelée => clés de tableau lues sur son retour
