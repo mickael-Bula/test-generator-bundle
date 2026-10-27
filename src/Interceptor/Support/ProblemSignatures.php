@@ -105,4 +105,20 @@ final class ProblemSignatures
 
         return null;
     }
+
+    /**
+     * Signature sans ce qui varie (noms de classes, chaînes, nombres) : sert à regrouper les problèmes de même nature.
+     */
+    public static function shape(string $signature): string
+    {
+        $message = substr((string) strstr($signature, ' :: '), 4);
+
+        // Message d'exception : les apostrophes du texte cassent le repérage des guillemets
+        $message = (string) preg_replace("/exception message '.*' (contains|is) '.*'/s", 'exception message “…” $1 “…”', $message);
+        $message = (string) preg_replace('/"[^"]*"|\'[^\']*\'|`[^`]*`/', '“…”', $message);
+        $message = (string) preg_replace('/\b[A-Za-z_]\w*(?:\\\\\w+)+/', 'Classe', $message);
+        $message = (string) preg_replace('/-?\d+(?:\.\d+)?/', 'N', $message);
+
+        return mb_substr($message, 0, 110);
+    }
 }

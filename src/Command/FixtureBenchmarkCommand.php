@@ -97,7 +97,7 @@ final class FixtureBenchmarkCommand extends Command
                     $io->writeln(OutputFormatter::escape(implode("\n", \array_slice(explode("\n", trim($result['output'])), 0, 6))));
                 }
                 foreach ($blocks as $signature => $block) {
-                    $shape = $this->shape($signature);
+                    $shape = ProblemSignatures::shape($signature);
                     $remaining[$shape]['n'] = ($remaining[$shape]['n'] ?? 0) + 1;
                     $remaining[$shape]['files'][basename($file)] = true;
 
@@ -128,19 +128,6 @@ final class FixtureBenchmarkCommand extends Command
         }
 
         return Command::SUCCESS;
-    }
-
-    /**
-     * Message sans ce qui varie : noms de classes, chaînes, nombres.
-     */
-    private function shape(string $signature): string
-    {
-        $message = substr((string) strstr($signature, ' :: '), 4);
-        $message = (string) preg_replace('/"[^"]*"|\'[^\']*\'|`[^`]*`/', '“…”', $message);
-        $message = (string) preg_replace('/\b[A-Za-z_]\w*(?:\\\\\w+)+/', 'Classe', $message);
-        $message = (string) preg_replace('/-?\d+(?:\.\d+)?/', 'N', $message);
-
-        return mb_substr($message, 0, 110);
     }
 
     /**
