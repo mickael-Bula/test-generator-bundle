@@ -178,6 +178,12 @@ La commande `llm:fix:test` permet de capturer les échecs du LLM afin d'alimente
 XDEBUG_MODE=off php bin/console llm:fixture:capture position-manager--run-1 var/failed_tests/2026-10-16_22-50-42_MaClasse_FailedTestV2.php --chain --force --max-steps=8 -v
 ```
 
+Pour rejouer les tests d'`attempts`, il faut utiliser l'option `--dry-run` de la commande pour éviter que le benchmark ne le sélectionne indûment :
+
+```bash
+XDEBUG_MODE=off php bin/console llm:fix:test var/failed_tests/attempts/2026-10-26_20-19-30_StrategyManager_attempt2.php --no-llm --dry-run
+```
+
 ### hint
 
 `hints.txt` contient une phrase par ligne. Chacune doit apparaître dans le texte que les intercepteurs enverraient au LLM pour ce rapport.

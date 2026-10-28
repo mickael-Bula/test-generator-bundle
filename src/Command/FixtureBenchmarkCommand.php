@@ -56,9 +56,12 @@ final class FixtureBenchmarkCommand extends Command
         $io = new SymfonyStyle($input, $output);
 
         $files = array_merge(glob($this->failedDir . '/*_FailedTestV2.php') ?: [], glob($this->failedDir . '/attempts/*.php') ?: []);
+        $files = array_values(array_filter($files, static fn (string $f): bool => !str_ends_with($f, '.fixed.php')));
+
         if (null !== $since = $input->getOption('since')) {
             $files = array_values(array_filter($files, static fn (string $f): bool => substr(basename($f), 0, 10) >= $since));
         }
+        $files = \array_slice($files, 0, max(1, (int) $input->getOption('limit')));
 
         $rows = [];
         $remaining = []; // forme du problème => [occurrences, fichiers]

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Command;
+namespace Mika\TestGeneratorBundle\Tests\Command;
 
 use Random\RandomException;
 use PHPUnit\Framework\TestCase;
