@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Spec;
 
+use Mika\TestGeneratorBundle\Reflection\EntityApi;
 use Mika\TestGeneratorBundle\Reflection\EnumCases;
 use PhpParser\Error;
 use PhpParser\Node;
 use PhpParser\NodeFinder;
 use PhpParser\Parser;
+use Psr\Log\LoggerInterface;
 
 final readonly class SpecSanitizer
 {
@@ -31,6 +33,7 @@ final readonly class SpecSanitizer
                 }
                 $chunk = $this->dropSutMocks($chunk, $sutFqcn);
                 $chunk = $this->normalizeEnumInputs($chunk, $rc->getMethod($m['name']));
+                $chunk = $this->normalizeEntityInputs($chunk, $rc->getMethod($m['name']));
                 if (null === $chunk) {
                     continue; // plus aucun cas exploitable pour cette méthode
                 }
@@ -198,5 +201,76 @@ final readonly class SpecSanitizer
         }
 
         return 0 === $cases ? null : implode('', $kept);
+    }
+
+    /**
+     * Entrées d'entités : retire ce que le test ne peut pas poser, aligne les types scalaires sur ceux des mutateurs.
+     * @throws \ReflectionException
+     */
+    private function normalizeEntityInputs(string $chunk, \ReflectionMethod $method): string
+    {
+        $entities = [];
+        foreach ($method->getParameters() as $parameter) {
+            $type = $parameter->getType();
+            if (!$type instanceof \ReflectionNamedType || $type->isBuiltin() || !class_exists($type->getName()) || enum_exists($type->getName())) {
+                continue;
+            }
+            $reflection = new \ReflectionClass($type->getName());
+            if (!$reflection->isInternal() && $reflection->isInstantiable()) {
+                $entities[$parameter->getName()] = $type->getName();
+            }
+        }
+        if ([] === $entities) {
+            return $chunk;
+        }
+
+        return (string) preg_replace_callback(
+            '/^(?<head>\* \*\*Entrées\*\* : )(?<line>.+)$/m',
+            function (array $line) use ($entities, $method): string {
+                $removed = [];
+                $rewritten = (string) preg_replace_callback(
+                    '/`\$(?<name>\w+)` = `(?<value>[^`]*)`/',
+                    function (array $m) use ($entities, &$removed, $method): string {
+                        $data = isset($entities[$m['name']]) && str_starts_with(ltrim($m['value']), '{') ? json_decode($m['value'], true) : null;
+                        if (!\is_array($data)) {
+                            return $m[0];
+                        }
+
+                        $kept = [];
+                        foreach ($data as $key => $value) {
+                            $api = EntityApi::settable($entities[$m['name']], (string) $key);
+                            if (null === $api) {
+                                $removed[$m['name']][] = (string) $key;
+                                $this->logger?->info(sprintf(
+                                    'Spec : propriété `%s` retirée de $%s (%s::%s) : aucun mutateur ni argument de constructeur.',
+                                    $key, $m['name'], $method->class, $method->name
+                                ));
+                                continue;
+                            }
+                            $kept[$key] = EntityApi::coerce($value, $api['type']);
+                        }
+
+                        return sprintf(
+                            '`$%s` = `%s`',
+                            $m['name'], [] === $kept ? '[]' : json_encode($kept, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+                        );
+                    },
+                    $line['line'],
+                );
+
+                $note = [];
+                foreach ($removed as $name => $keys) {
+                    $note[] = sprintf('`$%s` : %s', $name, implode(', ', $keys));
+                }
+
+                return $line['head']
+                    . $rewritten
+                    . ([] === $note ?
+                        '' :
+                        "\n* **Propriétés retirées** (aucun mutateur ni argument de constructeur : un test ne peut pas les poser) : " . implode(' ; ', $note)
+                    );
+            },
+            $chunk,
+        );
     }
 }

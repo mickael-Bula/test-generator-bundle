@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\PromptBuilder;
 
+use Mika\TestGeneratorBundle\Reflection\EntityApi;
 use Mika\TestGeneratorBundle\Reflection\EnumCases;
 
 class SpecPromptBuilder
@@ -12,6 +13,7 @@ class SpecPromptBuilder
      * Génère la liste des messages (system + user) pour le LLM.
      *
      * @return array<int, array{role: string, content: string}>
+     * @throws \ReflectionException
      */
     public function buildMessages(
         string $classCode,
@@ -233,6 +235,28 @@ PROMPT;
                 . "désigne un cas par son nom exact (une chaîne), jamais par un objet ; n'en invente aucun.\n",
                 $enum,
                 implode(', ', \array_slice($names, 0, 20)),
+            );
+        }
+
+        // Entités passées en paramètre : ce qu'un test peut réellement poser
+        $entities = [];
+        foreach ($rc->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+            foreach ($method->getParameters() as $p) {
+                $type = $p->getType();
+                if ($type instanceof \ReflectionNamedType && !$type->isBuiltin() && class_exists($type->getName()) && !enum_exists($type->getName())) {
+                    $r = new \ReflectionClass($type->getName());
+                    if (!$r->isInternal() && $r->isInstantiable()) {
+                        $entities[$type->getName()] = EntityApi::settableKeys($type->getName());
+                    }
+                }
+            }
+        }
+        foreach ($entities as $class => $keys) {
+            $block .= sprintf(
+                "- Entité `\\%s` : dans `inputs`, seules ces propriétés peuvent être posées : %s. "
+                . "N'en décris aucune autre (identifiant généré, valeur calculée, etc.).\n",
+                $class,
+                [] === $keys ? 'aucune' : implode(', ', \array_slice($keys, 0, 25)),
             );
         }
 
