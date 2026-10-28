@@ -43,6 +43,8 @@ final class AttemptsCompareCommand extends Command
         $io = new SymfonyStyle($input, $output);
 
         $files = glob($this->attemptsDir . '/*_attempt*.php') ?: [];
+        // Fichiers écrits par `llm:fix:test` à côté du test : ce ne sont pas des tentatives
+        $files = array_values(array_filter($files, static fn (string $f): bool => !str_ends_with($f, '.fixed.php')));
         sort($files);
         $class = $input->getArgument('class');
         $since = $input->getOption('since');
@@ -71,9 +73,12 @@ final class AttemptsCompareCommand extends Command
             $io->section((string) preg_replace('/_attempt\d+\.php$/', '', basename($run[0])));
 
             $previous = null;
+            $previousCode = null;
+            $previousComplete = false;
             $green = false;
             $rows = [];
             $details = [];
+
             foreach ($run as $file) {
                 $code = (string) file_get_contents($file);
                 $sut = $this->coveredClass->read($code);
@@ -85,7 +90,9 @@ final class AttemptsCompareCommand extends Command
                 $result = $this->generator->replay($code, basename(str_replace('\\', '/', $sut)));
                 $green = $result['valid'];
                 $current = $green ? [] : ProblemSignatures::of($result['output']);
-                $tests = 1 === preg_match('/^(?:Tests: (\d+)|OK \((\d+) tests?)/m', $result['output'], $t) ? (int) ($t[1] ?: $t[2]) : null;
+                $tests = 1 === preg_match('/^(?:Tests: (\d+)|OK \((\d+) tests?)/m', $result['output'], $t)
+                    ? (int) ('' !== $t[1] ? $t[1] : ($t[2] ?? 0))
+                    : null;
                 $remaining = $green ? 'vert' : sprintf('%d/%s', \count($current), $tests ?? '?');
 
                 if (null === $previous) {
@@ -94,29 +101,47 @@ final class AttemptsCompareCommand extends Command
                     $resolved = array_diff_key($previous, $current);
                     $persisted = array_intersect_key($previous, $current);
                     $new = array_diff_key($current, $previous);
-                    $regressed = ProblemSignatures::compare($previous, $current)['regressed']; // test sain devenu rouge
+
+                    // Régression = un problème sur un test qui existait déjà dans la tentative précédente et n'en avait aucun.
+                    // Un test ajouté ou renommé par le LLM n'en est pas une ; un rapport précédent incomplet ne permet pas de conclure.
+                    $regressed = [];
+                    if ($previousComplete && null !== $previousCode) {
+                        preg_match_all('/function\s+(\w+)\s*\(/', $previousCode, $names);
+                        $existedBefore = array_flip($names[1]);
+                        $regressed = array_values(array_filter(
+                            ProblemSignatures::compare($previous, $current)['regressed'],
+                            static fn (string $s): bool => isset($existedBefore[strstr($s, ' :: ', true) ?: $s]),
+                        ));
+                    }
+
                     $rows[] = [basename($file), $remaining, \count($resolved), \count($persisted), \count($new), \count($regressed)];
 
                     foreach (array_keys($resolved) as $s) {
                         $resolvedShapes[ProblemSignatures::shape($s)] = ($resolvedShapes[ProblemSignatures::shape($s)] ?? 0) + 1;
-                        $details[] = '  <info>corrigé</info>     ' . OutputFormatter::escape($s);
+                        $details[] = '  <info>corrigé</info>      ' . OutputFormatter::escape($s);
                     }
                     foreach (array_keys($persisted) as $s) {
                         $persistedShapes[ProblemSignatures::shape($s)] = ($persistedShapes[ProblemSignatures::shape($s)] ?? 0) + 1;
-                        $details[] = '  <comment>persistant</comment> ' . OutputFormatter::escape($s);
+                        $details[] = '  <comment>persistant</comment>  ' . OutputFormatter::escape($s);
                     }
                     foreach (array_keys($new) as $s) {
-                        $details[] = '  <fg=red>nouveau</>      ' . OutputFormatter::escape($s);
+                        $details[] = \in_array($s, $regressed, true)
+                            ? '  <fg=red>RÉGRESSION</>  ' . OutputFormatter::escape($s)
+                            : '  <fg=red>nouveau</>      ' . OutputFormatter::escape($s);
                     }
+
                     $totals['resolved'] += \count($resolved);
                     $totals['persisted'] += \count($persisted);
                     $totals['new'] += \count($new);
                     $totals['regressed'] += \count($regressed);
                 }
+
                 $previous = $current;
+                $previousCode = $code;
+                $previousComplete = $green || ProblemSignatures::isComplete($result['output']);
             }
 
-            $io->table(['Tentative', 'Problèmes restants', 'Corrigés', 'Persistants', 'Nouveaux'], $rows);
+            $io->table(['Tentative', 'Problèmes restants', 'Corrigés', 'Persistants', 'Nouveaux', 'dont régressions'], $rows);
             if ($output->isVerbose()) {
                 $io->writeln($details);
             }
@@ -126,9 +151,8 @@ final class AttemptsCompareCommand extends Command
         $io->section('Bilan');
         $handled = $totals['resolved'] + $totals['persisted'];
         $io->writeln(sprintf(
-            'Générations : %d, terminées au vert : %d. '
-            . 'Entre tentatives : %d problèmes corrigés, %d persistants, %d introduits, '
-            . '%d en régression (taux de correction : %s)',
+            'Générations : %d, terminées au vert : %d. Entre tentatives : %d problèmes corrigés, %d persistants, '
+            . '%d introduits (dont %d régressions : un test existant et sain est devenu rouge). Taux de correction : %s.',
             $totals['runs'], $totals['green'], $totals['resolved'], $totals['persisted'], $totals['new'], $totals['regressed'],
             0 === $handled ? 'n/a' : sprintf('%d %%', (int) round($totals['resolved'] / $handled * 100)),
         ));
