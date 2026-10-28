@@ -9,6 +9,7 @@ use Mika\TestGeneratorBundle\Resolver\CoveredClassReader;
 use Mika\TestGeneratorBundle\Service\TestGeneratorV2;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -63,7 +64,7 @@ final class AttemptsCompareCommand extends Command
 
         $persistedShapes = [];
         $resolvedShapes = [];
-        $totals = ['runs' => 0, 'green' => 0, 'resolved' => 0, 'persisted' => 0, 'new' => 0];
+        $totals = ['runs' => 0, 'green' => 0, 'resolved' => 0, 'persisted' => 0, 'new' => 0, 'regressed' => 0];
 
         foreach ($runs as $run) {
             ++$totals['runs'];
@@ -72,48 +73,63 @@ final class AttemptsCompareCommand extends Command
             $previous = null;
             $green = false;
             $rows = [];
+            $details = [];
             foreach ($run as $file) {
                 $code = (string) file_get_contents($file);
                 $sut = $this->coveredClass->read($code);
                 if (null === $sut || !str_contains($code, 'namespace App\Tests\Dynamic;')) {
-                    $rows[] = [basename($file), 'ignoré', '-', '-', '-'];
+                    $rows[] = [basename($file), 'ignoré', '-', '-', '-', '-'];
                     continue;
                 }
 
                 $result = $this->generator->replay($code, basename(str_replace('\\', '/', $sut)));
                 $green = $result['valid'];
                 $current = $green ? [] : ProblemSignatures::of($result['output']);
+                $tests = 1 === preg_match('/^(?:Tests: (\d+)|OK \((\d+) tests?)/m', $result['output'], $t) ? (int) ($t[1] ?: $t[2]) : null;
+                $remaining = $green ? 'vert' : sprintf('%d/%s', \count($current), $tests ?? '?');
 
                 if (null === $previous) {
-                    $rows[] = [basename($file), $green ? 'vert' : \count($current), '-', '-', '-'];
+                    $rows[] = [basename($file), $remaining, '-', '-', '-', '-'];
                 } else {
                     $resolved = array_diff_key($previous, $current);
                     $persisted = array_intersect_key($previous, $current);
                     $new = array_diff_key($current, $previous);
-                    $rows[] = [basename($file), $green ? 'vert' : \count($current), \count($resolved), \count($persisted), \count($new)];
+                    $regressed = ProblemSignatures::compare($previous, $current)['regressed']; // test sain devenu rouge
+                    $rows[] = [basename($file), $remaining, \count($resolved), \count($persisted), \count($new), \count($regressed)];
 
                     foreach (array_keys($resolved) as $s) {
                         $resolvedShapes[ProblemSignatures::shape($s)] = ($resolvedShapes[ProblemSignatures::shape($s)] ?? 0) + 1;
+                        $details[] = '  <info>corrigé</info>     ' . OutputFormatter::escape($s);
                     }
                     foreach (array_keys($persisted) as $s) {
                         $persistedShapes[ProblemSignatures::shape($s)] = ($persistedShapes[ProblemSignatures::shape($s)] ?? 0) + 1;
+                        $details[] = '  <comment>persistant</comment> ' . OutputFormatter::escape($s);
+                    }
+                    foreach (array_keys($new) as $s) {
+                        $details[] = '  <fg=red>nouveau</>      ' . OutputFormatter::escape($s);
                     }
                     $totals['resolved'] += \count($resolved);
                     $totals['persisted'] += \count($persisted);
                     $totals['new'] += \count($new);
+                    $totals['regressed'] += \count($regressed);
                 }
                 $previous = $current;
             }
 
             $io->table(['Tentative', 'Problèmes restants', 'Corrigés', 'Persistants', 'Nouveaux'], $rows);
+            if ($output->isVerbose()) {
+                $io->writeln($details);
+            }
             $totals['green'] += $green ? 1 : 0;
         }
 
         $io->section('Bilan');
         $handled = $totals['resolved'] + $totals['persisted'];
         $io->writeln(sprintf(
-            'Générations : %d, terminées au vert : %d. Entre tentatives : %d problèmes corrigés, %d persistants, %d introduits (taux de correction : %s).',
-            $totals['runs'], $totals['green'], $totals['resolved'], $totals['persisted'], $totals['new'],
+            'Générations : %d, terminées au vert : %d. '
+            . 'Entre tentatives : %d problèmes corrigés, %d persistants, %d introduits, '
+            . '%d en régression (taux de correction : %s)',
+            $totals['runs'], $totals['green'], $totals['resolved'], $totals['persisted'], $totals['new'], $totals['regressed'],
             0 === $handled ? 'n/a' : sprintf('%d %%', (int) round($totals['resolved'] / $handled * 100)),
         ));
 
