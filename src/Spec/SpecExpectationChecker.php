@@ -141,8 +141,13 @@ final readonly class SpecExpectationChecker
         $candidates = array_values(array_filter($sites, fn (array $s): bool => $this->sameClass($s['class'], $class)));
 
         if (null !== $site = $this->matching($spec, $candidates)) {
-            // Message reconnu : on ne touche qu'aux gabarits (`<id>`, `{x}`, `%d`), remplacés par la partie fixe du vrai message
-            return 1 === preg_match('/<[^>]*>|\{[^}]*\}|%\w/', $spec) ? $this->withMessage($block, $this->usable($site)) : $block;
+            if (1 !== preg_match('/<[^>]*>|\{[^}]*}|%\w/', $spec)) {
+                return $block;
+            }
+            $message = $this->usable($site);
+            $this->logger?->info(sprintf('Spec : %s, gabarit du message remplacé par `%s`.', $title, $message ?? '(message retiré)'));
+
+            return $this->withMessage($block, $message);
         }
 
         // Message inventé : le message réel s'il est unique parmi les `throw` de cette classe (dans la méthode d'abord), sinon la classe seule
