@@ -21,12 +21,43 @@ final readonly class ThrownMessages
     public function __construct(private Parser $parser) {}
 
     /**
+     * Classes d'exceptions créées dans le SUT, avec ou sans message (`new XException()` compris).
+     *
+     * @return list<string>
+     */
+    public function classes(\ReflectionClass $sut): array
+    {
+        $classes = [];
+        foreach ($this->creations($sut) as [, $new]) {
+            $classes[] = ltrim($new->class->toString(), '\\');
+        }
+
+        return array_values(array_unique($classes));
+    }
+
+    /**
      * Messages des exceptions créées dans les méthodes du SUT (`new XException(<message>)`) : littéral, `sprintf`,
      * concaténation ou chaîne interpolée. Les parties dynamiques deviennent `.*?` dans l'expression régulière.
      *
      * @return list<array{class: string, method: string, line: int, display: string, regex: string, stable: string}>
      */
     public function of(\ReflectionClass $sut): array
+    {
+        $sites = [];
+        foreach ($this->creations($sut) as [$method, $new]) {
+            $arg = $new->args[0] ?? null;
+            $segments = $arg instanceof Node\Arg ? $this->segments($arg->value) : null;
+            if (null === $segments || [] === array_filter($segments, static fn (?string $s): bool => null !== $s && '' !== trim($s))) {
+                continue; // message entièrement dynamique : rien à comparer
+            }
+            $sites[] = $this->site($new->class->toString(), $method, $new->getStartLine(), $segments);
+        }
+
+        return $sites;
+    }
+
+    /** @return list<array{0: string, 1: Node\Expr\New_}> [nom de la méthode, `new XException(...)`] */
+    private function creations(\ReflectionClass $sut): array
     {
         $file = $sut->getFileName();
         if (false === $file) {
@@ -42,22 +73,16 @@ final readonly class ThrownMessages
         $stmts = $traverser->traverse($stmts);
 
         $finder = new NodeFinder();
-        $sites = [];
+        $found = [];
         foreach ($finder->findInstanceOf($stmts, Node\Stmt\ClassMethod::class) as $method) {
             foreach ($finder->findInstanceOf($method->stmts ?? [], Node\Expr\New_::class) as $new) {
-                if (!$new->class instanceof Node\Name || !$this->isThrowable($new->class->toString())) {
-                    continue;
+                if ($new->class instanceof Node\Name && $this->isThrowable($new->class->toString())) {
+                    $found[] = [$method->name->toString(), $new];
                 }
-                $arg = $new->args[0] ?? null;
-                $segments = $arg instanceof Node\Arg ? $this->segments($arg->value) : null;
-                if (null === $segments || [] === array_filter($segments, static fn (?string $s): bool => null !== $s && '' !== trim($s))) {
-                    continue; // message entièrement dynamique : rien à comparer
-                }
-                $sites[] = $this->site($new->class->toString(), $method->name->toString(), $new->getStartLine(), $segments);
             }
         }
 
-        return $sites;
+        return $found;
     }
 
     private function isThrowable(string $class): bool

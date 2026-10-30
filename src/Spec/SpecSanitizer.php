@@ -14,10 +14,16 @@ use Psr\Log\LoggerInterface;
 
 final readonly class SpecSanitizer
 {
-    public function __construct(private Parser $parser, private ?LoggerInterface $logger = null)
-    {
+    public function __construct(
+        private Parser $parser,
+        private SpecExpectationChecker $expectations,
+        private ?LoggerInterface $logger = null,
+    ) {
     }
 
+    /**
+     * @throws \ReflectionException
+     */
     public function sanitize(string $spec, string $sutFqcn): string
     {
         if (!class_exists($sutFqcn)) {
@@ -27,6 +33,10 @@ final readonly class SpecSanitizer
 
         $kept = [];
         foreach (preg_split('/^---[ \t]*$/m', $spec) ?: [] as $chunk) {
+            // Note de couverture d'une passe précédente : elle est régénérée en fin de spec
+            if (1 === preg_match('/^## Méthodes non publiques : couvertes via les méthodes publiques/m', $chunk)) {
+                continue;
+            }
             if (1 === preg_match('/^## Méthode `(?<name>\w+)\(\)`/m', $chunk, $m)) {
                 if (!$rc->hasMethod($m['name']) || !$rc->getMethod($m['name'])->isPublic()) {
                     continue; // privée, protégée ou inexistante : aucun test direct possible
@@ -34,6 +44,7 @@ final readonly class SpecSanitizer
                 $chunk = $this->dropSutMocks($chunk, $sutFqcn);
                 $chunk = $this->normalizeEnumInputs($chunk, $rc->getMethod($m['name']));
                 $chunk = $this->normalizeEntityInputs($chunk, $rc->getMethod($m['name']));
+                $chunk = $this->expectations->check($chunk, $rc, $rc->getMethod($m['name']));
                 if (null === $chunk) {
                     continue; // plus aucun cas exploitable pour cette méthode
                 }
