@@ -114,8 +114,7 @@ final class TestGeneratorV2
         while ($phpunitAttempt < self::MAX_PHPUNIT_ATTEMPTS) {
             ++$phpunitAttempt;
 
-            $rawTestCode = $client->call($messages, $targetModel);
-            $testCode = $pending ?? $this->cleanLlmOutput($rawTestCode);
+            $testCode = $pending ?? $this->cleanLlmOutput($client->call($messages, $targetModel));
             $pending = null; // On s'assure qu'aucune fixture n'est réutilisée dans la boucle
 
             // Si MIKA_TEST_TRACE=1, on enregistre les sorties brutes de chaque tentative (utilisées ensuite comme fixtures).
