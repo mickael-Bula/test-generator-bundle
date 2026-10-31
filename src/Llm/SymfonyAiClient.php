@@ -15,9 +15,12 @@ use Psr\Log\LoggerInterface;
 use Symfony\AI\Platform\Message\Message;
 use Symfony\AI\Platform\Message\MessageBag;
 use Symfony\AI\Platform\PlatformInterface;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\DependencyInjection\Attribute\AutowireLocator;
 use Symfony\Component\DependencyInjection\ServiceLocator;
+use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Serializer\Exception\ExceptionInterface;
+use Symfony\Component\Serializer\Exception\ExceptionInterface as SerializerExceptionInterface;
 use Symfony\Component\Serializer\Normalizer\DenormalizerInterface;
 use Symfony\Component\Serializer\SerializerInterface;
 
@@ -38,6 +41,7 @@ class SymfonyAiClient implements LlmClientInterface
         private (SerializerInterface&DenormalizerInterface)|null $serializer = null,
         private readonly string $defaultProvider = 'gemini',
         private readonly string $defaultModel = 'gemini-3.1-flash-lite',
+        #[Autowire('%kernel.project_dir%/var/failed_specs')] private readonly string $failedSpecsDir = '',
     ) {
         // Si l'application hôte n'enregistre pas de Serializer, on en crée un compatible avec les attributs PHP
         $this->serializer ??= SpecSerializerFactory::create();
@@ -182,45 +186,69 @@ class SymfonyAiClient implements LlmClientInterface
      */
     public function callForSpec(array $messages, string $model): SpecResultDto
     {
-        // Exécution de l'appel LLM brut
         $rawContent = $this->executeLlmCall($messages, $model);
 
-        // Nettoyage et assainissement du JSON
+        try {
+            return $this->parseSpec($rawContent);
+        } catch (TestGenerationException $e) {
+            // La réponse du LLM est la seule trace de l'erreur : on la garde dans un fichier plutôt que dans le message.
+            $path = $this->saveRawSpec($rawContent);
+
+            throw new TestGenerationException(
+                $e->getMessage() . (null !== $path ? sprintf("\nRéponse brute du LLM enregistrée dans : %s", $path) : ''),
+                0,
+                $e,
+            );
+        }
+    }
+
+    /**
+     * Transforme la réponse brute du LLM en SpecResultDto : nettoyage, réparation du JSON, désérialisation.
+     *
+     * @throws TestGenerationException
+     */
+    public function parseSpec(string $rawContent): SpecResultDto
+    {
         $jsonString = $this->jsonSanitizer->sanitizeLlmJsonResponse($rawContent);
 
         // Correction spécifique pour les namespaces PHP (ex : "App\Service\Foo" -> "App\\Service\\Foo")
         $jsonString = $this->fixPhpNamespacesInJson($jsonString);
 
-        // Tentative 1 : Désérialisation vers SpecResultDto via le Serializer Symfony
+        try {
+            $decoded = JsonRepair::decode($jsonString);
+        } catch (\JsonException $e) {
+            throw new TestGenerationException(sprintf("L'Agent Spec a retourné un JSON invalide : %s", $e->getMessage()), 0, $e);
+        }
+
+        foreach ($decoded['fixes'] as $fix) {
+            $this->logger?->warning('Spec JSON réparé : ' . $fix);
+        }
+
+        $data = $decoded['data'];
+        if (!\is_array($data) || !isset($data['targetClass'], $data['methods']) || !\is_array($data['methods'])) {
+            throw new TestGenerationException('La réponse du LLM ne contient pas la structure de spec attendue (targetClass et methods).');
+        }
+
         try {
             /** @var SpecResultDto $specDto */
-            $specDto = $this->serializer->deserialize($jsonString, SpecResultDto::class, 'json');
-
-            return $specDto;
-        } catch (\Throwable) {
-            // Ignoré, on passe à la tentative manuelle
+            $specDto = $this->serializer->denormalize($data, SpecResultDto::class, 'json');
+        } catch (SerializerExceptionInterface $e) {
+            throw new TestGenerationException(sprintf('La spec ne correspond pas à SpecResultDto : %s', $e->getMessage()), 0, $e);
         }
 
-        // Tentative 2 : Décodage manuel via json_decode et désérialisation manuelle depuis le tableau
-        try {
-            // On tente de corriger le JSON
-            $decoded = JsonRepair::decode($jsonString);
-            $data = $decoded['data'];
-            foreach ($decoded['fixes'] as $fix) {
-                $this->logger?->warning('Spec JSON réparé : ' . $fix);
-            }
+        return $specDto;
+    }
 
-            if (isset($data['targetClass'], $data['methods']) && is_array($data['methods'])) {
-                /** @var SpecResultDto $specDto */
-                $specDto = $this->serializer->denormalize($data, SpecResultDto::class);
-
-                return $specDto;
-            }
-        } catch (\JsonException $e) {
-            throw new TestGenerationException(sprintf("L'Agent Spec a retourné un JSON invalide : %s\nRéponse brute du LLM :\n%s", $e->getMessage(), $rawContent), 0, $e);
+    private function saveRawSpec(string $rawContent): ?string
+    {
+        if ('' === $this->failedSpecsDir) {
+            return null;
         }
 
-        throw new TestGenerationException(sprintf("La réponse du LLM ne contient pas la structure de spec attendue.\nRéponse brute :\n%s", $rawContent));
+        $path = sprintf('%s/%s_spec.json.txt', rtrim($this->failedSpecsDir, '/\\'), date('Y-m-d_H-i-s'));
+        (new Filesystem())->dumpFile($path, $rawContent);
+
+        return $path;
     }
 
     /**
