@@ -19,14 +19,15 @@ readonly class SpecGeneratorAgent
     /**
      * Analyse le code source d'une classe et génère la matrice de cas de test au format JSON.
      *
-     * @param string      $classCode  Le code source de la classe PHP à analyser
-     * @param string      $fqcn       Le FQCN de la classe (ex : App\Service\VatCalculator)
+     * @param string $classCode Le code source de la classe PHP à analyser
+     * @param string $fqcn Le FQCN de la classe (ex : App\Service\VatCalculator)
      * @param string|null $methodName Le nom d'une méthode spécifique (facultatif)
-     * @param string|null $model      Le modèle LLM à utiliser (null pour le modèle par défaut)
-     * @param string|null $provider   Le provider LLM à utiliser (null pour le provider par défaut)
+     * @param string|null $model Le modèle LLM à utiliser (null pour le modèle par défaut)
+     * @param string|null $provider Le provider LLM à utiliser (null pour le provider par défaut)
      *
-     * @throws \RuntimeException       Si le LLM échoue ou si le JSON retourné est invalide
+     * @throws \RuntimeException Si le LLM échoue ou si le JSON retourné est invalide
      * @throws TestGenerationException
+     * @throws \ReflectionException
      */
     public function generateSpec(
         string $classCode,

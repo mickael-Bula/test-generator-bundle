@@ -8,8 +8,10 @@ use Mika\TestGeneratorBundle\Dto\GeneratedTestResult;
 use Mika\TestGeneratorBundle\Dto\SpecResultDto;
 use Mika\TestGeneratorBundle\Exception\TestGenerationException;
 use Mika\TestGeneratorBundle\Serializer\SpecSerializerFactory;
+use Mika\TestGeneratorBundle\Spec\JsonRepair;
 use Mika\TestGeneratorBundle\Util\JsonSanitizer;
 use Mika\TestGeneratorBundle\Util\PhpCodeExtractor;
+use Psr\Log\LoggerInterface;
 use Symfony\AI\Platform\Message\Message;
 use Symfony\AI\Platform\Message\MessageBag;
 use Symfony\AI\Platform\PlatformInterface;
@@ -32,6 +34,7 @@ class SymfonyAiClient implements LlmClientInterface
         #[AutowireLocator('mika_test_generator.ai_platform', indexAttribute: 'index')]
         private readonly ServiceLocator $platforms,
         private readonly JsonSanitizer $jsonSanitizer,
+        private readonly ?LoggerInterface $logger = null,
         private (SerializerInterface&DenormalizerInterface)|null $serializer = null,
         private readonly string $defaultProvider = 'gemini',
         private readonly string $defaultModel = 'gemini-3.1-flash-lite',
@@ -200,8 +203,12 @@ class SymfonyAiClient implements LlmClientInterface
 
         // Tentative 2 : Décodage manuel via json_decode et désérialisation manuelle depuis le tableau
         try {
-            /** @var array<string, mixed> $data */
-            $data = json_decode($jsonString, true, 512, JSON_THROW_ON_ERROR);
+            // On tente de corriger le JSON
+            $decoded = JsonRepair::decode($jsonString);
+            $data = $decoded['data'];
+            foreach ($decoded['fixes'] as $fix) {
+                $this->logger?->warning('Spec JSON réparé : ' . $fix);
+            }
 
             if (isset($data['targetClass'], $data['methods']) && is_array($data['methods'])) {
                 /** @var SpecResultDto $specDto */

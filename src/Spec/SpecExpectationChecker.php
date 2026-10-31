@@ -134,7 +134,7 @@ final readonly class SpecExpectationChecker
             return null;
         }
 
-        if (1 !== preg_match('/^  - Message : \*"(?<m>.*)"\*[ \t]*$/m', $block, $m)) {
+        if (1 !== preg_match('/^ {2}- Message : \*"(?<m>.*)"\*[ \t]*$/m', $block, $m)) {
             return $block; // pas de message à vérifier
         }
         $spec = $m['m'];
@@ -170,7 +170,7 @@ final readonly class SpecExpectationChecker
         // Le message de la spec avec ses gabarits en jokers, comparé au message du `throw` où les parties dynamiques valent `…`
         $wild = '/^' . implode('.*?', array_map(
                 static fn (string $p): string => preg_quote($p, '/'),
-                preg_split('/<[^>]*>|\{[^}]*\}/', $spec) ?: [$spec],
+                preg_split('/<[^>]*>|\{[^}]*}/', $spec) ?: [$spec],
             )) . '$/su';
 
         foreach ($sites as $site) {
@@ -199,11 +199,11 @@ final readonly class SpecExpectationChecker
     private function withMessage(string $block, ?string $message): string
     {
         if (null === $message) {
-            return (string) preg_replace('/^  - Message : \*".*"\*[ \t]*\R?/m', '', $block, 1);
+            return (string) preg_replace('/^ {2}- Message : \*".*"\*[ \t]*\R?/m', '', $block, 1);
         }
 
         return (string) preg_replace_callback(
-            '/^  - Message : \*".*"\*/m',
+            '/^ {2}- Message : \*".*"\*/m',
             static fn (): string => '  - Message : *"' . $message . '"*',
             $block,
             1,

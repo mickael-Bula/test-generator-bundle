@@ -7,8 +7,10 @@ namespace Mika\TestGeneratorBundle\Manager;
 use Mika\TestGeneratorBundle\Dto\SpecGenerationResult;
 use Mika\TestGeneratorBundle\Exception\TestGenerationException;
 use Mika\TestGeneratorBundle\Llm\SpecGeneratorAgent;
+use Mika\TestGeneratorBundle\Reflection\ObjectExporter;
 use Mika\TestGeneratorBundle\Renderer\SpecMarkdownRenderer;
 use Mika\TestGeneratorBundle\Resolver\SpecPathResolver;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\Filesystem\Filesystem;
 
 readonly class SpecManager
@@ -18,6 +20,7 @@ readonly class SpecManager
         private SpecGeneratorAgent $specGeneratorAgent,
         private SpecMarkdownRenderer $markdownRenderer,
         private Filesystem $filesystem,
+        #[Autowire('%env(bool:default::MIKA_TEST_TRACE)%')] private bool $trace = false,
     ) {
     }
 
@@ -40,7 +43,7 @@ readonly class SpecManager
     /**
      * Génère et sauvegarde le fichier de spécification Markdown (et optionnellement JSON).
      *
-     * @throws \JsonException|TestGenerationException
+     * @throws \JsonException|TestGenerationException|\ReflectionException
      */
     public function generateAndSaveSpec(
         string $shortClassName,
@@ -72,18 +75,15 @@ readonly class SpecManager
 
         $this->filesystem->dumpFile($targetPath->mdFilePath, $markdownContent);
 
-        // Sauvegarde optionnelle du JSON brut
+        // Sauvegarde optionnelle du JSON : à la demande, ou avec MIKA_TEST_TRACE=1
         $jsonFilePath = null;
-        if ($dumpJson) {
-            $jsonFilename = sprintf('%sSpec.json', $shortClassName);
-            $jsonFilePath = sprintf('%s%s%s', $targetPath->targetDirectory, DIRECTORY_SEPARATOR, $jsonFilename);
+        if ($dumpJson || $this->trace) {
+            $jsonFilePath = sprintf('%s%s%sSpec.json', $targetPath->targetDirectory, DIRECTORY_SEPARATOR, $shortClassName);
 
-            $jsonContent = json_encode(
-                $specData,
-                JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
-            );
-
-            $this->filesystem->dumpFile($jsonFilePath, $jsonContent);
+            $this->filesystem->dumpFile($jsonFilePath, json_encode(
+                ObjectExporter::toArray($specData),
+                JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES,
+            ));
         }
 
         return new SpecGenerationResult(
@@ -97,7 +97,7 @@ readonly class SpecManager
      * Récupère le contenu de la spec depuis un chemin personnalisé,
      * ou par convention (la spécification est créée si elle n'existe pas).
      *
-     * @throws \JsonException|TestGenerationException
+     * @throws \JsonException|TestGenerationException|\ReflectionException
      */
     public function resolveOrGenerateSpecContent(
         string $shortClassName,
