@@ -95,8 +95,21 @@ final class AttemptsCompareCommand extends Command
                     : null;
                 $remaining = $green ? 'vert' : sprintf('%d/%s', \count($current), $tests ?? '?');
 
+                // Détails (-v) : un en-tête par tentative, puis un état par problème
+                $attempt = 1 === preg_match('/_attempt(\d+)\.php$/', $file, $n) ? (int) $n[1] : 0;
+                $detail = static fn (string $color, string $label, string $signature): string => sprintf(
+                    '  <fg=%s>%s</> %s', $color, str_pad($label, 11), OutputFormatter::escape($signature),
+                );
+                if ([] !== $details) {
+                    $details[] = '';
+                }
+                $details[] = sprintf('<fg=cyan>Tentative %d</> : %s', $attempt, $remaining);
+
                 if (null === $previous) {
                     $rows[] = [basename($file), $remaining, '-', '-', '-', '-'];
+                    foreach (array_keys($current) as $s) {
+                        $details[] = $detail('yellow', 'à corriger', $s); // point de départ de la génération
+                    }
                 } else {
                     $resolved = array_diff_key($previous, $current);
                     $persisted = array_intersect_key($previous, $current);
@@ -118,16 +131,16 @@ final class AttemptsCompareCommand extends Command
 
                     foreach (array_keys($resolved) as $s) {
                         $resolvedShapes[ProblemSignatures::shape($s)] = ($resolvedShapes[ProblemSignatures::shape($s)] ?? 0) + 1;
-                        $details[] = '  <info>corrigé</info>      ' . OutputFormatter::escape($s);
+                        $details[] = $detail('green', 'corrigé', $s);
                     }
                     foreach (array_keys($persisted) as $s) {
                         $persistedShapes[ProblemSignatures::shape($s)] = ($persistedShapes[ProblemSignatures::shape($s)] ?? 0) + 1;
-                        $details[] = '  <comment>persistant</comment>  ' . OutputFormatter::escape($s);
+                        $details[] = $detail('yellow', 'persistant', $s);
                     }
                     foreach (array_keys($new) as $s) {
                         $details[] = \in_array($s, $regressed, true)
-                            ? '  <fg=red>RÉGRESSION</>  ' . OutputFormatter::escape($s)
-                            : '  <fg=red>nouveau</>      ' . OutputFormatter::escape($s);
+                            ? $detail('red', 'RÉGRESSION', $s)
+                            : $detail('red', 'nouveau', $s);
                     }
 
                     $totals['resolved'] += \count($resolved);
