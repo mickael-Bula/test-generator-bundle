@@ -1,0 +1,2 @@
+# Force les fins de ligne en LF (format Linux) pour tous les fichiers texte du dépôt
+* text=auto eol=lf
