@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Mika\TestGeneratorBundle\Command;
 
 use Mika\TestGeneratorBundle\Interceptor\Support\ProblemSignatures;
+use Mika\TestGeneratorBundle\Interceptor\Support\ReportBlocks;
 use Mika\TestGeneratorBundle\Registry\ErrorInterceptorRegistry;
 use Mika\TestGeneratorBundle\Resolver\CoveredClassReader;
 use Mika\TestGeneratorBundle\Service\TestGeneratorV2;
@@ -94,7 +95,7 @@ final class FixtureBenchmarkCommand extends Command
 
             if (!$result['valid']) {
                 $this->snapshots->saveForReport($result['output'], $result['code']);
-                $blocks = $this->blocks($result['output']);
+                $blocks = ReportBlocks::of($result['output']);
                 if ([] === $blocks) {
                     $io->writeln(sprintf('<comment>%s : aucun problème reconnu dans la sortie. Début :</comment>', basename($file)));
                     $io->writeln(OutputFormatter::escape(implode("\n", \array_slice(explode("\n", trim($result['output'])), 0, 6))));
@@ -131,49 +132,5 @@ final class FixtureBenchmarkCommand extends Command
         }
 
         return Command::SUCCESS;
-    }
-
-    /**
-     * Méthode qui isole chaque problème en gardant l’en-tête de sa section
-     *
-     * @return array<string, string> signature => bloc de rapport ne contenant qu'un problème
-     */
-    private function blocks(string $output): array
-    {
-        $blocks = [];
-        $header = '';
-        $chunk = [];
-        $emit = function () use (&$chunk, &$header, &$blocks): void {
-            if ([] === $chunk) {
-                return;
-            }
-            $text = implode("\n", $chunk);
-            $signature = array_key_first(ProblemSignatures::of($text));
-            if (null !== $signature) {
-                $blocks[$signature] = ('' !== $header ? $header . "\n\n" : '') . $text;
-            }
-            $chunk = [];
-        };
-
-        foreach (preg_split('/\R/', $output) ?: [] as $line) {
-            if (1 === preg_match('/^(There (?:was|were) \d+ .+:|ERREUR DE QUALITÉ .+:|\d+ tests? triggered .+:)$/', $line)) {
-                $emit();
-                $header = $line;
-            } elseif (1 === preg_match('/^\d+\) /', $line)) {
-                $emit();
-                $chunk = [$line];
-            } elseif (1 === preg_match('/^- Ligne \d+ : /', $line)) { // PHPStan : une ligne = un problème
-                $emit();
-                $chunk = [$line];
-                $emit();
-            } elseif ('--' === $line) {
-                $emit();
-            } elseif ([] !== $chunk) {
-                $chunk[] = $line;
-            }
-        }
-        $emit();
-
-        return $blocks;
     }
 }
