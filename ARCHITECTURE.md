@@ -435,4 +435,13 @@ QUESTIONS :
 - Comment reconnaître et corriger l'intercepteur ? 
 - Faut-il capturer le test avec la commande `XDEBUG_MODE=off php bin/console llm:fixture:capture literal-stub-return tests/Fixtures/literal-stub-return/input.php` ?
 - Faut-il créer un cas de test avec le script `SCRIPT_CREATE_FIXTURES.sh` ?
-- Ou créer un cas de test manuel ?
+- Ou bien créer un cas de test manuel ?
+
+## Commande de comparaisons des tentatives
+
+Cette commande permet de visualiser les modifications lors des différentes phases correctives.
+Met en évidence les progrès ou les régressions, puis fait un bilan.
+
+```bash
+php bin/console llm:attempts:compare StrategyManager --since=2026-10-26 -v
+```

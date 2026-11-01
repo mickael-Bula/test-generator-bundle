@@ -170,6 +170,7 @@ final class AttemptsCompareCommand extends Command
             0 === $handled ? 'n/a' : sprintf('%d %%', (int) round($totals['resolved'] / $handled * 100)),
         ));
 
+        // Trie des tableaux associatifs, dans l'ordre antéchronologique.
         arsort($persistedShapes);
         arsort($resolvedShapes);
         $this->shapes($io, "Ce que le LLM ne corrige pas malgré l'indice (formes persistantes)", $persistedShapes);
@@ -179,6 +180,8 @@ final class AttemptsCompareCommand extends Command
     }
 
     /**
+     * Affichage du tableau (limité à 10 lignes).
+     *
      * @param array<string, int> $shapes
      */
     private function shapes(SymfonyStyle $io, string $title, array $shapes): void
