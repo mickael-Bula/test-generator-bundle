@@ -23,13 +23,13 @@ final readonly class MethodPatcher
     }
 
     /**
-     * Code d'une méthode (attributs compris), indentation ramenée à zéro ; null si elle n'existe pas.
+     * Code d'une méthode (attributs compris), indentation ramenée à zéro, fins de ligne LF ; null si elle n'existe pas.
      */
     public function extract(string $code, string $name): ?string
     {
         $method = $this->parse($code)['methods'][$name] ?? null;
 
-        return null === $method ? null : $this->zeroBase($this->text($code, $method));
+        return null === $method ? null : $this->zeroBase($this->lf($this->text($code, $method)));
     }
 
     /**
@@ -47,14 +47,14 @@ final readonly class MethodPatcher
             if ($member instanceof Node\Stmt\ClassMethod && $this->isTest($member)) {
                 continue;
             }
-            $parts[] = $this->zeroBase($this->text($code, $member));
+            $parts[] = $this->zeroBase($this->lf($this->text($code, $member)));
         }
 
         return implode("\n\n", $parts);
     }
 
     /**
-     * Remplace une méthode par $method (indentation à zéro, voir fromAnswer()).
+     * Remplace une méthode par $method (indentation à zéro, voir fromAnswer()). La méthode prend les fins de ligne du fichier.
      * Null si la méthode est absente ou si le résultat n'est pas un PHP valide qui contient encore cette méthode.
      */
     public function replace(string $code, string $name, string $method): ?string
@@ -64,12 +64,12 @@ final readonly class MethodPatcher
             return null;
         }
 
-        $patched = substr_replace(
-            $code,
-            $this->indent($method, SourceSpan::indentAt($code, $old->getStartFilePos())),
-            $old->getStartFilePos(),
-            $old->getEndFilePos() - $old->getStartFilePos() + 1,
-        );
+        $new = $this->indent($this->lf($method), SourceSpan::indentAt($code, $old->getStartFilePos()));
+        if (str_contains($code, "\r\n")) {
+            $new = str_replace("\n", "\r\n", $new);
+        }
+
+        $patched = substr_replace($code, $new, $old->getStartFilePos(), $old->getEndFilePos() - $old->getStartFilePos() + 1);
 
         return isset($this->parse($patched)['methods'][$name]) ? $patched : null;
     }
@@ -105,6 +105,7 @@ final readonly class MethodPatcher
      */
     public function fromAnswer(string $answer, string $name): ?string
     {
+        $answer = $this->lf($answer);
         $hasClass = 1 === preg_match('/^\s*(?:(?:final|abstract|readonly)\s+)*class\s+\w+/m', $answer);
         $code = $hasClass
             ? $answer
@@ -113,6 +114,14 @@ final readonly class MethodPatcher
         $method = $this->parse($code)['methods'][$name] ?? null;
 
         return null === $method ? null : $this->zeroBase($this->text($code, $method));
+    }
+
+    /**
+     * Remplace les fins de ligne Windows par le format Linux
+     */
+    private function lf(string $text): string
+    {
+        return str_replace(["\r\n", "\r"], "\n", $text);
     }
 
     /**
