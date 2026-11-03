@@ -4,11 +4,15 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Service;
 
+use Mika\TestGeneratorBundle\Dto\GenerationResult;
 use Mika\TestGeneratorBundle\Exception\TestCorrectionException;
 use Mika\TestGeneratorBundle\Interceptor\Support\PreFixerChain;
 use Mika\TestGeneratorBundle\Interceptor\Support\ProblemSignatures;
+use Mika\TestGeneratorBundle\Interceptor\Support\ReportBlocks;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
+use Mika\TestGeneratorBundle\Llm\LlmClientInterface;
 use Mika\TestGeneratorBundle\PromptBuilder\TestPromptBuilderInterface;
+use Mika\TestGeneratorBundle\Quality\MethodPatcher;
 use Mika\TestGeneratorBundle\Quality\TestQualityGate;
 use Mika\TestGeneratorBundle\Validator\PhpSyntaxValidator;
 use SebastianBergmann\Diff\Differ;
@@ -21,7 +25,8 @@ final class TestGeneratorV2
 {
     private const MAX_PHPUNIT_ATTEMPTS = 3;
     private const MAX_PHPSTAN_ATTEMPTS = 2;
-    private const MAX_PREFIX_FAILURES = 3;   // échecs consécutifs
+    private const MAX_TEST_REPAIRS = 3; // tours de réparation test par test
+    private const MAX_PREFIX_FAILURES = 3; // échecs consécutifs
     private const MAX_PREFIX_PASSES = 20; // Garde-fou absolu
     private ?string $baseline = null; // test existant en cours de fusion : la porte ne juge que le nouveau code.
 
@@ -33,6 +38,7 @@ final class TestGeneratorV2
         private readonly PreFixerChain $preFixer,
         private readonly TestQualityGate $qualityGate,
         private readonly TestSnapshotStore $snapshots,
+        private readonly MethodPatcher $patcher,
         #[AutowireIterator('mika_test_generator.prompt_builder')] private readonly iterable $promptBuilders, // Récupère toutes les classes portant ce tag
         #[Autowire('%kernel.project_dir%/var/tmp')] private readonly string $tmpDir = 'var/tmp',
         #[Autowire('%kernel.project_dir%/var/failed_tests')] private readonly string $failedTestsDir = 'var/failed_tests',
@@ -48,6 +54,8 @@ final class TestGeneratorV2
     }
 
     /**
+     * Compatibilité (FixTestCommand) : renvoie uniquement le code, sans livraison partielle.
+     *
      * @throws TestCorrectionException|\RuntimeException|\JsonException
      */
     public function generateForClass(
@@ -63,6 +71,42 @@ final class TestGeneratorV2
         ?string $provider = null,
         ?string $startFromTestCode = null,
     ): string {
+        return $this->generate(
+            classCode: $classCode,
+            filePath: $filePath,
+            fqcn: $fqcn,
+            className: $className,
+            model: $model,
+            methodName: $methodName,
+            existingTestCode: $existingTestCode,
+            specContent: $specContent,
+            type: $type,
+            provider: $provider,
+            startFromTestCode: $startFromTestCode,
+            allowPartial: false, // Mettre à true pour que llm:fix:test retire silencieusement les tests non verts
+        )->code;
+    }
+
+    /**
+     * @param callable(string): void|null $onProgress
+     *
+     * @throws TestCorrectionException|\RuntimeException|\JsonException
+     */
+    public function generate(
+        string $classCode,
+        string $filePath,
+        string $fqcn,
+        string $className,
+        ?string $model = null,
+        ?string $methodName = null,
+        ?string $existingTestCode = null,
+        ?string $specContent = null,
+        string $type = 'unit_v2',
+        ?string $provider = null,
+        ?string $startFromTestCode = null,
+        bool $allowPartial = true,
+        ?callable $onProgress = null,
+    ): GenerationResult {
         $this->baseline = $existingTestCode;
         $client = $this->llmFactory->getClient();
         $targetModel = $model ?? $this->llmFactory->getDefaultModel();
@@ -110,15 +154,20 @@ final class TestGeneratorV2
         // ==========================================
         $phpunitAttempt = 0;
         $isPhpUnitValid = false;
+        $repairDone = false; // un seul passage de réparation test par test
+        $removed = [];
+        $progress = $onProgress ?? static function (string $message): void {
+        };
 
         while ($phpunitAttempt < self::MAX_PHPUNIT_ATTEMPTS) {
             ++$phpunitAttempt;
 
+            $fromStart = null !== $pending;
             $testCode = $pending ?? $this->cleanLlmOutput($client->call($messages, $targetModel));
             $pending = null; // On s'assure qu'aucune fixture n'est réutilisée dans la boucle
 
-            // Si MIKA_TEST_TRACE=1, on enregistre les sorties brutes de chaque tentative (utilisées ensuite comme fixtures).
-            if ($this->trace) {
+            // Si MIKA_TEST_TRACE=1, on enregistre les sorties brutes du LLM (le code de départ n'en est pas une).
+            if ($this->trace && !$fromStart) {
                 $this->filesystem->dumpFile(sprintf(
                     '%s/attempts/%s_%s_attempt%d.php',
                     rtrim($this->failedTestsDir, '/\\'), date('Y-m-d_H-i-s'), $className, $phpunitAttempt,
@@ -130,13 +179,13 @@ final class TestGeneratorV2
 
             if (!$syntaxResult->isValid) {
                 $syntaxErrorOutput = sprintf(
-                "Erreur de syntaxe à la ligne %d: %s",
-                $syntaxResult->errorLine ?? 0,
-                $syntaxResult->errorMessage ?? 'Syntaxe PHP invalide'
-            );
+                    'Erreur de syntaxe à la ligne %d: %s',
+                    $syntaxResult->errorLine ?? 0,
+                    $syntaxResult->errorMessage ?? 'Syntaxe PHP invalide'
+                );
 
                 $errorMessage = "ERREUR DE SYNTAXE PHP :\n" . $syntaxErrorOutput . "\n\n"
-                    . "Corrige immédiatement la syntaxe et renvoie le code PHP complet corrigé.";
+                    . 'Corrige immédiatement la syntaxe et renvoie le code PHP complet corrigé.';
 
                 // On conserve le message d'erreur pour les logs
                 $lastOutput = $errorMessage;
@@ -156,6 +205,36 @@ final class TestGeneratorV2
             if ($run['valid']) {
                 $isPhpUnitValid = true;
                 break; // PHPUnit passe sans aucune erreur ni warning
+            }
+
+            // Premier run invalide : réparation test par test (une seule fois)
+            if (!$repairDone) {
+                $repairDone = true;
+
+                $repair = $this->repairPerTest(
+                    $client,
+                    $targetModel,
+                    $testCode,
+                    $lastOutput,
+                    $classCode,
+                    $filePath,
+                    $fqcn,
+                    $className,
+                    $provider,
+                    $allowPartial,
+                    $progress,
+                );
+                $testCode = $repair['code'];
+                $lastOutput = $repair['output'];
+
+                if (!$repair['fallback']) {
+                    if ($repair['valid']) {
+                        $isPhpUnitValid = true;
+                        $removed = $repair['removed'];
+                    }
+                    break;
+                }
+                // fallback : la boucle historique reprend avec le code et le rapport renvoyés
             }
 
             // Utilisation du registre d'intercepteurs modulaires
@@ -195,10 +274,10 @@ final class TestGeneratorV2
             $syntaxResult = $this->syntaxValidator->validate($testCode);
             if (!$syntaxResult->isValid) {
                 $lastOutput = sprintf(
-                "ERREUR DE SYNTAXE PHP (PHPStan, ligne %d) :\n%s",
-                $syntaxResult->errorLine ?? 0,
-                $syntaxResult->errorMessage ?? 'Syntaxe invalide'
-            );
+                    "ERREUR DE SYNTAXE PHP (PHPStan, ligne %d) :\n%s",
+                    $syntaxResult->errorLine ?? 0,
+                    $syntaxResult->errorMessage ?? 'Syntaxe invalide'
+                );
 
                 $messages[] = ['role' => 'assistant', 'content' => $testCode];
                 $messages[] = [
@@ -226,14 +305,14 @@ final class TestGeneratorV2
 
             if ($stan['success']) {
                 if ($testCode === $greenCode) {
-                    return $testCode;
+                    return $this->result($testCode, $removed, $className);
                 }
 
                 $run = $this->runWithPreFix($testCode, $className);
                 $testCode = $run['code'];
 
                 if ($run['valid']) {
-                    return $testCode;
+                    return $this->result($testCode, $removed, $className);
                 }
 
                 $lastOutput = "RÉGRESSION PHPUNIT : ...\n\n" . $run['output'];
@@ -583,5 +662,209 @@ final class TestGeneratorV2
     private function unifiedDiff(string $before, string $after): string
     {
         return (new Differ(new UnifiedDiffOutputBuilder("--- avant\n+++ après\n")))->diff($before, $after);
+    }
+
+    /**
+     * Réparation test par test : le LLM ne renvoie que la méthode en échec, remplacée par AST.
+     * Les tests encore en échec après MAX_TEST_REPAIRS tours sont retirés (livraison partielle).
+     *
+     * @param callable(string): void $progress
+     *
+     * @return array{valid: bool, fallback: bool, code: string, output: string, removed: list<array{test: string, attempts: int, report: string, code: string}>}
+     */
+    private function repairPerTest(
+        LlmClientInterface $client,
+        string $model,
+        string $testCode,
+        string $output,
+        string $classCode,
+        string $filePath,
+        string $fqcn,
+        string $className,
+        ?string $provider,
+        bool $allowPartial,
+        callable $progress,
+    ): array {
+        $builder = $this->getPromptBuilder('method_fixer');
+        $attempts = [];
+
+        for ($round = 1; $round <= self::MAX_TEST_REPAIRS; ++$round) {
+            $failing = $this->failingTests($testCode, $output);
+            if ([] === $failing) {
+                // Plus aucun test attribuable (erreur fatale, problème de classe) : boucle historique
+                return $this->repairOutcome(false, true, $testCode, $output);
+            }
+
+            $candidate = $testCode;
+            foreach ($failing as $name => $report) {
+                $attempts[$name] = ($attempts[$name] ?? 0) + 1;
+                $progress(sprintf('Réparation de %s (tour %d/%d)', $name, $round, self::MAX_TEST_REPAIRS));
+
+                // La classe passée au prompt est celle du dernier run : les numéros de ligne du rapport y correspondent.
+                $prompts = $builder->buildPrompt(
+                    classCode: $classCode,
+                    filePath: $filePath,
+                    fqcn: $fqcn,
+                    className: $className,
+                    methodName: $name,
+                    existingTestCode: $testCode,
+                    specContent: $report,
+                    provider: $provider,
+                );
+
+                $answer = $this->cleanLlmOutput($client->call([
+                    ['role' => 'system', 'content' => $prompts['system']],
+                    ['role' => 'user', 'content' => $prompts['user']],
+                ], $model));
+
+                // Réponse inutilisable (méthode absente ou renommée, remplacement invalide) : l'essai est consommé
+                $method = $this->patcher->fromAnswer($answer, $name);
+                $patched = null === $method ? null : $this->patcher->replace($candidate, $name, $method);
+                if (null !== $patched) {
+                    $candidate = $patched;
+                }
+            }
+
+            if ($candidate === $testCode || !$this->syntaxValidator->validate($candidate)->isValid) {
+                continue; // rien de neuf à exécuter : tour suivant sans relancer PHPUnit
+            }
+
+            $run = $this->runWithPreFix($candidate, $className);
+            $testCode = $run['code'];
+            $output = $run['output'];
+
+            if ($run['valid']) {
+                return $this->repairOutcome(true, false, $testCode, $output);
+            }
+        }
+
+        // Il reste des tests en échec après les tours
+        $failing = $this->failingTests($testCode, $output);
+        if ([] === $failing || !$allowPartial || $this->touchesBaseline(array_keys($failing))) {
+            return $this->repairOutcome(false, true, $testCode, $output);
+        }
+
+        $removed = [];
+        foreach ($failing as $name => $report) {
+            $removed[] = [
+                'test' => $name,
+                'attempts' => $attempts[$name] ?? 0,
+                'report' => $report,
+                'code' => $this->patcher->extract($testCode, $name),
+            ];
+        }
+        $stripped = $this->patcher->remove($testCode, array_keys($failing));
+        $progress(sprintf('Retrait de %d test(s) irréparable(s)', count($removed)));
+
+        $run = $this->runWithPreFix($stripped, $className);
+        if (!$run['valid']) {
+            // Dépendances partagées, plus aucun test… : on revient au code d'avant le retrait
+            return $this->repairOutcome(false, true, $testCode, $output);
+        }
+
+        return $this->repairOutcome(true, false, $run['code'], $run['output'], $removed);
+    }
+
+    /**
+     * Tests de la classe qui échouent dans ce rapport, avec leur rapport.
+     *
+     * @return array<string, string> nom du test => rapport
+     */
+    private function failingTests(string $testCode, string $output): array
+    {
+        $byTest = array_intersect_key(ReportBlocks::byTest($output), array_flip($this->patcher->names($testCode)));
+
+        $reports = [];
+        foreach ($byTest as $name => $blocks) {
+            $reports[(string) $name] = implode("\n\n", (array) $blocks);
+        }
+
+        return $reports;
+    }
+
+    /**
+     * Un test déjà présent dans le fichier existant (mode fusion) n'est jamais retiré.
+     *
+     * @param list<string> $names
+     */
+    private function touchesBaseline(array $names): bool
+    {
+        if (null === $this->baseline) {
+            return false;
+        }
+
+        return [] !== array_intersect($names, $this->patcher->names($this->baseline));
+    }
+
+    /**
+     * @param list<array{test: string, attempts: int, report: string, code: string}> $removed
+     *
+     * @return array{valid: bool, fallback: bool, code: string, output: string, removed: list<array{test: string, attempts: int, report: string, code: string}>}
+     */
+    private function repairOutcome(bool $valid, bool $fallback, string $code, string $output, array $removed = []): array
+    {
+        return ['valid' => $valid, 'fallback' => $fallback, 'code' => $code, 'output' => $output, 'removed' => $removed];
+    }
+
+    /**
+     * @param list<array{test: string, attempts: int, report: string, code: string}> $removed
+     */
+    private function result(string $code, array $removed, string $className): GenerationResult
+    {
+        $reviewPath = [] === $removed ? null : $this->writeReviewReport($className, $removed);
+
+        return new GenerationResult($code, $removed, $reviewPath);
+    }
+
+    /**
+     * Écrit var/failed_tests/review/<date>_<Classe>.md (dossier ignoré par benchmark et compare).
+     *
+     * @param list<array{test: string, attempts: int, report: string, code: string}> $removed
+     */
+    private function writeReviewReport(string $className, array $removed): string
+    {
+        $lines = [
+            sprintf('# Tests à revoir : %s', $className),
+            '',
+            '> **Ces tests ne figurent PAS dans le fichier livré.** Ils sont restés en échec après la réparation test par test et ont été retirés.',
+            '',
+        ];
+
+        foreach ($removed as $item) {
+            $lines[] = sprintf('## %s', $item['test']);
+            $lines[] = '';
+            $lines[] = sprintf('Tentatives de réparation : %d', $item['attempts']);
+            $lines[] = '';
+            $lines[] = 'Dernier rapport :';
+            $lines[] = '';
+            $lines[] = $this->fenced($item['report'], 'text');
+            $lines[] = '';
+            $lines[] = 'Dernière version :';
+            $lines[] = '';
+            $lines[] = $this->fenced($item['code'], 'php');
+            $lines[] = '';
+        }
+
+        $path = sprintf(
+            '%s/review/%s_%s.md',
+            rtrim($this->failedTestsDir, '/\\'),
+            date('Y-m-d_H-i-s'),
+            $className,
+        );
+        $this->filesystem->dumpFile($path, implode("\n", $lines));
+
+        return $path;
+    }
+
+    /** Bloc de code Markdown dont la clôture est plus longue que toute suite de guillemets obliques du contenu. */
+    private function fenced(string $content, string $language): string
+    {
+        $longest = 0;
+        if (preg_match_all('/`+/', $content, $matches) > 0) {
+            $longest = max(array_map('strlen', $matches[0]));
+        }
+        $fence = str_repeat('`', max(3, $longest + 1));
+
+        return $fence . $language . "\n" . rtrim($content) . "\n" . $fence;
     }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Command;
 
+use Mika\TestGeneratorBundle\Dto\GenerationResult;
 use Mika\TestGeneratorBundle\Enum\TestType;
 use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\Manager\SpecManager;
@@ -89,6 +90,12 @@ class GenerateTestV2Command extends Command
                 'f',
                 InputOption::VALUE_NONE,
                 'Générer un test fonctionnel'
+            )
+            ->addOption(
+                'strict',
+                null,
+                InputOption::VALUE_NONE,
+                'Ne retire aucun test irréparable : la génération échoue si un test reste en échec',
             );
     }
 
@@ -213,10 +220,12 @@ class GenerateTestV2Command extends Command
                 );
             }
 
+            $strict = (bool) $input->getOption('strict');
+
             $this->io->comment(sprintf('Envoi du code au LLM via la nouvelle architecture V2 (%s)...', $model));
 
             // Appel au TestGeneratorV2 équipé des intercepteurs par Réflexion et extraction ciblée
-            $testCode = $this->testGenerator->generateForClass(
+            $result = $this->testGenerator->generate(
                 classCode: $classCode,
                 filePath: $filePath,
                 fqcn: $fqcn,
@@ -226,8 +235,11 @@ class GenerateTestV2Command extends Command
                 existingTestCode: $existingTestCode,
                 specContent: $specContent,
                 type: $testType->value,
-                provider: $provider
+                provider: $provider,
+                allowPartial: !$strict,
+                onProgress: fn (string $message) => $this->io->writeln('  ' . $message),
             );
+            $testCode = $result->code;
 
             // $testCode est encore au format App\Tests\Dynamic : c'est celui que le runner sait exécuter
             $final = $this->finalizer->finalize($testCode, $shortClassName);
@@ -251,6 +263,10 @@ class GenerateTestV2Command extends Command
                     str_replace($this->normalizedProjectDir . '/', '', $testTargetPath->filePath)
                 )
             );
+            // Affiche le rapport des tests retirés de la livraison
+            $this->reportRemovedTests($result);
+
+            // Affiche les temps d'exécution
             $this->displayExecutionTime($startTime, $startMicrotime);
 
             return Command::SUCCESS;
@@ -273,5 +289,22 @@ class GenerateTestV2Command extends Command
             $formatedStartTime,
             $formattedDuration,
         );
+    }
+
+    /**
+     * Livraison partielle : signale les tests retirés du fichier livré (le code de sortie reste 0).
+     */
+    private function reportRemovedTests(GenerationResult $result): void
+    {
+        if ([] === $result->removed) {
+            return;
+        }
+
+        $names = array_map(static fn (array $item): string => $item['test'], $result->removed);
+
+        $this->io->warning([
+            sprintf('%d test(s) retiré(s) du fichier livré, car irréparables : %s', count($names), implode(', ', $names)),
+            sprintf('Rapport de revue : %s', $result->reviewPath ?? 'non écrit'),
+        ]);
     }
 }
