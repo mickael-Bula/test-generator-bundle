@@ -12,7 +12,5 @@ final readonly class QualityAnalysis
      *
      * @param list<QualityViolation> $violations
      */
-    public function __construct(public array $violations, public int $testCount)
-    {
-    }
+    public function __construct(public array $violations, public int $testCount) {}
 }

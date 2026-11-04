@@ -766,7 +766,7 @@ final class TestGeneratorV2
     }
 
     /**
-     * Tests de la classe qui échouent dans ce rapport, avec leur rapport.
+     * Tests de la classe qui échouent dans ce rapport, avec leur rapport (hors tests ignorés ou incomplets).
      *
      * @return array<string, string> nom du test => rapport
      */
@@ -776,7 +776,14 @@ final class TestGeneratorV2
 
         $reports = [];
         foreach ($byTest as $name => $blocks) {
-            $reports[(string) $name] = implode("\n\n", (array) $blocks);
+            $report = implode("\n\n", (array) $blocks);
+
+            // Un test ignoré ou incomplet ne fait pas échouer PHPUnit : ni appel LLM, ni retrait
+            if (1 === preg_match('/^There (?:was|were) \d+ (?:skipped|incomplete) tests?:/', $report)) {
+                continue;
+            }
+
+            $reports[(string) $name] = $report;
         }
 
         return $reports;
