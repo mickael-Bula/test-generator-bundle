@@ -23,6 +23,24 @@ final readonly class MethodPatcher
     }
 
     /**
+     * Plages de lignes (début et fin comprises, attributs compris) des méthodes de test, par nom.
+     * Ce sont les numéros du code passé en argument, donc ceux d'un rapport PHPStan sur ce même code.
+     *
+     * @return array<string, array{start: int, end: int}>
+     */
+    public function testRanges(string $code): array
+    {
+        $ranges = [];
+        foreach ($this->parse($code)['methods'] ?? [] as $name => $method) {
+            if ($this->isTest($method)) {
+                $ranges[$name] = ['start' => $method->getStartLine(), 'end' => $method->getEndLine()];
+            }
+        }
+
+        return $ranges;
+    }
+
+    /**
      * Code d'une méthode (attributs compris), indentation ramenée à zéro, fins de ligne LF ; null si elle n'existe pas.
      */
     public function extract(string $code, string $name): ?string

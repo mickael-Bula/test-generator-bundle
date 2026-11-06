@@ -31,7 +31,7 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 #[AsCommand(
     name: 'llm:fix:test',
-    description: 'Rejoue ou corrige un test existant (ex. var/failed_tests) avec la boucle V2, sans repartir de la spec.',
+    description: 'Rejoue ou corrige un test existant (ex : var/failed_tests) avec la boucle V2, sans repartir de la spec.',
 )]
 class FixTestCommand extends Command
 {
@@ -61,13 +61,48 @@ class FixTestCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addArgument('test', InputArgument::REQUIRED, 'Chemin du test, ou nom de la classe testée (dernier échec de var/failed_tests)')
-            ->addOption('class', 'c', InputOption::VALUE_REQUIRED, 'Classe testée (nom, chemin ou namespace). Défaut : #[CoversClass] du test')
-            ->addOption('report', 'r', InputOption::VALUE_OPTIONAL, 'Analyse un rapport SANS exécuter ni appeler le LLM (sans valeur : le .log voisin du test)', false)
-            ->addOption('no-llm', null, InputOption::VALUE_NONE, 'Exécute le test et les correcteurs déterministes ; aucun appel LLM')
-            ->addOption('model', null, InputOption::VALUE_REQUIRED, 'Modèle LLM spécifique à utiliser')
-            ->addOption('output', 'o', InputOption::VALUE_REQUIRED, 'Fichier de sortie (défaut : <fichier>.fixed.php)')
-            ->addOption('dry-run', null, InputOption::VALUE_NONE, "N'écrit aucun fichier : affiche seulement le diff");
+            ->addArgument(
+                'test',
+                InputArgument::REQUIRED,
+                'Chemin du test, ou nom de la classe testée (dernier échec de var/failed_tests)'
+            )
+            ->addOption(
+                'class',
+                'c',
+                InputOption::VALUE_REQUIRED,
+                'Classe testée (nom, chemin ou namespace). Défaut : #[CoversClass] du test'
+            )
+            ->addOption(
+                'report',
+                'r',
+                InputOption::VALUE_OPTIONAL,
+                'Analyse un rapport SANS exécuter ni appeler le LLM (sans valeur : le .log voisin du test)',
+                false
+            )
+            ->addOption(
+                'no-llm',
+                null,
+                InputOption::VALUE_NONE,
+                'Exécute le test et les correcteurs déterministes ; aucun appel LLM'
+            )
+            ->addOption(
+                'model',
+                null,
+                InputOption::VALUE_REQUIRED,
+                'Modèle LLM spécifique à utiliser'
+            )
+            ->addOption(
+                'output',
+                'o',
+                InputOption::VALUE_REQUIRED,
+                'Fichier de sortie (défaut : <fichier>.fixed.php)'
+            )
+            ->addOption(
+                'dry-run',
+                null,
+                InputOption::VALUE_NONE,
+                "N'écrit aucun fichier : affiche seulement le diff"
+            );
     }
 
     /**
@@ -96,7 +131,11 @@ class FixTestCommand extends Command
         $argument = (string) $input->getArgument('test');
         [$testFile, $siblingLog] = $this->locate($argument);
         if (null === $testFile) {
-            $this->io->error(sprintf('Aucun test trouvé pour "%s" (fichier inexistant, aucun échec dans %s).', $argument, $this->relative($this->failedTestsDir)));
+            $this->io->error(sprintf(
+                'Aucun test trouvé pour "%s" (fichier inexistant, aucun échec dans %s).',
+                $argument, $this->relative($this->failedTestsDir)
+                )
+            );
 
             return Command::FAILURE;
         }
@@ -105,7 +144,11 @@ class FixTestCommand extends Command
 
         $syntax = $this->syntaxValidator->validate($original);
         if (!$syntax->isValid) {
-            $this->io->error(sprintf('Erreur de syntaxe ligne %d : %s. Corrigez-la avant de relancer.', $syntax->errorLine ?? 0, $syntax->errorMessage ?? ''));
+            $this->io->error(sprintf(
+                'Erreur de syntaxe ligne %d : %s. Corrigez-la avant de relancer.',
+                    $syntax->errorLine ?? 0, $syntax->errorMessage ?? ''
+                )
+            );
 
             return Command::FAILURE;
         }
@@ -132,8 +175,14 @@ class FixTestCommand extends Command
 
         // 4. Le runner n'exécute que App\Tests\Dynamic\{Classe}DynamicTest
         [$code, $originalNamespace] = $this->toDynamic($original, $fqcn, $shortClassName);
-        if (!str_contains($code, 'namespace App\Tests\Dynamic;') || !str_contains($code, "class {$shortClassName}DynamicTest")) {
-            $this->io->error(sprintf('En-têtes non convertibles en App\Tests\Dynamic\%sDynamicTest : vérifiez namespace et nom de classe.', $shortClassName));
+        if (!str_contains($code, 'namespace App\Tests\Dynamic;')
+            || !str_contains($code, "class {$shortClassName}DynamicTest")
+        ) {
+            $this->io->error(sprintf(
+                'En-têtes non convertibles en App\Tests\Dynamic\%sDynamicTest : vérifiez namespace et nom de classe.',
+                $shortClassName
+                )
+            );
 
             return Command::FAILURE;
         }
@@ -204,7 +253,9 @@ class FixTestCommand extends Command
         return $exit;
     }
 
-    /** @return array{code: string, green: bool} */
+    /**
+     * @return array{code: string, green: bool}
+     */
     private function analyzeReport(string $code, string $report): array
     {
         // Les intercepteurs relisent le test par le chemin de la trace : on enregistre l'instantané sous ce nom
@@ -219,7 +270,9 @@ class FixTestCommand extends Command
         return ['code' => $patched ?? $code, 'green' => false];
     }
 
-    /** @return array{code: string, green: bool} */
+    /**
+     * @return array{code: string, green: bool}
+     */
     private function replay(string $code, string $shortClassName): array
     {
         $run = $this->testGenerator->replay($code, $shortClassName);
@@ -227,7 +280,11 @@ class FixTestCommand extends Command
         $applied = array_map(static fn (string $f): string => basename(str_replace('\\', '/', $f)), $run['applied'] ?? []);
         $this->io->writeln('Corrections appliquées : ' . ([] === $applied ? 'aucune' : implode(', ', $applied)));
         foreach ($run['rejected'] ?? [] as [$fixer, $reason, $delta]) {
-            $this->io->writeln(sprintf('<comment>Correction rejetée : %s (%s)</comment>', basename(str_replace('\\', '/', $fixer)), $reason));
+            $this->io->writeln(sprintf(
+                '<comment>Correction rejetée : %s (%s)</comment>',
+                basename(str_replace('\\', '/', $fixer)), $reason
+                )
+            );
             $this->io->writeln(sprintf(
                 '    signatures avant : %d ; après : %d ; disparues : %d ; apparues : %d',
                 $delta['before'], $delta['after'], \count($delta['disappeared']), \count($delta['appeared']),
@@ -295,7 +352,9 @@ class FixTestCommand extends Command
             : $this->io->warning($message . ' (corrigé partiellement : le test est encore rouge)');
     }
 
-    /** @return array{0: ?string, 1: ?string} [test, rapport .log voisin] */
+    /**
+     * @return array{0: ?string, 1: ?string} [test, rapport .log voisin]
+     */
     private function locate(string $argument): array
     {
         if (is_file($argument)) {

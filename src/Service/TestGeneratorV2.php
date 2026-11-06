@@ -13,6 +13,7 @@ use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\Llm\LlmClientInterface;
 use Mika\TestGeneratorBundle\PromptBuilder\TestPromptBuilderInterface;
 use Mika\TestGeneratorBundle\Quality\MethodPatcher;
+use Mika\TestGeneratorBundle\Quality\PhpStanReport;
 use Mika\TestGeneratorBundle\Quality\TestQualityGate;
 use Mika\TestGeneratorBundle\Validator\PhpSyntaxValidator;
 use SebastianBergmann\Diff\Differ;
@@ -266,6 +267,7 @@ final class TestGeneratorV2
         // ==========================================
         $greenCode = $testCode;   // dernière version validée par PHPUnit (fin de phase 1)
         $greenReport = null;      // rapport PHPStan de cette version
+        $stanRepairDone = false; // un seul passage de réparation PHPStan test par test
         $phpstanAttempt = 0;
 
         while ($phpstanAttempt < self::MAX_PHPSTAN_ATTEMPTS) {
@@ -318,6 +320,30 @@ final class TestGeneratorV2
                 $lastOutput = "RÉGRESSION PHPUNIT : ...\n\n" . $run['output'];
             } else {
                 $lastOutput = "ERREUR D'ANALYSE STATIQUE (PHPStan) :\n" . $stan['output'];
+
+                // Première erreur PHPStan : réparation test par test (une seule fois)
+                if (!$stanRepairDone) {
+                    $stanRepairDone = true;
+
+                    $stanRepair = $this->repairStanPerTest(
+                        $client,
+                        $targetModel,
+                        $testCode,
+                        $stan['output'],
+                        $classCode,
+                        $filePath,
+                        $fqcn,
+                        $className,
+                        $provider,
+                        $allowPartial,
+                        $progress,
+                    );
+
+                    if (!$stanRepair['fallback']) {
+                        return $this->result($stanRepair['code'], [...$removed, ...$stanRepair['removed']], $className);
+                    }
+                    // fallback : la boucle historique continue avec le code et le rapport d'avant la réparation
+                }
             }
 
             // Si le nombre maximal de tentatives a été atteint, on sort de la boucle.
@@ -700,29 +726,20 @@ final class TestGeneratorV2
                 $attempts[$name] = ($attempts[$name] ?? 0) + 1;
                 $progress(sprintf('Réparation de %s (tour %d/%d)', $name, $round, self::MAX_TEST_REPAIRS));
 
-                // La classe passée au prompt est celle du dernier run : les numéros de ligne du rapport y correspondent.
-                $prompts = $builder->buildPrompt(
-                    classCode: $classCode,
-                    filePath: $filePath,
-                    fqcn: $fqcn,
-                    className: $className,
-                    methodName: $name,
-                    existingTestCode: $testCode,
-                    specContent: $report,
-                    provider: $provider,
+                $candidate = $this->rewriteTest(
+                    $client,
+                    $model,
+                    $builder,
+                    $name,
+                    $report,
+                    $testCode,
+                    $candidate,
+                    $classCode,
+                    $filePath,
+                    $fqcn,
+                    $className,
+                    $provider,
                 );
-
-                $answer = $this->cleanLlmOutput($client->call([
-                    ['role' => 'system', 'content' => $prompts['system']],
-                    ['role' => 'user', 'content' => $prompts['user']],
-                ], $model));
-
-                // Réponse inutilisable (méthode absente ou renommée, remplacement invalide) : l'essai est consommé
-                $method = $this->patcher->fromAnswer($answer, $name);
-                $patched = null === $method ? null : $this->patcher->replace($candidate, $name, $method);
-                if (null !== $patched) {
-                    $candidate = $patched;
-                }
             }
 
             if ($candidate === $testCode || !$this->syntaxValidator->validate($candidate)->isValid) {
@@ -763,6 +780,188 @@ final class TestGeneratorV2
         }
 
         return $this->repairOutcome(true, false, $run['code'], $run['output'], $removed);
+    }
+
+    /**
+     * Demande au LLM de réécrire une seule méthode de test (conversation neuve) et la remplace dans $candidate.
+     * Réponse inutilisable (méthode absente ou renommée, remplacement invalide) : $candidate est rendu inchangé.
+     */
+    private function rewriteTest(
+        LlmClientInterface $client,
+        string $model,
+        TestPromptBuilderInterface $builder,
+        string $name,
+        string $report,
+        string $testCode,
+        string $candidate,
+        string $classCode,
+        string $filePath,
+        string $fqcn,
+        string $className,
+        ?string $provider,
+    ): string {
+        // La classe passée au prompt est celle du dernier run : les numéros de ligne du rapport y correspondent.
+        $prompts = $builder->buildPrompt(
+            classCode: $classCode,
+            filePath: $filePath,
+            fqcn: $fqcn,
+            className: $className,
+            methodName: $name,
+            existingTestCode: $testCode,
+            specContent: $report,
+            provider: $provider,
+        );
+
+        $answer = $this->cleanLlmOutput($client->call([
+            ['role' => 'system', 'content' => $prompts['system']],
+            ['role' => 'user', 'content' => $prompts['user']],
+        ], $model));
+
+        $method = $this->patcher->fromAnswer($answer, $name);
+        $patched = null === $method ? null : $this->patcher->replace($candidate, $name, $method);
+
+        return $patched ?? $candidate;
+    }
+
+    /**
+     * Réparation PHPStan test par test : mêmes tours et mêmes retraits que repairPerTest(), le rapport vient de PHPStan.
+     * Chaque candidat repasse PHPStan puis PHPUnit : une correction qui casse l'exécution est réparée au tour suivant
+     * avec le rapport PHPUnit. Fallback (boucle historique, depuis le code d'origine) si une erreur n'est pas
+     * rattachable à un test, si un test de la baseline est en cause, en mode strict, ou si le retrait ne suffit pas.
+     *
+     * @param callable(string): void $progress
+     *
+     * @return array{fallback: bool, code: string, removed: list<array{test: string, attempts: int, report: string, code: string}>}
+     */
+    private function repairStanPerTest(
+        LlmClientInterface $client,
+        string $model,
+        string $testCode,
+        string $output,
+        string $classCode,
+        string $filePath,
+        string $fqcn,
+        string $className,
+        ?string $provider,
+        bool $allowPartial,
+        callable $progress,
+    ): array {
+        $failing = $this->stanFailingTests($testCode, $output);
+        if ([] === $failing) {
+            return ['fallback' => true, 'code' => $testCode, 'removed' => []];
+        }
+
+        $builder = $this->getPromptBuilder('method_fixer');
+        $current = $testCode; // dernier code évalué : $failing est son rapport
+        $attempts = [];
+
+        for ($round = 1; $round <= self::MAX_TEST_REPAIRS; ++$round) {
+            $candidate = $current;
+            foreach ($failing as $name => $report) {
+                $attempts[$name] = ($attempts[$name] ?? 0) + 1;
+                $progress(sprintf('Réparation de %s (tour %d/%d)', $name, $round, self::MAX_TEST_REPAIRS));
+
+                $candidate = $this->rewriteTest(
+                    $client,
+                    $model,
+                    $builder,
+                    $name,
+                    $report,
+                    $current,
+                    $candidate,
+                    $classCode,
+                    $filePath,
+                    $fqcn,
+                    $className,
+                    $provider,
+                );
+            }
+
+            if ($candidate === $current || !$this->syntaxValidator->validate($candidate)->isValid) {
+                continue; // rien de neuf à analyser : tour suivant
+            }
+
+            $check = $this->assessStanCandidate($candidate, $className);
+            if ($check['valid']) {
+                return ['fallback' => false, 'code' => $check['code'], 'removed' => []];
+            }
+            if ([] === $check['failing']) {
+                return ['fallback' => true, 'code' => $testCode, 'removed' => []]; // plus rattachable à un test
+            }
+
+            $current = $check['code'];
+            $failing = $check['failing'];
+        }
+
+        if (!$allowPartial || $this->touchesBaseline(array_keys($failing))) {
+            return ['fallback' => true, 'code' => $testCode, 'removed' => []];
+        }
+
+        $removed = [];
+        foreach ($failing as $name => $report) {
+            $removed[] = [
+                'test' => $name,
+                'attempts' => $attempts[$name] ?? 0,
+                'report' => $report,
+                'code' => $this->patcher->extract($current, $name),
+            ];
+        }
+        $progress(sprintf('Retrait de %d test(s) irréparable(s)', count($removed)));
+
+        $check = $this->assessStanCandidate($this->patcher->remove($current, array_keys($failing)), $className);
+        if (!$check['valid']) {
+            return ['fallback' => true, 'code' => $testCode, 'removed' => []];
+        }
+
+        return ['fallback' => false, 'code' => $check['code'], 'removed' => $removed];
+    }
+
+    /**
+     * PHPStan puis PHPUnit sur un candidat. Valide si les deux passent ; sinon, les tests à réparer avec le
+     * rapport de l'outil qui a échoué (liste vide : l'échec n'est pas rattachable à un test).
+     *
+     * @return array{valid: bool, code: string, failing: array<string, string>}
+     */
+    private function assessStanCandidate(string $code, string $className): array
+    {
+        $stan = $this->runPhpStanWithPreFix($code, $className);
+        if (!$stan['success']) {
+            return [
+                'valid' => false,
+                'code' => $stan['code'],
+                'failing' => $this->stanFailingTests($stan['code'], $stan['output']),
+            ];
+        }
+
+        $run = $this->runWithPreFix($stan['code'], $className);
+        if (!$run['valid']) {
+            return [
+                'valid' => false,
+                'code' => $run['code'],
+                'failing' => $this->failingTests($run['code'], $run['output']),
+            ];
+        }
+
+        return ['valid' => true, 'code' => $run['code'], 'failing' => []];
+    }
+
+    /**
+     * Tests dont le rapport PHPStan désigne une ligne. Vide dès qu'une erreur est hors d'une méthode de test
+     * (propriété, setUp(), import) : on ne sait pas la réparer test par test.
+     *
+     * @return array<string, string> nom du test => rapport
+     */
+    private function stanFailingTests(string $testCode, string $output): array
+    {
+        $split = PhpStanReport::byTest($output, $this->patcher->testRanges($testCode));
+        if ([] !== $split['unattributed']) {
+            return [];
+        }
+
+        return array_map(
+            static fn (string $lines): string => "ERREUR D'ANALYSE STATIQUE (PHPStan) :\n" . $lines,
+            $split['tests'],
+        );
     }
 
     /**
