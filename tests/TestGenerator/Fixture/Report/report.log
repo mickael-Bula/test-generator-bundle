@@ -1,0 +1,51 @@
+PHPUnit 11.5.46 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.3.6
+Configuration: %PROJECT_DIR%/phpunit.dist.xml
+
+.F..E..................FF.F                                       27 / 27 (100%)
+
+
+There was 1 error:
+
+1) App\Tests\Dynamic\PortfolioServiceDynamicTest::testGetExposureDataWithZeroEquity
+PHPUnit\Framework\MockObject\IncompatibleReturnValueException: Method createChart may not return value of type array, its declared return type is "Symfony\UX\Chartjs\Model\Chart"
+
+%PROJECT_DIR%/tests/Dynamic/PortfolioServiceDynamicTest.php:171
+
+--
+
+There were 4 failures:
+
+1) App\Tests\Dynamic\PortfolioServiceDynamicTest::testCalculateCurrentSnapshotWithPositionsAndPnl
+Failed asserting that 1000.0 matches expected 100.0.
+
+%PROJECT_DIR%/tests/Dynamic/PortfolioServiceDynamicTest.php:105
+
+2) App\Tests\Dynamic\PortfolioServiceDynamicTest::testGetCoreStatsWithEmptyPositions
+Failed asserting that 0.0 matches expected 250.0.
+
+%PROJECT_DIR%/tests/Dynamic/PortfolioServiceDynamicTest.php:348
+
+3) App\Tests\Dynamic\PortfolioServiceDynamicTest::testGetPerformanceDataWithNoSnapshots
+Expectation failed for method name is "findOneBy" when invoked 2 times
+Parameter 1 for invocation Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepositoryProxy::findOneBy([...], [...]): object does not match expected value.
+Failed asserting that two arrays are equal.
+--- Expected
++++ Actual
+@@ @@
+ Array (
+-    'createdAt' => 'DESC'
++    'createdAt' => 'ASC'
+ )
+
+%PROJECT_DIR%/src/Service/PortfolioService.php:338
+%PROJECT_DIR%/tests/Dynamic/PortfolioServiceDynamicTest.php:374
+
+4) App\Tests\Dynamic\PortfolioServiceDynamicTest::testCalculateCoreQuantityToReduceExposureWithPositiveAmount
+Failed asserting that 1 is identical to 3.
+
+%PROJECT_DIR%/tests/Dynamic/PortfolioServiceDynamicTest.php:438
+
+ERRORS!
+Tests: 27, Assertions: 69, Errors: 1, Failures: 4.
