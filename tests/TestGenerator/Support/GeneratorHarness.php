@@ -29,6 +29,7 @@ final readonly class GeneratorHarness
     public string $dir;
     public ScriptedLlmClient $client;
     public MarkerPhpUnitRunner $runner;
+    public MarkerPhpStanRunner $stan;
     public MethodPatcher $patcher;
     public TestQualityGate $qualityGate;
     public TestGeneratorV2 $generator;
@@ -48,6 +49,7 @@ final readonly class GeneratorHarness
 
         $this->client = new ScriptedLlmClient($responses);
         $this->runner = new MarkerPhpUnitRunner($snapshots);
+        $this->stan = new MarkerPhpStanRunner();
         $this->patcher = new MethodPatcher($parser);
         $this->qualityGate = new TestQualityGate(new TestQualityAnalyzer(
             $parser,
@@ -59,7 +61,7 @@ final readonly class GeneratorHarness
             llmFactory: new LlmClientFactory([$this->client], ScriptedLlmClient::PROVIDER, 'scripted-model'),
             testRunner: $this->runner,
             syntaxValidator: new PhpSyntaxValidator($parser),
-            phpStanRunner: new AlwaysGreenPhpStanRunner(),
+            phpStanRunner: $this->stan,
             preFixer: new PreFixerChain([]),
             qualityGate: $this->qualityGate,
             snapshots: $snapshots,

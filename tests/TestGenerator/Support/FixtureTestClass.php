@@ -91,4 +91,24 @@ final class FixtureTestClass
             self::METHOD_TEMPLATE,
         );
     }
+
+    /**
+     * Méthode verte pour PHPUnit, mais que le faux PHPStan rejette avec ce message.
+     */
+    public static function stanMethod(string $name, string $message): string
+    {
+        return str_replace(
+            ['{NAME}', '{ASSERTION}'],
+            [$name, sprintf('self::assertSame(1, $read, \'STAN[%s]\');', $message)],
+            self::METHOD_TEMPLATE,
+        );
+    }
+
+    /**
+     * Propriété que le faux PHPStan rejette : une erreur hors de toute méthode de test.
+     */
+    public static function stanProperty(string $message): string
+    {
+        return sprintf('private string $note = \'STAN[%s]\';', $message);
+    }
 }
