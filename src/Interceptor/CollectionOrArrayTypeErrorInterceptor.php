@@ -10,6 +10,7 @@ use Mika\TestGeneratorBundle\Reflection\DocTypeResolver;
 /** @noinspection PhpUnused */
 final class CollectionOrArrayTypeErrorInterceptor implements ErrorInterceptorInterface
 {
+    // language=RegExp
     private const PATTERN = '/TypeError:\s+(?<class>[\w\\\\]+)::(?<method>\w+)\(\):\s+Argument\s+#(?<pos>\d+)\s+\(\$(?<arg>\w+)\)\s+must be of type\s+(?<expected>[^,\r\n]+),\s+(?<given>\w+)\s+given/';
     private const ARRAY_COLLECTION = 'Doctrine\Common\Collections\ArrayCollection';
 
@@ -60,7 +61,7 @@ final class CollectionOrArrayTypeErrorInterceptor implements ErrorInterceptorInt
         };
 
         // Classe des éléments : `iterable<\App\X>`, `Collection<int, \App\X>` ou `\App\X[]`
-        $item = null !== $valueType && 1 === preg_match('/(\\\\[A-Za-z_][\w\\\\]*)(?:>|\[\])/', $valueType, $x) ? $x[1] : null;
+        $item = null !== $valueType && 1 === preg_match('/(\\\\[A-Za-z_][\w\\\\]*)(?:>|\[])/', $valueType, $x) ? $x[1] : null;
 
         return 'passe ' . $wrap . (null !== $item ? sprintf(', contenant des instances de `%s`', $item) : '') . '.';
     }

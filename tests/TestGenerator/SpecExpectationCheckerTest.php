@@ -71,6 +71,9 @@ MD;
 
 MD;
 
+    /**
+     * @throws \ReflectionException
+     */
     private function check(string $chunk, string $method): ?string
     {
         $checker = new SpecExpectationChecker(new ThrownMessages((new ParserFactory())->createForNewestSupportedVersion()));
@@ -79,6 +82,9 @@ MD;
         return $checker->check($chunk, $sut, $sut->getMethod($method));
     }
 
+    /**
+     * @throws \ReflectionException
+     */
     #[Test]
     public function impossibleNullAndInventedExceptionAreRemoved(): void
     {
@@ -94,6 +100,9 @@ MD;
         self::assertStringNotContainsString('testQuantityThrowsRuntime', $result);          // aucun `throw new RuntimeException`
     }
 
+    /**
+     * @throws \ReflectionException
+     */
     #[Test]
     public function placeholderInMessageIsReplacedByTheStablePart(): void
     {
@@ -106,6 +115,9 @@ MD;
         self::assertStringNotContainsString('<id>', $result);
     }
 
+    /**
+     * @throws \ReflectionException
+     */
     #[Test]
     public function nullIsKeptWhenTheReturnTypeIsNullable(): void
     {

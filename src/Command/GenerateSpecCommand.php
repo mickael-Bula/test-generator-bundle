@@ -136,6 +136,20 @@ class GenerateSpecCommand extends Command
         $fqcn = $resolved->className;
         $filePath = $resolved->filePath;
 
+        // Si la méthode à tester n'est pas publique, on le signale et la commande s'arrête.
+        if ($methodName && class_exists($fqcn)) {
+            $reflection = new \ReflectionClass($fqcn);
+            if (!$reflection->hasMethod($methodName) || !$reflection->getMethod($methodName)->isPublic()) {
+                $io->error(sprintf(
+                    '%s() n\'est pas une méthode publique de %s : seules les méthodes publiques se testent directement.',
+                    $methodName,
+                    $fqcn,
+                ));
+
+                return Command::FAILURE;
+            }
+        }
+
         // Extraction du nom seul (ex : App\Service\VatCalculator → VatCalculator)
         $shortClassName = basename(str_replace('\\', '/', $fqcn));
 

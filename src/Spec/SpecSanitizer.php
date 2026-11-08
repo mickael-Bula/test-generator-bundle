@@ -41,10 +41,14 @@ final readonly class SpecSanitizer
                 if (!$rc->hasMethod($m['name']) || !$rc->getMethod($m['name'])->isPublic()) {
                     continue; // privée, protégée ou inexistante : aucun test direct possible
                 }
+                $method = $rc->getMethod($m['name']);
                 $chunk = $this->dropSutMocks($chunk, $sutFqcn);
-                $chunk = $this->normalizeEnumInputs($chunk, $rc->getMethod($m['name']));
-                $chunk = $this->normalizeEntityInputs($chunk, $rc->getMethod($m['name']));
-                $chunk = $this->expectations->check($chunk, $rc, $rc->getMethod($m['name']));
+                $chunk = $this->normalizeEnumInputs($chunk, $method);
+                if (null === $chunk) {
+                    continue; // plus aucun cas exploitable après normalisation des enums
+                }
+                $chunk = $this->normalizeEntityInputs($chunk, $method);
+                $chunk = $this->expectations->check($chunk, $rc, $method);
                 if (null === $chunk) {
                     continue; // plus aucun cas exploitable pour cette méthode
                 }

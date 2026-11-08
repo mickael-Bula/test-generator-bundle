@@ -6,7 +6,9 @@ namespace Mika\TestGeneratorBundle\Interceptor;
 
 use Mika\TestGeneratorBundle\Reflection\ArrayKeyReads;
 
-/** @noinspection PhpUnused */
+/**
+ * @noinspection PhpUnused
+ */
 final class UndefinedArrayKeyInterceptor implements ErrorInterceptorInterface
 {
     public function supports(string $errorOutput): bool
