@@ -110,4 +110,33 @@ final class ReportBlocksByTestTest extends TestCase
         $warningBlocks = implode("\n", (array) $byTest['testShouldNewPositionBeCoreWithZeroEquity']);
         self::assertStringContainsString('Undefined array key "total_equity"', $warningBlocks);
     }
+
+    public function testByTestWithoutSkippedKeepsTheOtherBlocksOfASkippedTest(): void
+    {
+        // ÉTANT DONNÉ un test ignoré que la porte de qualité rejette aussi, et un test ignoré sans autre problème
+        $report = <<<'TXT'
+There were 2 skipped tests:
+
+1) App\Tests\Dynamic\DemoDynamicTest::testSkippedAndRejected
+Méthode build est privée
+
+2) App\Tests\Dynamic\DemoDynamicTest::testSkippedOnly
+Méthode helper est privée
+
+ERREUR DE QUALITÉ (ANALYSE STATIQUE DU TEST) :
+
+1) App\Tests\Dynamic\DemoDynamicTest::testSkippedAndRejected
+[forbidden-comment] 3 commentaire(s) interdit(s) (lignes 16, 19, 22)
+TXT;
+
+        // QUAND
+        $all = ReportBlocks::byTest($report);
+        $withoutSkipped = ReportBlocks::byTest($report, includeSkipped: false);
+
+        // ALORS
+        self::assertEqualsCanonicalizing(['testSkippedAndRejected', 'testSkippedOnly'], array_keys($all));
+        self::assertSame(['testSkippedAndRejected'], array_keys($withoutSkipped));
+        self::assertStringStartsWith('ERREUR DE QUALITÉ', $withoutSkipped['testSkippedAndRejected']);
+        self::assertStringNotContainsString('skipped tests', $withoutSkipped['testSkippedAndRejected']);
+    }
 }

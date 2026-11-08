@@ -971,18 +971,14 @@ final class TestGeneratorV2
      */
     private function failingTests(string $testCode, string $output): array
     {
-        $byTest = array_intersect_key(ReportBlocks::byTest($output), array_flip($this->patcher->names($testCode)));
+        $byTest = array_intersect_key(
+            ReportBlocks::byTest($output, includeSkipped: false),
+            array_flip($this->patcher->names($testCode)),
+        );
 
         $reports = [];
         foreach ($byTest as $name => $blocks) {
-            $report = implode("\n\n", (array) $blocks);
-
-            // Un test ignoré ou incomplet ne fait pas échouer PHPUnit : ni appel LLM, ni retrait
-            if (1 === preg_match('/^There (?:was|were) \d+ (?:skipped|incomplete) tests?:/', $report)) {
-                continue;
-            }
-
-            $reports[(string) $name] = $report;
+            $reports[(string) $name] = implode("\n\n", (array) $blocks);
         }
 
         return $reports;

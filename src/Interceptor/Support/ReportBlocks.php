@@ -8,6 +8,7 @@ final class ReportBlocks
 {
     private const SECTION = '/^(?:There (?:was|were) \d+ .+:|ERREUR DE QUALITÉ .+:|\d+ tests? triggered .+:)$/';
     private const END = '/^(?:FAILURES!|ERRORS!|WARNINGS!|OK\b|Tests: \d+)/';
+    private const SKIPPED = '/^There (?:was|were) \d+ (?:skipped|incomplete) tests?:/';
 
     /**
      * Un bloc par problème, en-tête de section compris (« There was 1 failure: »).
@@ -62,10 +63,15 @@ final class ReportBlocks
      *
      * @return array<string, string> nom du test => bloc(s) de rapport
      */
-    public static function byTest(string $output): array
+    public static function byTest(string $output, bool $includeSkipped = true): array
     {
         $byTest = [];
         foreach (self::of($output) as $signature => $block) {
+            // Un test ignoré ou incomplet n'est pas un échec : on écarte son bloc, mais pas les autres blocs du même test (qualité, avertissement).
+            if (!$includeSkipped && 1 === preg_match(self::SKIPPED, $block)) {
+                continue;
+            }
+
             $test = strstr($signature, ' :: ', true) ?: $signature;
 
             // Un avertissement PHP est rattaché aux tests qui l'ont déclenché (« Triggered by: * Classe::test »)
