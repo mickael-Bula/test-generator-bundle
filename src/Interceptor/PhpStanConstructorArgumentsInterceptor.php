@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Interceptor;
 
-/** @noinspection PhpUnused */
+/**
+ * @noinspection PhpUnused
+ */
 final class PhpStanConstructorArgumentsInterceptor implements ErrorInterceptorInterface
 {
-    // « - Ligne 233 : Class App\Entity\Position constructor invoked with 2 parameters, 0 required. »
+    // « - Ligne 233 : Class App\Entity\MaClasse constructor invoked with 2 parameters, 0 required. »
+    // language=RegExp
     private const PATTERN = '/Ligne\s+(?<line>\d+)\s*:\s*Class (?<class>[\w\\\\]+) constructor invoked with (?<given>\d+) parameters?, (?<required>\d+(?:-\d+)?) required\./';
 
     public function supports(string $errorOutput): bool
@@ -61,7 +64,9 @@ final class PhpStanConstructorArgumentsInterceptor implements ErrorInterceptorIn
         return $md . "\nNe modifie ni la structure du test ni ses assertions : corrige seulement la construction de ces objets.\n";
     }
 
-    /** @return list<string> */
+    /**
+     * @return list<string>
+     */
     private function mutators(\ReflectionClass $class): array
     {
         $signatures = [];
