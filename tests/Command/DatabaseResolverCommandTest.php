@@ -2,10 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Command;
+namespace Mika\TestGeneratorBundle\Tests\Command;
 
 use Mika\TestGeneratorBundle\Command\DatabaseResolverCommand;
 use Mika\TestGeneratorBundle\Dto\DatabaseInfosDto;
+use Mika\TestGeneratorBundle\Resolver\DamaTestBundleResolver;
 use Mika\TestGeneratorBundle\Resolver\TestDatabaseResolver;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
@@ -33,10 +34,11 @@ final class DatabaseResolverCommandTest extends TestCase
         $this->filesystem = new Filesystem();
         $this->tempDir = sys_get_temp_dir() . '/test_' . bin2hex(random_bytes(8));
         $this->filesystem->mkdir($this->tempDir);
+        $this->damaResolver = $this->createMock(DamaTestBundleResolver::class);
 
         $this->kernel->method('getProjectDir')->willReturn($this->tempDir);
 
-        $command = new DatabaseResolverCommand($this->resolver, $this->kernel);
+        $command = new DatabaseResolverCommand($this->resolver, $this->kernel, $this->tempDir, $this->damaResolver);
         $this->commandTester = new CommandTester($command);
     }
 

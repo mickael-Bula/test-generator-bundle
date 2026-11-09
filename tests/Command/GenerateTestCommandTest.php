@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Mika\TestGeneratorBundle\Tests\Command;
 
+use Mika\TestGeneratorBundle\Command\DatabaseResolverCommand;
+use Mika\TestGeneratorBundle\Util\TimeFormater;
 use Random\RandomException;
 use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\Attributes\Test;
@@ -46,6 +48,10 @@ final class GenerateTestCommandTest extends TestCase
         $this->classResolver = $this->createMock(ClassResolver::class);
         $this->pathResolver = $this->createMock(TestPathResolver::class);
         $this->specManager = $this->createMock(SpecManager::class);
+        $this->databaseResolverCommand = $this->createMock(DatabaseResolverCommand::class);
+
+        // La classe TimeFormater étant déclarée 'finale', on l'instancie directement.
+        $this->timeFormater = new TimeFormater();
     }
 
     protected function tearDown(): void
@@ -66,7 +72,9 @@ final class GenerateTestCommandTest extends TestCase
             $this->projectDir,
             $this->classResolver,
             $this->pathResolver,
-            $this->specManager
+            $this->specManager,
+            $this->databaseResolverCommand,
+            $this->timeFormater,
         );
         $tester = new CommandTester($command);
 
@@ -89,7 +97,9 @@ final class GenerateTestCommandTest extends TestCase
             $this->projectDir,
             $this->classResolver,
             $this->pathResolver,
-            $this->specManager
+            $this->specManager,
+            $this->databaseResolverCommand,
+            $this->timeFormater,
         );
         $tester = new CommandTester($command);
 
@@ -113,7 +123,9 @@ final class GenerateTestCommandTest extends TestCase
             $this->projectDir,
             $this->classResolver,
             $this->pathResolver,
-            $this->specManager
+            $this->specManager,
+            $this->databaseResolverCommand,
+            $this->timeFormater,
         );
         $tester = new CommandTester($command);
 
@@ -138,7 +150,9 @@ final class GenerateTestCommandTest extends TestCase
             $this->projectDir,
             $this->classResolver,
             $this->pathResolver,
-            $this->specManager
+            $this->specManager,
+            $this->databaseResolverCommand,
+            $this->timeFormater,
         );
         $tester = new CommandTester($command);
 

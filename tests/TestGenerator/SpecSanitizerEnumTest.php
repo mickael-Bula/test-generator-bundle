@@ -54,4 +54,23 @@ MD;
         self::assertStringNotContainsString('## Méthode `consume()`', $result);
         self::assertStringNotContainsString('testConsumeThrowsOnUnknownVerdict', $result);
     }
+
+    /**
+     * @throws \ReflectionException
+     */
+    #[Test]
+    public function windowsLineEndingsGiveTheSameResultAsUnixOnes(): void
+    {
+        // ÉTANT DONNÉ
+        $parser = (new ParserFactory())->createForNewestSupportedVersion();
+        $sanitizer = new SpecSanitizer($parser, new SpecExpectationChecker(new ThrownMessages($parser)));
+        $windows = str_replace("\n", "\r\n", self::SPEC);
+
+        // QUAND
+        $result = $sanitizer->sanitize($windows, VerdictConsumer::class);
+
+        // ALORS
+        self::assertSame($sanitizer->sanitize(self::SPEC, VerdictConsumer::class), $result);
+        self::assertStringContainsString('# Spécification des Tests', $result);
+    }
 }
