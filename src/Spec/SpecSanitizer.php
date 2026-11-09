@@ -31,6 +31,9 @@ final readonly class SpecSanitizer
         }
         $rc = new \ReflectionClass($sutFqcn);
 
+        // Normalise les fins de lignes pour que les fichiers de Specs retouchées à la main sous Windows ne cassent pas toutes les regex.
+        $spec = str_replace("\r\n", "\n", $spec);
+
         $kept = [];
         foreach (preg_split('/^---[ \t]*$/m', $spec) ?: [] as $chunk) {
             // Note de couverture d'une passe précédente : elle est régénérée en fin de spec
