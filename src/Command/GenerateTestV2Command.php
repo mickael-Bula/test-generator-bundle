@@ -189,6 +189,10 @@ class GenerateTestV2Command extends Command
                 provider: $provider,
                 customPath: $customSpecPath
             );
+
+            if ($specContent) {
+                $this->io->info('Une spécification métier a été injectée dans le contexte du LLM.');
+            }
         } catch (\Throwable $e) {
             $this->io->warning(sprintf('Poursuite sans spec : %s', $e->getMessage()));
             $specContent = null;
@@ -272,6 +276,10 @@ class GenerateTestV2Command extends Command
             return Command::SUCCESS;
         } catch (\Throwable $e) {
             $this->io->error('Erreur lors de la génération V2 : ' . $e->getMessage());
+            if ($this->io->isVerbose()) {
+                $this->io->text(sprintf('%s levée dans %s:%d', $e::class, $e->getFile(), $e->getLine()));
+                $this->io->text($e->getTraceAsString());
+            }
             $this->displayExecutionTime($startTime, $startMicrotime);
 
             return Command::FAILURE;

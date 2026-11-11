@@ -13,6 +13,7 @@ class SkillResolver
     public function __construct(
         private readonly ?string $customSkillsDir = null,
         ?string $nativeSkillsDir = null,
+        private readonly bool $disableNativeSkills = false,
     ) {
         // Remonte de deux niveaux depuis le répertoire courant (src/Resolver) pour atteindre la racine du Bundle.
         $bundleDir = \dirname(__DIR__, 2);
@@ -22,14 +23,26 @@ class SkillResolver
     }
 
     /**
-     * Résolution et concatènation des skills pertinents selon la classe à tester.
+     * Résolution et concaténation des skills pertinents selon la classe à tester.
      * La méthode s'appuie sur l'Autoloader de Composer, mais conserve une détection de secours sur le code source :
      * si la classe n'a pas encore été chargée par Composer,
      * on tente de lire les informations directement depuis le code source.
+     * Les skills natifs peuvent être coupés (MIKA_DISABLE_NATIVE_SKILLS) pour comparer avec et sans.
+     * Les skills personnalisés du projet hôte restent toujours chargés.
      */
     public function resolveForClass(string $fqcn, string $classCode): string
     {
-        // 1. Skill : PHPUnit 11 (Appliqué par défaut à tous les tests générés)
+        $nativeSkills = $this->disableNativeSkills ? [] : $this->loadNativeSkills($fqcn, $classCode);
+
+        return implode("\n\n", array_merge($nativeSkills, $this->loadCustomSkills()));
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function loadNativeSkills(string $fqcn, string $classCode): array
+    {
+        // 1. Skills appliqués par défaut à tous les tests générés
         $skillsToLoad = [
             'phpunit11.md',
             'unit_test_safety.md',
@@ -50,7 +63,6 @@ class SkillResolver
             $skillsToLoad[] = 'php-parser-v5.md';
         }
 
-        // Chargement du contenu (on s'assure de ne charger un skill qu'une seule fois).
         $loadedSkills = [];
         foreach (array_unique($skillsToLoad) as $skillFile) {
             $content = $this->loadSkill($skillFile);
@@ -59,10 +71,7 @@ class SkillResolver
             }
         }
 
-        // 5. Ajout des skills personnalisés du projet
-        $customSkills = $this->loadCustomSkills();
-
-        return implode("\n\n", array_merge($loadedSkills, $customSkills));
+        return $loadedSkills;
     }
 
     private function isSymfonyCommand(string $fqcn, string $classCode): bool

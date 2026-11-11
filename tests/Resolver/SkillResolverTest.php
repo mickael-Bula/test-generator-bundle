@@ -242,6 +242,53 @@ final class SkillResolverTest extends TestCase
         $result = $resolver->resolveForClass('App\Command\MyCommand', $code);
 
         // ALORS
-        $this->assertStringContainsString('Native Command Skill', $result);
+        $this->assertSame("Native Command Skill\n\nCustom Skill 1\n\nCustom Skill 2", $result);
+    }
+
+    #[Test]
+    public function testResolveForClassAlwaysLoadsBaseSkills(): void
+    {
+        // ÉTANT DONNÉ
+        $this->filesystem->dumpFile($this->nativeSkillsDir . '/phpunit11.md', 'PHPUnit Skill');
+        $this->filesystem->dumpFile($this->nativeSkillsDir . '/unit_test_safety.md', 'Safety Skill');
+        $resolver = new SkillResolver(null, $this->nativeSkillsDir);
+
+        // QUAND
+        $result = $resolver->resolveForClass('App\Service\Dummy', 'class Dummy {}');
+
+        // ALORS
+        $this->assertSame("PHPUnit Skill\n\nSafety Skill", $result);
+    }
+
+    #[Test]
+    public function testResolveForClassLoadsNoNativeSkillWhenDisabled(): void
+    {
+        // ÉTANT DONNÉ
+        $this->filesystem->dumpFile($this->nativeSkillsDir . '/phpunit11.md', 'PHPUnit Skill');
+        $this->filesystem->dumpFile($this->nativeSkillsDir . '/unit_test_safety.md', 'Safety Skill');
+        $this->filesystem->dumpFile($this->nativeSkillsDir . '/symfony_command.md', 'Native Command Skill');
+        $resolver = new SkillResolver(null, $this->nativeSkillsDir, true);
+
+        // QUAND
+        $result = $resolver->resolveForClass('App\Command\MyCommand', 'class MyCommand extends Command {}');
+
+        // ALORS
+        $this->assertSame('', $result);
+    }
+
+    #[Test]
+    public function testResolveForClassKeepsCustomSkillsWhenNativeDisabled(): void
+    {
+        // ÉTANT DONNÉ
+        $this->filesystem->dumpFile($this->nativeSkillsDir . '/phpunit11.md', 'PHPUnit Skill');
+        $this->filesystem->dumpFile($this->customSkillsDir . '/skill1.md', 'Custom Skill 1');
+        $this->filesystem->dumpFile($this->customSkillsDir . '/skill2.md', 'Custom Skill 2');
+        $resolver = new SkillResolver($this->customSkillsDir, $this->nativeSkillsDir, true);
+
+        // QUAND
+        $result = $resolver->resolveForClass('App\Service\Dummy', 'class Dummy {}');
+
+        // ALORS
+        $this->assertSame("Custom Skill 1\n\nCustom Skill 2", $result);
     }
 }

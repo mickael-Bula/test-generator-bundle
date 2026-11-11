@@ -39,7 +39,7 @@ readonly class UnitTestPromptBuilder implements TestPromptBuilderInterface
         ?string $specContent = null,
         ?string $provider = null,
     ): array {
-        $skillsPrompt =$this->skillResolver->resolveForClass(
+        $skillsPrompt = $this->skillResolver->resolveForClass(
             fqcn: $fqcn,
             classCode: $classCode,
         );

@@ -16,6 +16,7 @@ final readonly class TestFinalizer
 
     /**
      * Remplace les FQCN en ligne par des `use`, et ne livre cette version que si elle reste verte.
+     * Toute erreur de cette étape cosmétique laisse tel quel le code validé.
      *
      * @param string $greenCode test validé (PHPUnit + PHPStan), au format App\Tests\Dynamic
      *
@@ -23,12 +24,24 @@ final readonly class TestFinalizer
      */
     public function finalize(string $greenCode, string $className): array
     {
-        $refactored = $this->refactorer->refactor($greenCode);
-        if ($refactored === $greenCode) {
-            return ['code' => $greenCode, 'refactored' => false, 'reason' => null];
+        try {
+            $refactored = $this->refactorer->refactor($greenCode);
+            if ($refactored === $greenCode) {
+                return ['code' => $greenCode, 'refactored' => false, 'reason' => null];
+            }
+
+            $check = $this->generator->check($refactored, $className);
+        } catch (\Throwable $e) {
+            return [
+                'code' => $greenCode,
+                'refactored' => false,
+                'reason' => sprintf(
+                    'Le remplacement des FQCN par des `use` a échoué (%s) : FQCN conservés en ligne.',
+                    $e->getMessage()
+                ),
+            ];
         }
 
-        $check = $this->generator->check($refactored, $className);
         if ($check['valid']) {
             return ['code' => $refactored, 'refactored' => true, 'reason' => null];
         }
@@ -36,7 +49,10 @@ final readonly class TestFinalizer
         return [
             'code' => $greenCode,
             'refactored' => false,
-            'reason' => sprintf('La version avec `use` échoue (%s) : FQCN conservés en ligne.', $check['phase']),
+            'reason' => sprintf(
+                'La version avec `use` échoue (%s) : FQCN conservés en ligne.',
+                $check['phase']
+            ),
         ];
     }
 }

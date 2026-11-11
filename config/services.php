@@ -9,6 +9,7 @@ use Mika\TestGeneratorBundle\Interceptor\Support\RepoMapProvider;
 use Mika\TestGeneratorBundle\Interceptor\Support\SeedExtractor;
 use Mika\TestGeneratorBundle\Interceptor\Support\TestPreFixerInterface;
 use Mika\TestGeneratorBundle\Registry\ErrorInterceptorRegistry;
+use Mika\TestGeneratorBundle\Resolver\SkillResolver;
 use PhpParser\Parser;
 use PhpParser\ParserFactory;
 use Symfony\AI\Platform\Platform;
@@ -93,7 +94,11 @@ return static function (ContainerConfigurator $container): void {
     $services->set('mika_test_generator.php_parser', Parser::class)
         ->factory([service(ParserFactory::class), 'createForNewestSupportedVersion']);
 
-    // 9. Repo-map : construite à la demande et mise en cache (CacheInterface autowiré, soit cache.app)
+    // 9. Skills : MIKA_DISABLE_NATIVE_SKILLS coupe les skills natifs (comparaison A/B) ; variable absente ou vide = skills actifs
+    $services->set(SkillResolver::class)
+        ->arg('$disableNativeSkills', '%env(bool:default::MIKA_DISABLE_NATIVE_SKILLS)%');
+
+    // 10. Repo-map : construite à la demande et mise en cache (CacheInterface autowiré, soit cache.app)
     $services->set(RepoMapProvider::class)
         ->arg('$srcDir', '%kernel.project_dir%/src');
 

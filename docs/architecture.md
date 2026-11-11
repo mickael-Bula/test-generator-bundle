@@ -67,7 +67,6 @@ test-generator-bundle/
 │   └── specifications.ms
 ├── Resources/
 │   ├── skill/
-│   │   ├── dto_test.md
 │   │   ├── filsystem_test.md
 │   │   ├── php-parser-v5.md
 │   │   └── symfony_command.md
