@@ -12,6 +12,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
+use Random\RandomException;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
 use Symfony\Component\Filesystem\Filesystem;
@@ -22,23 +23,26 @@ use Symfony\Component\Process\Process;
 final class DatabaseResolverCommandTest extends TestCase
 {
     private MockObject|TestDatabaseResolver $resolver;
-    private MockObject|KernelInterface $kernel;
     private CommandTester $commandTester;
     private string $tempDir;
     private Filesystem $filesystem;
 
+    /**
+     * @throws RandomException
+     */
     protected function setUp(): void
     {
         $this->resolver = $this->createMock(TestDatabaseResolver::class);
-        $this->kernel = $this->createMock(KernelInterface::class);
+        $kernel = $this->createMock(KernelInterface::class);
         $this->filesystem = new Filesystem();
         $this->tempDir = sys_get_temp_dir() . '/test_' . bin2hex(random_bytes(8));
         $this->filesystem->mkdir($this->tempDir);
-        $this->damaResolver = $this->createMock(DamaTestBundleResolver::class);
+        $damaResolver = $this->createMock(DamaTestBundleResolver::class);
+        $damaResolver->method('checkDamaBundle')->willReturn(true);
 
-        $this->kernel->method('getProjectDir')->willReturn($this->tempDir);
+        $kernel->method('getProjectDir')->willReturn($this->tempDir);
 
-        $command = new DatabaseResolverCommand($this->resolver, $this->kernel, $this->tempDir, $this->damaResolver);
+        $command = new DatabaseResolverCommand($this->resolver, $kernel, $this->tempDir, $damaResolver);
         $this->commandTester = new CommandTester($command);
     }
 

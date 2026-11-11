@@ -12,6 +12,9 @@ use PHPUnit\Framework\TestCase;
 #[CoversClass(JsonRepair::class)]
 final class JsonRepairTest extends TestCase
 {
+    /**
+     * @throws \JsonException
+     */
     #[Test]
     public function validJsonIsLeftAlone(): void
     {
@@ -23,6 +26,9 @@ final class JsonRepairTest extends TestCase
         self::assertSame([], $result['fixes']);
     }
 
+    /**
+     * @throws \JsonException
+     */
     #[Test]
     public function bareExpressionsAreQuoted(): void
     {
@@ -47,6 +53,9 @@ JSON;
         self::assertCount(2, $result['fixes']);
     }
 
+    /**
+     * @throws \JsonException
+     */
     #[Test]
     public function trailingCommasAreRemoved(): void
     {

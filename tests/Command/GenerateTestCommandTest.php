@@ -32,6 +32,8 @@ final class GenerateTestCommandTest extends TestCase
     private MockObject|TestPathResolver $pathResolver;
     private MockObject|SpecManager $specManager;
     private string $projectDir;
+    private DatabaseResolverCommand $databaseResolverCommand;
+    private TimeFormater $timeFormater;
 
     /**
      * @throws RandomException
