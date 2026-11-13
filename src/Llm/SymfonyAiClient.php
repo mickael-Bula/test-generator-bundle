@@ -9,6 +9,7 @@ use Mika\TestGeneratorBundle\Dto\SpecResultDto;
 use Mika\TestGeneratorBundle\Exception\TestGenerationException;
 use Mika\TestGeneratorBundle\Serializer\SpecSerializerFactory;
 use Mika\TestGeneratorBundle\Spec\JsonRepair;
+use Mika\TestGeneratorBundle\Spec\WillThrowNormalizer;
 use Mika\TestGeneratorBundle\Util\JsonSanitizer;
 use Mika\TestGeneratorBundle\Util\PhpCodeExtractor;
 use Psr\Log\LoggerInterface;
@@ -228,6 +229,9 @@ class SymfonyAiClient implements LlmClientInterface
         if (!\is_array($data) || !isset($data['targetClass'], $data['methods']) || !\is_array($data['methods'])) {
             throw new TestGenerationException('La réponse du LLM ne contient pas la structure de spec attendue (targetClass et methods).');
         }
+
+        // Le LLM décrit parfois `willThrow` comme un objet {class, message} : on le réduit au nom de classe
+        $data = (new WillThrowNormalizer())->normalize($data);
 
         try {
             /** @var SpecResultDto $specDto */

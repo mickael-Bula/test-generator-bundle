@@ -56,6 +56,27 @@ JSON;
     }
 
     /**
+     * Collecte, dans l'ordre, la valeur de chaque clé `willThrow` d'une spec exportée en tableau.
+     *
+     * @param array<mixed> $data
+     *
+     * @return list<mixed>
+     */
+    private function willThrowValues(array $data): array
+    {
+        $values = [];
+        foreach ($data as $key => $value) {
+            if ('willThrow' === $key) {
+                $values[] = $value;
+            } elseif (\is_array($value)) {
+                $values = [...$values, ...$this->willThrowValues($value)];
+            }
+        }
+
+        return $values;
+    }
+
+    /**
      * @throws TestGenerationException
      */
     #[Test]
@@ -93,5 +114,25 @@ JSON;
 
         // QUAND
         $this->client()->parseSpec('{"targetClass": "App\\\\Service\\\\Demo"}');
+    }
+
+    /**
+     * @throws TestGenerationException
+     */
+    #[Test]
+    public function testParseSpecReducesWillThrowObjectToItsClassName(): void
+    {
+        // ÉTANT DONNÉ
+        $raw = (string) file_get_contents(__DIR__ . '/Fixture/spec_will_throw_object.json.txt');
+
+        // QUAND
+        $spec = $this->client()->parseSpec($raw);
+
+        // ALORS
+        $thrown = array_values(array_filter(
+            $this->willThrowValues(ObjectExporter::toArray($spec)),
+            static fn (mixed $value): bool => null !== $value,
+        ));
+        self::assertSame(['Exception', 'Exception'], $thrown);
     }
 }
