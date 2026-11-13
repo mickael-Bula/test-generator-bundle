@@ -9,17 +9,23 @@ use Symfony\Component\Console\Command\Command;
 class SkillResolver
 {
     private string $nativeSkillsDir;
+    /** @var list<string> */
+    private array $disabledSkillFiles;
 
     public function __construct(
         private readonly ?string $customSkillsDir = null,
         ?string $nativeSkillsDir = null,
         private readonly bool $disableNativeSkills = false,
+        ?string $disabledSkillFiles = null,
     ) {
         // Remonte de deux niveaux depuis le répertoire courant (src/Resolver) pour atteindre la racine du Bundle.
         $bundleDir = \dirname(__DIR__, 2);
 
         // Chemin relatif vers Resources/skills
         $this->nativeSkillsDir = $nativeSkillsDir ?? $bundleDir . DIRECTORY_SEPARATOR . 'Resources' . DIRECTORY_SEPARATOR . 'skills';
+
+        // Fichiers natifs à ignorer, séparés par des virgules (ex. « unit_test_safety.md »)
+        $this->disabledSkillFiles = array_values(array_filter(array_map('trim', explode(',', (string) $disabledSkillFiles))));
     }
 
     /**
@@ -45,7 +51,6 @@ class SkillResolver
         // 1. Skills appliqués par défaut à tous les tests générés
         $skillsToLoad = [
             'phpunit11.md',
-            'unit_test_safety.md',
         ];
 
         // 2. Skill : Commandes Symfony
@@ -65,6 +70,9 @@ class SkillResolver
 
         $loadedSkills = [];
         foreach (array_unique($skillsToLoad) as $skillFile) {
+            if (\in_array($skillFile, $this->disabledSkillFiles, true)) {
+                continue;
+            }
             $content = $this->loadSkill($skillFile);
             if (null !== $content) {
                 $loadedSkills[] = $content;

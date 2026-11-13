@@ -11,6 +11,9 @@ Il existe des skills pour PHPUnit, pour PHPStan, pour le parser, pour la syntaxe
 
 Certains skills (ex : `unit_test_safety.md`) sont systématiquement ajoutés au prompt principal. Ils visent à fixer des règles générales.
 
+Il existe des intercepteurs qui, à la différence des skills qui visent à indiquer au LLM ce qu'il doit faire,
+ont pour but de corriger la génération du LLM en fournissant des indices ou des mesures correctives.
+
 ## La factory de LLM
 
 ## Repo-Map
@@ -394,48 +397,6 @@ XDEBUG_MODE=off php bin/console llm:fixture:benchmark
 
 Un rejet avec régression désigne un correctif qui casse un test. 
 Un rejet avec aucun problème résolu désigne un correctif sans effet mesurable : il est soit inutile, soit contourné par un défaut de mesure.
-
-### TODO 
-
-J'ai exécuté la commande : `php bin/console llm:fix:test var/failed_tests/2026-10-19_16-34-26_StrategyManager_FailedTestV2.php`
-```bash
- Début d'exécution (fix V2) : 00:10:19
-
- ! [NOTE] Test : var/failed_tests/2026-10-19_16-34-26_StrategyManager_FailedTestV2.php                                  
-
- ! [NOTE] Classe ciblée (V2) : App\Service\StrategyManager                                                              
- !        (/home/bulam/projects/webtrader_assetmapper/src/Service/StrategyManager.php)                                  
-
-Correction V2 pour : StrategyManager
-====================================
-
- // Reprise du test fourni, correction via la boucle V2 (qwen3-coder-32k:latest)...                                     
-
-                                                                                                                        
- [ERROR] Échec de la correction :                                                                                       
-                                                                                                                        
-
-Échec PHPStan pour StrategyManager après 2 tentatives. Sauvegardé dans : /home/bulam/projects/webtrader_assetmapper/var/failed_tests/2026-10-20_22-33-04_StrategyManager_FailedTestV2.php
-
- -------------- ----------- 
-  Début          00:10:19   
-  Durée totale   22m 49.7s  
-```
-Le test est en erreur en raison de PHPStan : 
-
-```text
-- Ligne 233 : Class App\Entity\Position constructor invoked with 2 parameters, 0 required.
-- Ligne 243 : Call to an undefined method App\Tests\Dynamic\StrategyManagerDynamicTest::getExpectedExceptionMessage().
-- Ligne 277 : Class App\Entity\Position constructor invoked with 2 parameters, 0 required.
-- Ligne 287 : Call to an undefined method App\Tests\Dynamic\StrategyManagerDynamicTest::getExpectedExceptionMessage().
-- Ligne 364 : Call to an undefined method App\Tests\Dynamic\StrategyManagerDynamicTest::getExpectedExceptionMessage().
-```
-
-QUESTIONS : 
-- Comment reconnaître et corriger l'intercepteur ? 
-- Faut-il capturer le test avec la commande `XDEBUG_MODE=off php bin/console llm:fixture:capture literal-stub-return tests/Fixtures/literal-stub-return/input.php` ?
-- Faut-il créer un cas de test avec le script `SCRIPT_CREATE_FIXTURES.sh` ?
-- Ou bien créer un cas de test manuel ?
 
 ## Commande de comparaisons des tentatives
 

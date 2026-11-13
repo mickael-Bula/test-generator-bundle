@@ -55,6 +55,8 @@ INSTRUCTIONS
    - Dans `mockExpectations`, `dependency` doit être l'un des FQCN de `dependenciesToMock`. 
      Il ne désigne JAMAIS la classe testée (`targetClass`) : on ne mocke aucune méthode de la classe testée, même si la méthode testée l'appelle.
    - Indique quelles dépendances doivent être mockées pour chaque cas de test (`mockExpectations`).
+   - Dans `mockExpectations`, `willThrow` vaut `null` ou le NOM DE CLASSE de l'exception que le mock lève,
+    en chaîne (ex : `"RuntimeException"`). Jamais un objet : le message éventuel n'a pas de champ dédié.
 INSTRUCTIONS;
 
         return <<<PROMPT

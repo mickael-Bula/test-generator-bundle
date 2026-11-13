@@ -96,7 +96,8 @@ return static function (ContainerConfigurator $container): void {
 
     // 9. Skills : MIKA_DISABLE_NATIVE_SKILLS coupe les skills natifs (comparaison A/B) ; variable absente ou vide = skills actifs
     $services->set(SkillResolver::class)
-        ->arg('$disableNativeSkills', '%env(bool:default::MIKA_DISABLE_NATIVE_SKILLS)%');
+        ->arg('$disableNativeSkills', '%env(bool:default::MIKA_DISABLE_NATIVE_SKILLS)%')
+        ->arg('$disabledSkillFiles', '%env(string:default::MIKA_DISABLE_SKILL_FILES)%');
 
     // 10. Repo-map : construite à la demande et mise en cache (CacheInterface autowiré, soit cache.app)
     $services->set(RepoMapProvider::class)

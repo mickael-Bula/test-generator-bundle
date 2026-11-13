@@ -10,6 +10,7 @@ use Mika\TestGeneratorBundle\Llm\LlmClientFactory;
 use Mika\TestGeneratorBundle\Manager\SpecManager;
 use Mika\TestGeneratorBundle\Reflection\SutCallGraph;
 use Mika\TestGeneratorBundle\Resolver\ClassResolver;
+use Mika\TestGeneratorBundle\Resolver\SkillResolver;
 use Mika\TestGeneratorBundle\Resolver\TestPathResolver;
 use Mika\TestGeneratorBundle\Service\TestFinalizer;
 use Mika\TestGeneratorBundle\Service\TestGeneratorV2;
@@ -24,7 +25,6 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
-use Symfony\Component\Process\Process;
 
 #[AsCommand(
     name: 'llm:generate:test:v2',
@@ -46,6 +46,7 @@ class GenerateTestV2Command extends Command
         private readonly TestFinalizer $finalizer,
         private readonly SutCallGraph $callGraph,
         private readonly TimeFormater $timeFormater,
+        private readonly SkillResolver $skillResolver,
     )
     {
         parent::__construct();
@@ -152,6 +153,9 @@ class GenerateTestV2Command extends Command
 
             $classCode = file_get_contents($filePath);
             $this->io->note(sprintf('Classe ciblée (V2) : %s (%s)', $fqcn, $filePath));
+
+            $skillsBytes = \strlen($this->skillResolver->resolveForClass($fqcn, $classCode));
+            $this->io->text(sprintf('Skills injectés au prompt : <info>%d octets</info>', $skillsBytes));
 
             // Vérifie la visibilité de la méthode testée.
             $methodOption = $input->getOption('method');
