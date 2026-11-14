@@ -8,7 +8,9 @@ final readonly class TestQualityGate
 {
     public function __construct(private TestQualityAnalyzer $analyzer) {}
 
-    /** Section au format PHPUnit (« 1) Classe::test » puis le message), ou null si le test est conforme. */
+    /**
+     * Section au format PHPUnit (« 1) Classe::test » puis le message), ou null si le test est conforme.
+     */
     public function report(string $testCode, ?string $baseline = null): ?string
     {
         $violations = $this->analyzer->analyze($testCode, $baseline)->violations;

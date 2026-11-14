@@ -7,8 +7,11 @@ namespace Mika\TestGeneratorBundle\Interceptor;
 use Mika\TestGeneratorBundle\Interceptor\Support\MockCountAnalyzer;
 use Mika\TestGeneratorBundle\Interceptor\Support\MockCountFinding;
 use Mika\TestGeneratorBundle\Interceptor\Support\PhpUnitFailureLocator;
+use Psr\Cache\InvalidArgumentException;
 
-/** @noinspection PhpUnused */
+/**
+ * @noinspection PhpUnused
+ */
 final readonly class MockCountExpectationInterceptor implements ErrorInterceptorInterface
 {
     public function __construct(
@@ -22,6 +25,9 @@ final readonly class MockCountExpectationInterceptor implements ErrorInterceptor
         return str_contains($errorOutput, 'was not expected to be called') || str_contains($errorOutput, 'Method was expected to be called');
     }
 
+    /**
+     * @throws InvalidArgumentException
+     */
     public function intercept(string $errorOutput): ?string
     {
         $file = $this->locator->locate($errorOutput)->testFile;
@@ -32,11 +38,22 @@ final readonly class MockCountExpectationInterceptor implements ErrorInterceptor
             $md .= $this->describe($f);
         }
 
-        return $md . "\nRègles :\n"
-            . "- Écris l'attendu avec `exactly(N)`, N = itérations de la boucle du SUT × appels par itération, calculé sur les données de CE test.\n"
-            . "- N'utilise PAS `any()` ni `atLeastOnce()` et ne supprime pas l'attente pour faire passer le test : la vérification disparaîtrait.\n"
-            . "- Une attente `expects()` se déclare AVANT l'appel du SUT : PHPUnit ne compte que les appels faits après.\n"
-            . "- Si le code du SUT ne fait pas ce que le nom du test annonce, adapte les DONNÉES du test (taille de la collection, valeurs qui franchissent la condition).\n";
+        $unreachable = array_filter($findings, static fn (MockCountFinding $f): bool => null !== $f->neverCalled);
+
+        $md .= "\nRègles :\n";
+        if ([] !== $unreachable) {
+            $md .= "- Mock signalé « jamais appelé » : aucune donnée n'y changera rien. Remplace son matcher par `never()`. "
+                . "N'ajoute ni `with()` ni valeur de retour : ils ne serviraient jamais.\n";
+        }
+        if ([] === $findings || \count($unreachable) < \count($findings)) {
+            $md .= "- Écris l'attendu avec `exactly(N)`, N = itérations de la boucle du SUT × appels par itération, calculé sur les données de CE test.\n"
+                . "- N'utilise PAS `any()` ni `atLeastOnce()` et ne supprime pas l'attente pour faire passer le test : la vérification disparaîtrait.\n"
+                . "- Une attente `expects()` se déclare AVANT l'appel du SUT : PHPUnit ne compte que les appels faits après.\n"
+                . "- Si le code du SUT ne fait pas ce que le nom du test annonce, "
+                . "adapte les DONNÉES du test (taille de la collection, valeurs qui franchissent la condition).\n";
+        }
+
+        return $md;
     }
 
     private function describe(MockCountFinding $f): string
@@ -45,6 +62,13 @@ final readonly class MockCountExpectationInterceptor implements ErrorInterceptor
         $md .= 'too-many' === $f->kind
             ? ', appelé plus souvent que l\'attente' . (null !== $f->limit ? sprintf(' (%d)', $f->limit) : '')
             : sprintf(', attendu %s fois, appelé %d fois', null !== $f->limit ? (string) $f->limit : 'N', (int) $f->observed);
+
+        if (null !== $f->neverCalled) {
+            return $md . sprintf(
+                "\n  - Le SUT ne peut pas appeler `%s()` : %s. L'attente est donc fausse, quelles que soient les données.",
+                $f->method, $f->neverCalled
+                );
+        }
 
         $md .= null !== $f->derived
             ? sprintf("\n  - Le code du SUT donne %d appel(s) pour ce test (%s) : écris `exactly(%d)`.", $f->derived, $f->derivation, $f->derived)

@@ -30,6 +30,8 @@ final class TestGeneratorV2
     private const MAX_PREFIX_FAILURES = 3; // échecs consécutifs
     private const MAX_PREFIX_PASSES = 20; // Garde-fou absolu
     private ?string $baseline = null; // test existant en cours de fusion : la porte ne juge que le nouveau code.
+    private string $runId = '';
+    private ?string $firstAttemptPath = null; // première génération du run, lien entre traces
 
     public function __construct(
         private readonly LlmClientFactory $llmFactory,
@@ -109,6 +111,8 @@ final class TestGeneratorV2
         ?callable $onProgress = null,
     ): GenerationResult {
         $this->baseline = $existingTestCode;
+        $this->runId = date('Y-m-d_H-i-s');
+        $this->firstAttemptPath = null;
         $client = $this->llmFactory->getClient();
         $targetModel = $model ?? $this->llmFactory->getDefaultModel();
 
@@ -169,10 +173,12 @@ final class TestGeneratorV2
 
             // Si MIKA_TEST_TRACE=1, on enregistre les sorties brutes du LLM (le code de départ n'en est pas une).
             if ($this->trace && !$fromStart) {
-                $this->filesystem->dumpFile(sprintf(
+                $attemptPath = sprintf(
                     '%s/attempts/%s_%s_attempt%d.php',
                     rtrim($this->failedTestsDir, '/\\'), date('Y-m-d_H-i-s'), $className, $phpunitAttempt,
-                ), $testCode);
+                );
+                $this->filesystem->dumpFile($attemptPath, $testCode);
+                $this->firstAttemptPath ??= $attemptPath;
             }
 
             // Validation de la syntaxe PHP
@@ -739,6 +745,8 @@ final class TestGeneratorV2
                     $fqcn,
                     $className,
                     $provider,
+                    round: $round,
+                    phase: 'PHPUnit',
                 );
             }
 
@@ -799,6 +807,8 @@ final class TestGeneratorV2
         string $fqcn,
         string $className,
         ?string $provider,
+        int $round,
+        string $phase,
     ): string {
         // La classe passée au prompt est celle du dernier run : les numéros de ligne du rapport y correspondent.
         $prompts = $builder->buildPrompt(
@@ -820,7 +830,59 @@ final class TestGeneratorV2
         $method = $this->patcher->fromAnswer($answer, $name);
         $patched = null === $method ? null : $this->patcher->replace($candidate, $name, $method);
 
+        if ($this->trace) {
+            $this->traceRepair($phase, $round, $className, $name, $prompts, $answer, $method, $patched, $candidate);
+        }
+
         return $patched ?? $candidate;
+    }
+
+    /**
+     * @param array{system: string, user: string} $prompts
+     */
+    private function traceRepair(
+        string $phase,
+        int $round,
+        string $className,
+        string $test,
+        array $prompts,
+        string $answer,
+        ?string $method,
+        ?string $patched,
+        string $candidate,
+    ): void {
+        $outcome = match (true) {
+            null === $method => 'réponse inutilisable (méthode absente ou renommée)',
+            null === $patched => 'remplacement refusé par MethodPatcher',
+            $patched === $candidate => 'méthode identique à la version envoyée',
+            default => 'méthode remplacée',
+        };
+
+        $lines = [
+            sprintf('# %s : %s, %s tour %d', $className, $test, $phase, $round),
+            '',
+            sprintf('Run : %s', $this->runId),
+            sprintf('Première passe : %s', $this->firstAttemptPath ?? '(fixture de départ)'),
+            sprintf('Résultat : %s', $outcome),
+            '',
+            '## Message système',
+            '',
+            $this->fenced($prompts['system'], 'text'),
+            '',
+            '## Message utilisateur (rapport, indices, code)',
+            '',
+            $this->fenced($prompts['user'], 'text'),
+            '',
+            '## Réponse du LLM',
+            '',
+            $this->fenced($answer, 'php'),
+            '',
+        ];
+
+        $this->filesystem->dumpFile(sprintf(
+            '%s/repairs/%s_%s_%s_%s_r%d.md',
+            rtrim($this->failedTestsDir, '/\\'), $this->runId, $className, $test, $phase, $round,
+        ), implode("\n", $lines));
     }
 
     /**
@@ -874,6 +936,8 @@ final class TestGeneratorV2
                     $fqcn,
                     $className,
                     $provider,
+                    round: $round,
+                    phase: 'PHPStan',
                 );
             }
 
@@ -1014,6 +1078,18 @@ final class TestGeneratorV2
     private function result(string $code, array $removed, string $className): GenerationResult
     {
         $reviewPath = [] === $removed ? null : $this->writeReviewReport($className, $removed);
+
+        if ($this->trace) {
+            $this->filesystem->dumpFile(
+                sprintf('%s/repairs/%s_%s_run.md', rtrim($this->failedTestsDir, '/\\'), $this->runId, $className),
+                implode("\n", [
+                    sprintf('Première passe : %s', $this->firstAttemptPath ?? '(fixture de départ)'),
+                    sprintf('Rapport de revue : %s', $reviewPath ?? '(aucun test retiré)'),
+                    sprintf('Tests retirés : %s', [] === $removed ? '-' : implode(', ', array_column($removed, 'test'))),
+                    '',
+                ]),
+            );
+        }
 
         return new GenerationResult($code, $removed, $reviewPath);
     }

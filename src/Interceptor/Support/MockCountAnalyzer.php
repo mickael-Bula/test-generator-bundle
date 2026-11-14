@@ -79,6 +79,9 @@ final readonly class MockCountAnalyzer
         return $found;
     }
 
+    /**
+     * @throws \ReflectionException
+     */
     private function finding(array $p, Node\Stmt\ClassMethod $test, ?\ReflectionClass $sut, ?string $property): MockCountFinding
     {
         $finder = new NodeFinder();
@@ -147,16 +150,22 @@ final readonly class MockCountAnalyzer
         // Nombre d'appels déduit du code du SUT
         $derived = null;
         $why = 'classe testée ou appel du SUT indéterminé';
+        $neverCalled = null;
         if (null !== $sut && 1 === \count($calls)) {
             $entry = $sut->getMethod($calls[0]->name->toString());
-            [$derived, $why] = $this->derive($entry, $p['method'], $this->argsOf($calls[0], $entry), $assigns);
+            $neverCalled = $this->calledByTest($body, $p['method']) ? null : $this->neverCalledFrom($sut, $entry, $p['method']);
+            if (null !== $neverCalled) {
+                $why = $neverCalled;
+            } else {
+                [$derived, $why] = $this->derive($entry, $p['method'], $this->argsOf($calls[0], $entry), $assigns);
+            }
         } elseif (null !== $sut) {
             $why = 'zéro ou plusieurs appels du SUT dans le test';
         }
 
         return new MockCountFinding(
             $p['kind'], $p['test'], $p['method'], $p['observed'], $derived, $why,
-            $matcher, null === $matcher ? null : $this->limitOf($matcher), $expectation, $moveBefore,
+            $matcher, null === $matcher ? null : $this->limitOf($matcher), $expectation, $moveBefore, $neverCalled,
         );
     }
 
@@ -244,6 +253,164 @@ final readonly class MockCountAnalyzer
         }
 
         return $map;
+    }
+
+    /**
+     * Le test appelle-t-il lui-même la méthode du mock (hors chaîne `->method('nom')`) ?
+     *
+     * @param list<Node\Stmt> $body
+     */
+    private function calledByTest(array $body, string $method): bool
+    {
+        return null !== (new NodeFinder())->findFirst($body, static fn (Node $n): bool => ($n instanceof Node\Expr\MethodCall || $n instanceof Node\Expr\NullsafeMethodCall)
+                && $n->name instanceof Node\Identifier && 0 === strcasecmp($n->name->toString(), $method));
+    }
+
+    /**
+     * Preuve statique qu'aucune exécution de $entry n'appelle $dependencyMethod : on parcourt les méthodes de la classe
+     * atteintes par `$this->m()`, `self::m()` et `static::m()`. Toute situation où la preuve n'est pas sûre donne null.
+     */
+    private function neverCalledFrom(\ReflectionClass $sut, \ReflectionMethod $entry, string $dependencyMethod): ?string
+    {
+        $file = $sut->getFileName();
+        if (false === $file || $entry->getDeclaringClass()->getName() !== $sut->getName()
+            || false !== $sut->getParentClass() || [] !== $sut->getTraitNames()) {
+            return null; // héritage ou trait : `$this->m()` peut viser du code hors de ce fichier
+        }
+        try {
+            $stmts = $this->parser->parse((string) file_get_contents($file)) ?? [];
+        } catch (Error) {
+            return null;
+        }
+        $traverser = new NodeTraverser();
+        $traverser->addVisitor(new ParentConnectingVisitor());
+        $stmts = $traverser->traverse($stmts);
+
+        $class = (new NodeFinder())->findFirst($stmts, static fn (Node $n): bool => $n instanceof Node\Stmt\Class_
+            && null !== $n->name && $n->name->toString() === $sut->getShortName());
+        if (!$class instanceof Node\Stmt\Class_) {
+            return null;
+        }
+
+        $methods = [];
+        foreach ($class->getMethods() as $m) {
+            $methods[strtolower($m->name->toString())] = $m;
+        }
+        if (!$this->plainConstructor($methods['__construct'] ?? null)) {
+            return null; // un collaborateur construit ici pourrait recevoir le mock
+        }
+
+        $queue = [strtolower($entry->getName())];
+        $visited = [];
+        while ([] !== $queue) {
+            $key = array_shift($queue);
+            if (isset($visited[$key])) {
+                continue;
+            }
+            $method = $methods[$key] ?? null;
+            if (null === $method) {
+                return null; // méthode appelée mais absente de la classe : __call, héritage…
+            }
+            $visited[$key] = $method->name->toString();
+
+            $callees = $this->scanMethod($method, $dependencyMethod, $sut);
+            if (null === $callees) {
+                return null;
+            }
+            $queue = [...$queue, ...$callees];
+        }
+
+        return sprintf(
+            "aucun chemin de `%s()` n'atteint `%s()` (méthodes parcourues : %s)",
+            $entry->getName(), $dependencyMethod, implode(', ', array_values($visited)),
+        );
+    }
+
+    /**
+     * Constructeur absent, ou limité à `$this->propriété = $paramètre`.
+     */
+    private function plainConstructor(?Node\Stmt\ClassMethod $constructor): bool
+    {
+        foreach ($constructor?->stmts ?? [] as $statement) {
+            if (!$statement instanceof Node\Stmt\Expression || !$statement->expr instanceof Node\Expr\Assign
+                || !$statement->expr->var instanceof Node\Expr\PropertyFetch
+                || !$statement->expr->var->var instanceof Node\Expr\Variable || 'this' !== $statement->expr->var->var->name
+                || !$statement->expr->expr instanceof Node\Expr\Variable) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @return list<string>|null méthodes de la classe appelées par $method (en minuscules) ;
+     *                           null si elle peut atteindre la dépendance ou si l'analyse n'est pas sûre
+     */
+    private function scanMethod(Node\Stmt\ClassMethod $method, string $dependencyMethod, \ReflectionClass $sut): ?array
+    {
+        $callees = [];
+        foreach ((new NodeFinder())->find($method->stmts ?? [], static fn (Node $n): bool => true) as $n) {
+            if ($n instanceof Node\Expr\MethodCall || $n instanceof Node\Expr\NullsafeMethodCall) {
+                if (!$n->name instanceof Node\Identifier || 0 === strcasecmp($n->name->toString(), $dependencyMethod)) {
+                    return null; // appel dynamique, ou la dépendance est atteinte
+                }
+                if ($n->var instanceof Node\Expr\Variable && 'this' === $n->var->name) {
+                    $callees[] = strtolower($n->name->toString());
+                }
+            } elseif ($n instanceof Node\Expr\StaticCall) {
+                if (!$n->class instanceof Node\Name || !$n->name instanceof Node\Identifier
+                    || 'parent' === strtolower($n->class->toString())
+                    || 0 === strcasecmp($n->name->toString(), $dependencyMethod)) {
+                    return null;
+                }
+                if (\in_array(strtolower($n->class->toString()), ['self', 'static'], true)) {
+                    $callees[] = strtolower($n->name->toString());
+                }
+            } elseif ($n instanceof Node\Expr\FuncCall) {
+                if (!$n->name instanceof Node\Name
+                    || \in_array(strtolower($n->name->toString()), ['call_user_func', 'call_user_func_array', 'forward_static_call', 'forward_static_call_array'], true)) {
+                    return null;
+                }
+            } elseif ($n instanceof Node\Expr\Variable && 'this' === $n->name) {
+                if (!$this->isReceiver($n)) {
+                    return null; // $this passé, retourné ou affecté
+                }
+            } elseif (($n instanceof Node\Expr\PropertyFetch || $n instanceof Node\Expr\NullsafePropertyFetch)
+                && $n->var instanceof Node\Expr\Variable && 'this' === $n->var->name) {
+                if (!$n->name instanceof Node\Identifier
+                    || (!$this->isReceiver($n) && $this->mayHoldObject($sut, $n->name->toString()))) {
+                    return null; // une propriété pouvant contenir le mock est passée ailleurs
+                }
+            }
+        }
+
+        return array_values(array_unique($callees));
+    }
+
+    /**
+     * Le nœud est-il le récepteur d'un appel de méthode ou d'un accès à une propriété (`$n->x`, `$n->m()`) ?
+     */
+    private function isReceiver(Node $n): bool
+    {
+        $parent = $n->getAttribute('parent');
+
+        return ($parent instanceof Node\Expr\MethodCall || $parent instanceof Node\Expr\NullsafeMethodCall
+                || $parent instanceof Node\Expr\PropertyFetch || $parent instanceof Node\Expr\NullsafePropertyFetch)
+            && $parent->var === $n;
+    }
+
+    /**
+     * Seuls les scalaires déclarés (int, float, string, bool) ne peuvent pas contenir le mock.
+     */
+    private function mayHoldObject(\ReflectionClass $sut, string $property): bool
+    {
+        if (!$sut->hasProperty($property)) {
+            return true;
+        }
+        $type = $sut->getProperty($property)->getType();
+
+        return !$type instanceof \ReflectionNamedType || !\in_array($type->getName(), ['int', 'float', 'string', 'bool'], true);
     }
 
     /**

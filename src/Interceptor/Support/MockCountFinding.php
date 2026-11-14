@@ -19,6 +19,7 @@ final readonly class MockCountFinding
         public ?int $limit,                           // nombre actuellement attendu
         public ?Node\Stmt\Expression $expectation,    // instruction `expects(...)->method(...)`
         public ?Node\Stmt $moveBefore,                // ancre si l'attente est déclarée APRÈS l'appel du SUT
+        public ?string $neverCalled = null,           // preuve statique : le SUT n'atteint jamais cette méthode (explication)
     ) {
     }
 }
