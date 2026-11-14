@@ -33,9 +33,17 @@ final readonly class MockCountExpectationInterceptor implements ErrorInterceptor
         $file = $this->locator->locate($errorOutput)->testFile;
         $findings = null !== $file && is_file($file) ? $this->analyzer->analyze($errorOutput, (string) file_get_contents($file)) : [];
 
+        return self::render($findings);
+    }
+
+    /**
+     * @param list<MockCountFinding> $findings
+     */
+    public static function render(array $findings): string
+    {
         $md = "### Nombre d'appels d'un mock différent de l'attendu\n";
         foreach ($findings as $f) {
-            $md .= $this->describe($f);
+            $md .= self::describe($f);
         }
 
         $unreachable = array_filter($findings, static fn (MockCountFinding $f): bool => null !== $f->neverCalled);
@@ -49,14 +57,14 @@ final readonly class MockCountExpectationInterceptor implements ErrorInterceptor
             $md .= "- Écris l'attendu avec `exactly(N)`, N = itérations de la boucle du SUT × appels par itération, calculé sur les données de CE test.\n"
                 . "- N'utilise PAS `any()` ni `atLeastOnce()` et ne supprime pas l'attente pour faire passer le test : la vérification disparaîtrait.\n"
                 . "- Une attente `expects()` se déclare AVANT l'appel du SUT : PHPUnit ne compte que les appels faits après.\n"
-                . "- Si le code du SUT ne fait pas ce que le nom du test annonce, "
-                . "adapte les DONNÉES du test (taille de la collection, valeurs qui franchissent la condition).\n";
+                . "- Si le code du SUT ne fait pas ce que le nom du test annonce, adapte les DONNÉES du test "
+                . "(taille de la collection, valeurs qui franchissent la condition).\n";
         }
 
         return $md;
     }
 
-    private function describe(MockCountFinding $f): string
+    private static function describe(MockCountFinding $f): string
     {
         $md = sprintf("\n- `%s` : mock `%s()`", $f->test, $f->method);
         $md .= 'too-many' === $f->kind
