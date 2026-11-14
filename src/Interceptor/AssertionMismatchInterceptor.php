@@ -121,7 +121,9 @@ final readonly class AssertionMismatchInterceptor implements ErrorInterceptorInt
             || ($node instanceof Node\Expr\UnaryMinus && ($node->expr instanceof Node\Scalar\Int_ || $node->expr instanceof Node\Scalar\Float_));
 
         return match (true) {
-            [] === $inputs => 'données du test indisponibles : recalcule depuis le code ci-dessous.',
+            [] === $inputs => "ce test ne fournit aucune donnée numérique : un objet créé avec `new` a des valeurs par défaut (0 ou null) que le SUT lit. "
+                . "Soit l'attendu est cette valeur par défaut (souvent 0), soit le test doit fournir la donnée que le SUT lit "
+                . "(cherche dans le code ci-dessous l'appel `->getXxx()` dont dépend la valeur, puis son setter) : ne devine pas un nombre.",
             null !== $node && !$literal => "l'attendu est une expression : vérifie que sa formule est celle du code ci-dessous.",
             isset($inputs[(string) (float) $expected]) => sprintf(
                 '`%s` figure parmi les données du test : le test attend peut-être une donnée au lieu du résultat.',

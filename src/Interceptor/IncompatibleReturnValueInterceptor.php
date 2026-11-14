@@ -16,6 +16,7 @@ use Psr\Cache\InvalidArgumentException;
  */
 final readonly class IncompatibleReturnValueInterceptor implements ErrorInterceptorInterface
 {
+    // language=RegExp
     private const PATTERN = '/^\d+\)\s+[\w\\\\]+::(?<test>\w+)[^\r\n]*\R[\w\\\\]*IncompatibleReturnValueException: Method (?<method>\w+) may not return value of type (?<given>[\w\\\\]+), its declared return type is "(?<expected>[^"]+)"[^\r\n]*(?:\R\R\S*Test\.php:(?<line>\d+))?/m';
 
     public function __construct(private PhpUnitFailureLocator $locator) {}

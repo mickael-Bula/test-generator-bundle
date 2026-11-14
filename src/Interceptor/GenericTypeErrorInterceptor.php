@@ -10,6 +10,7 @@ use Mika\TestGeneratorBundle\Service\TestSnapshotStore;
 /** @noinspection PhpUnused */
 final readonly class GenericTypeErrorInterceptor implements ErrorInterceptorInterface
 {
+    // language=RegExp
     private const PATTERN = '/TypeError:\s+(?<class>[\w\\\\]+)::(?<method>\w+)\(\):\s+Argument\s+#(?<pos>\d+)\s+\(\$(?<arg>\w+)\)\s+must be of type\s+(?<expected>[^,\r\n]+),\s+(?<given>\w+)\s+given(?:,\s+called in\s+(?<file>\S+)\s+on line\s+(?<line>\d+))?/';
 
     public function __construct(private TestSnapshotStore $snapshots){}

@@ -32,6 +32,8 @@ final class TestGeneratorV2
     private ?string $baseline = null; // test existant en cours de fusion : la porte ne juge que le nouveau code.
     private string $runId = '';
     private ?string $firstAttemptPath = null; // première génération du run, lien entre traces
+    /** @var array<string, int> */
+    private array $stalls = []; // tours dont la réponse du LLM est identique à la version envoyée
 
     public function __construct(
         private readonly LlmClientFactory $llmFactory,
@@ -112,6 +114,7 @@ final class TestGeneratorV2
     ): GenerationResult {
         $this->baseline = $existingTestCode;
         $this->runId = date('Y-m-d_H-i-s');
+        $this->stalls = [];
         $this->firstAttemptPath = null;
         $client = $this->llmFactory->getClient();
         $targetModel = $model ?? $this->llmFactory->getDefaultModel();
@@ -831,7 +834,7 @@ final class TestGeneratorV2
         $patched = null === $method ? null : $this->patcher->replace($candidate, $name, $method);
 
         if ($this->trace) {
-            $this->traceRepair($phase, $round, $className, $name, $prompts, $answer, $method, $patched, $candidate);
+            $this->traceRepair($phase, $round, $className, $name, $prompts, $answer, $method, $patched, $candidate, $testCode);
         }
 
         return $patched ?? $candidate;
@@ -850,11 +853,21 @@ final class TestGeneratorV2
         ?string $method,
         ?string $patched,
         string $candidate,
+        string $testCode,
     ): void {
+        $same = null !== $method
+            && preg_replace('/\s+/', '', $method) === preg_replace('/\s+/', '', (string) $this->patcher->extract($testCode, $test));
+
+        // Incrémente le compteur de tour perdu (réponse identique du LLM).
+        if ($same) {
+            $this->stalls[$test] = ($this->stalls[$test] ?? 0) + 1;
+        }
+
         $outcome = match (true) {
+            $same => 'réponse identique à la version envoyée',
             null === $method => 'réponse inutilisable (méthode absente ou renommée)',
             null === $patched => 'remplacement refusé par MethodPatcher',
-            $patched === $candidate => 'méthode identique à la version envoyée',
+            $patched === $candidate => 'remplacement sans effet (fichier inchangé)',
             default => 'méthode remplacée',
         };
 
@@ -1086,6 +1099,9 @@ final class TestGeneratorV2
                     sprintf('Première passe : %s', $this->firstAttemptPath ?? '(fixture de départ)'),
                     sprintf('Rapport de revue : %s', $reviewPath ?? '(aucun test retiré)'),
                     sprintf('Tests retirés : %s', [] === $removed ? '-' : implode(', ', array_column($removed, 'test'))),
+                    sprintf('Réponses identiques à la version envoyée : %s', [] === $this->stalls
+                        ? '-'
+                        : implode(', ', array_map(static fn (string $t, int $n): string => $t . ' ×' . $n, array_keys($this->stalls), $this->stalls))),
                     '',
                 ]),
             );
