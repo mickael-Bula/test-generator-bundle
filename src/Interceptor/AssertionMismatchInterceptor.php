@@ -87,7 +87,8 @@ final readonly class AssertionMismatchInterceptor implements ErrorInterceptorInt
             && ($n->expr instanceof Node\Expr\StaticCall || $n->expr instanceof Node\Expr\MethodCall)
             && $n->expr->name instanceof Node\Identifier
             && str_starts_with($n->expr->name->toString(), 'assert')
-            && $n->getStartLine() <= $f['line'] && $f['line'] <= $n->getEndLine());
+            && $n->getStartLine() <= $f['line'] && $f['line'] <= $n->getEndLine()
+        );
 
         $md = sprintf("\n- `%s` (ligne %d)", $f['test'], $f['line']);
 
