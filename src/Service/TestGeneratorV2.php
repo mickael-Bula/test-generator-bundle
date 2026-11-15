@@ -14,6 +14,8 @@ use Mika\TestGeneratorBundle\Llm\LlmClientInterface;
 use Mika\TestGeneratorBundle\PromptBuilder\TestPromptBuilderInterface;
 use Mika\TestGeneratorBundle\Quality\MethodPatcher;
 use Mika\TestGeneratorBundle\Quality\PhpStanReport;
+use Mika\TestGeneratorBundle\Quality\SoftAssertionCollector;
+use Mika\TestGeneratorBundle\Quality\SoftAssertionRewriter;
 use Mika\TestGeneratorBundle\Quality\TestQualityGate;
 use Mika\TestGeneratorBundle\Validator\PhpSyntaxValidator;
 use SebastianBergmann\Diff\Differ;
@@ -48,7 +50,9 @@ final class TestGeneratorV2
         #[Autowire('%kernel.project_dir%/var/tmp')] private readonly string $tmpDir = 'var/tmp',
         #[Autowire('%kernel.project_dir%/var/failed_tests')] private readonly string $failedTestsDir = 'var/failed_tests',
         #[Autowire('%env(bool:default::MIKA_TEST_TRACE)%')] private readonly bool $trace = false,
+        #[Autowire('%env(bool:default::MIKA_DISABLE_SOFT_ASSERTIONS)%')] private readonly bool $disableSoftAssertions = false,
         private readonly Filesystem $filesystem = new Filesystem(),
+        private readonly ?SoftAssertionCollector $softAssertions = null,
     ) {
         if (!$this->filesystem->exists($this->tmpDir)) {
             $this->filesystem->mkdir($this->tmpDir);
@@ -730,6 +734,8 @@ final class TestGeneratorV2
                 return $this->repairOutcome(false, true, $testCode, $output);
             }
 
+            $failing = $this->withAllAssertions($testCode, $className, $failing);
+
             $candidate = $testCode;
             foreach ($failing as $name => $report) {
                 $attempts[$name] = ($attempts[$name] ?? 0) + 1;
@@ -1061,6 +1067,59 @@ final class TestGeneratorV2
         return $reports;
     }
 
+    /**
+     * Ajoute au rapport de chaque test en échec d'assertion la liste de toutes ses assertions fausses (une seule exécution).
+     *
+     * @param array<string, string> $failing nom du test => rapport
+     *
+     * @return array<string, string>
+     */
+    private function withAllAssertions(string $testCode, string $className, array $failing): array
+    {
+        $trace = function (string $line): void {
+            if ($this->trace) {
+                $this->filesystem->appendToFile(
+                    sprintf('%s/repairs/%s_soft.log', rtrim($this->failedTestsDir, '/\\'), $this->runId),
+                    $line . "\n",
+                );
+            }
+        };
+
+        if ($this->disableSoftAssertions || null === $this->softAssertions) {
+            $trace('collecteur inactif : ' . ($this->disableSoftAssertions ? 'désactivé par MIKA_DISABLE_SOFT_ASSERTIONS' : 'non injecté (null)'));
+
+            return $failing;
+        }
+
+        $assertions = array_keys(array_filter($failing, static fn (string $report): bool => str_contains($report, 'Failed asserting that')));
+        if ([] === $assertions) {
+            $trace('aucun rapport « Failed asserting that » parmi : ' . implode(', ', array_keys($failing)));
+
+            return $failing;
+        }
+
+        $found = $this->softAssertions->collect(
+            $testCode,
+            $className,
+            $assertions,
+            static function (string $output, ?string $error) use ($trace, $assertions): void {
+                $trace(sprintf(
+                    "exécution assouplie de %s : erreur = %s\n%s\n----",
+                    implode(', ', $assertions), $error ?? '-', mb_substr($output, 0, 4000)
+                    )
+                );
+            },
+        );
+
+        foreach ($found as $name => $items) {
+            $trace(sprintf('%s : %d assertion(s) relevée(s)', $name, \count($items)));
+            if (\count($items) > 1 && isset($failing[$name])) {
+                $failing[$name] .= "\n\n" . SoftAssertionRewriter::render($items);
+            }
+        }
+
+        return $failing;
+    }
     /**
      * Un test déjà présent dans le fichier existant (mode fusion) n'est jamais retiré.
      *

@@ -1,0 +1,183 @@
+{
+  "targetClass": "App\\Command\\PortfolioSnapshotCommand",
+  "testType": "Unit",
+  "dependenciesToMock": [
+    {
+      "class": "App\\Repository\\UserRepository",
+      "propertyName": "userRepository"
+    },
+    {
+      "class": "App\\Service\\PortfolioService",
+      "propertyName": "portfolioService"
+    },
+    {
+      "class": "Doctrine\\ORM\\EntityManagerInterface",
+      "propertyName": "entityManager"
+    }
+  ],
+  "methods": [
+    {
+      "name": "execute",
+      "dataProviders": [],
+      "testCases": [
+        {
+          "id": "TC_EXECUTE_01",
+          "title": "testExecuteSuccessWithValidUsersAndData",
+          "description": "Teste l'exécution réussie avec des utilisateurs et données valides.",
+          "type": "success",
+          "usesDataProvider": false,
+          "dataProviderName": null,
+          "inputs": {
+            "input": {},
+            "output": {}
+          },
+          "mockExpectations": [
+            {
+              "dependency": "App\\Repository\\UserRepository",
+              "method": "findAll",
+              "willReturns": [
+                {"id": 1, "username": "user1"},
+                {"id": 2, "username": "user2"}
+              ],
+              "willThrow": null
+            },
+            {
+              "dependency": "App\\Service\\PortfolioService",
+              "method": "calculateCurrentSnapshot",
+              "willReturns": {
+                "total_equity": 1000.5,
+                "cash_amount": 200.75
+              },
+              "willThrow": null
+            },
+            {
+              "dependency": "Doctrine\\ORM\\EntityManagerInterface",
+              "method": "persist",
+              "willReturns": null,
+              "willThrow": null
+            },
+            {
+              "dependency": "Doctrine\\ORM\\EntityManagerInterface",
+              "method": "flush",
+              "willReturns": null,
+              "willThrow": null
+            }
+          ],
+          "expectedBehavior": {
+            "returnValue": 0,
+            "throwsException": null,
+            "exceptionMessage": null
+          }
+        },
+        {
+          "id": "TC_EXECUTE_02",
+          "title": "testExecuteThrowsExceptionOnPortfolioServiceFailure",
+          "description": "Teste le comportement en cas d'erreur lors du calcul du snapshot par PortfolioService.",
+          "type": "error",
+          "usesDataProvider": false,
+          "dataProviderName": null,
+          "inputs": {
+            "input": {},
+            "output": {}
+          },
+          "mockExpectations": [
+            {
+              "dependency": "App\\Repository\\UserRepository",
+              "method": "findAll",
+              "willReturns": [{"id": 1, "username": "user1"}],
+              "willThrow": null
+            },
+            {
+              "dependency": "App\\Service\\PortfolioService",
+              "method": "calculateCurrentSnapshot",
+              "willReturns": null,
+              "willThrow": {
+                "class": "Exception",
+                "message": "Erreur de calcul"
+              }
+            }
+          ],
+          "expectedBehavior": {
+            "returnValue": 1,
+            "throwsException": null,
+            "exceptionMessage": null
+          }
+        },
+        {
+          "id": "TC_EXECUTE_03",
+          "title": "testExecuteHandlesEmptyUserListGracefully",
+          "description": "Teste le comportement avec une liste d'utilisateurs vide.",
+          "type": "success",
+          "usesDataProvider": false,
+          "dataProviderName": null,
+          "inputs": {
+            "input": {},
+            "output": {}
+          },
+          "mockExpectations": [
+            {
+              "dependency": "App\\Repository\\UserRepository",
+              "method": "findAll",
+              "willReturns": [],
+              "willThrow": null
+            }
+          ],
+          "expectedBehavior": {
+            "returnValue": 0,
+            "throwsException": null,
+            "exceptionMessage": null
+          }
+        },
+        {
+          "id": "TC_EXECUTE_04",
+          "title": "testExecuteHandlesEntityManagerFlushFailure",
+          "description": "Teste le comportement en cas d'échec lors du flush de l'entityManager.",
+          "type": "error",
+          "usesDataProvider": false,
+          "dataProviderName": null,
+          "inputs": {
+            "input": {},
+            "output": {}
+          },
+          "mockExpectations": [
+            {
+              "dependency": "App\\Repository\\UserRepository",
+              "method": "findAll",
+              "willReturns": [{"id": 1, "username": "user1"}],
+              "willThrow": null
+            },
+            {
+              "dependency": "App\\Service\\PortfolioService",
+              "method": "calculateCurrentSnapshot",
+              "willReturns": {
+                "total_equity": 500.0,
+                "cash_amount": 100.0
+              },
+              "willThrow": null
+            },
+            {
+              "dependency": "Doctrine\\ORM\\EntityManagerInterface",
+              "method": "persist",
+              "willReturns": null,
+              "willThrow": null
+            },
+            {
+              "dependency": "Doctrine\\ORM\\EntityManagerInterface",
+              "method": "flush",
+              "willReturns": null,
+              "willThrow": {
+                "class": "Exception",
+                "message": "Erreur de flush"
+              }
+            }
+          ],
+          "expectedBehavior": {
+            "returnValue": 1,
+            "throwsException": null,
+            "exceptionMessage": null
+          }
+        }
+      ]
+    }
+  ]
+}

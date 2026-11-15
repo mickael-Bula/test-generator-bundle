@@ -16,8 +16,11 @@ use PhpParser\Parser;
 final readonly class MockCountAnalyzer
 {
     // « Classe::méthode(args): type was not expected to be called more than once. »
+    // language=RegExp
     private const TOO_MANY = '/^\d+\)\s+[\w\\\\]+::(?<test>\w+)[^\r\n]*\R[\w\\\\]+::(?<method>\w+)\(.*?\)(?::\s*\S+)?\s+was not expected to be called more than (?:once|\d+ times?)\./m';
+
     // « Expectation failed for method name is "m" when invoked N time(s). Method was expected to be called N time(s), actually called K time(s). »
+    // language=RegExp
     private const WRONG = '/^\d+\)\s+[\w\\\\]+::(?<test>\w+)[^\r\n]*\RExpectation failed for method name is "(?<method>\w+)" when invoked \d+ times?\.\RMethod was expected to be called \d+ times?, actually called (?<observed>\d+) times?\./m';
 
     public function __construct(
@@ -29,6 +32,7 @@ final readonly class MockCountAnalyzer
 
     /**
      * @return list<MockCountFinding>
+     * @throws \ReflectionException
      */
     public function analyze(string $report, string $testCode): array
     {
@@ -414,11 +418,12 @@ final readonly class MockCountAnalyzer
     }
 
     /**
-     * Nombre d'appels de $dependencyMethod causés par UNE exécution de $entry, déduit du code : boucles `for` à bornes
-     * constantes, `foreach` sur un paramètre fourni en littéral par le test. Tout le reste (if, while, return anticipé,
-     * appel via une méthode privée, closure…) donne null : on ne devine pas.
+     * Nombre d'appels de $dependencyMethod causés par UNE exécution de $entry, déduit du code : appels directs
+     * (`$this->propriété->méthode()`) et appels vers les autres méthodes de la classe (`$this->autre()`), publiques ou privées.
+     * Boucles `for` à bornes constantes et `foreach` sur un paramètre fourni en littéral par le test sont comptées.
+     * Tout le reste (if, while, return ou throw avant l'appel, appel dynamique, héritage, closure…) donne null : on ne devine pas.
      *
-     * @param array<string, Node\Expr>  $args
+     * @param array<string, Node\Expr>       $args
      * @param array<string, list<Node\Expr>> $assigns
      *
      * @return array{0: ?int, 1: string}
@@ -438,55 +443,147 @@ final readonly class MockCountAnalyzer
         $traverser->addVisitor(new ParentConnectingVisitor());
         $stmts = $traverser->traverse($stmts);
 
-        $finder = new NodeFinder();
-        $method = $finder->findFirst($stmts, static fn (Node $n): bool => $n instanceof Node\Stmt\ClassMethod && $n->name->toString() === $entry->getName());
-        if (!$method instanceof Node\Stmt\ClassMethod) {
+        $shortName = $entry->getDeclaringClass()->getShortName();
+        $class = (new NodeFinder())->findFirst($stmts, static fn (Node $n): bool => $n instanceof Node\Stmt\Class_
+            && null !== $n->name && $n->name->toString() === $shortName);
+        if (!$class instanceof Node\Stmt\Class_) {
+            return [null, 'classe introuvable dans le SUT'];
+        }
+
+        $methods = [];
+        foreach ($class->getMethods() as $m) {
+            $methods[strtolower($m->name->toString())] = $m;
+        }
+        $method = $methods[strtolower($entry->getName())] ?? null;
+        if (null === $method) {
             return [null, 'méthode introuvable dans le SUT'];
         }
+
+        $notes = [];
+        $count = $this->callsOf($method, $methods, $dependencyMethod, $args, $assigns, [], $notes);
+        if (\is_string($count)) {
+            return [null, $count];
+        }
+
+        return [$count, [] === $notes ? 'appel direct, sans boucle' : implode(' ; ', array_unique($notes))];
+    }
+
+    /**
+     * @param array<string, Node\Stmt\ClassMethod> $methods
+     * @param array<string, Node\Expr>             $args    arguments de la méthode d'entrée (vides pour les méthodes relayées)
+     * @param array<string, list<Node\Expr>>       $assigns
+     * @param list<string>                         $visiting
+     * @param list<string>                         $notes
+     *
+     * @return int|string le nombre d'appels, ou la raison pour laquelle il n'est pas déductible
+     */
+    private function callsOf(
+        Node\Stmt\ClassMethod $method,
+        array $methods,
+        string $dependency,
+        array $args,
+        array $assigns,
+        array $visiting,
+        array &$notes
+    ): int|string {
+        $key = strtolower($method->name->toString());
+        if (\in_array($key, $visiting, true)) {
+            return "méthodes de la classe qui s'appellent entre elles";
+        }
+        $visiting[] = $key;
+
+        $finder = new NodeFinder();
         $body = $method->stmts ?? [];
 
-        $isCall = static fn (Node $n): bool => $n instanceof Node\Expr\MethodCall && $n->name instanceof Node\Identifier
-            && 0 === strcasecmp($n->name->toString(), $dependencyMethod)
-            && $n->var instanceof Node\Expr\PropertyFetch && $n->var->var instanceof Node\Expr\Variable && 'this' === $n->var->var->name;
-        $sites = $finder->find($body, $isCall);
-        if ([] === $sites || \count($sites) !== \count($finder->find($stmts, $isCall))) {
-            return [null, "l'appel n'est pas uniquement dans la méthode testée (il passe par une méthode privée)"];
+        $events = []; // [appel, nombre d'appels de la dépendance qu'il provoque]
+        foreach ($finder->findInstanceOf($body, Node\Expr\MethodCall::class) as $call) {
+            if ($call->var instanceof Node\Expr\PropertyFetch && $call->var->var instanceof Node\Expr\Variable && 'this' === $call->var->var->name) {
+                if ($call->name instanceof Node\Identifier && 0 === strcasecmp($call->name->toString(), $dependency)) {
+                    $events[] = [$call, 1];
+                }
+            } elseif ($call->var instanceof Node\Expr\Variable && 'this' === $call->var->name) {
+                if (!$call->name instanceof Node\Identifier) {
+                    return "appel dynamique d'une méthode de la classe";
+                }
+                $callee = $methods[strtolower($call->name->toString())] ?? null;
+                if (null === $callee) {
+                    return sprintf('méthode %s() absente de la classe (héritage, trait ou __call)', $call->name->toString());
+                }
+                $weight = $this->callsOf($callee, $methods, $dependency, [], $assigns, $visiting, $notes);
+                if (\is_string($weight)) {
+                    return $weight;
+                }
+                if ($weight > 0) {
+                    $events[] = [$call, $weight];
+                    $notes[] = sprintf('%s() : %d appel(s)', $call->name->toString(), $weight);
+                }
+            }
         }
-        if ([] !== $finder->find($body, static fn (Node $n): bool => $n instanceof Node\Stmt\Break_ || $n instanceof Node\Stmt\Continue_)) {
-            return [null, 'break ou continue dans la méthode'];
+        if ([] === $events) {
+            return 0;
         }
+
+        // Instruction de premier niveau qui contient un nœud
+        $top = static function (Node $node) use ($method): ?int {
+            for ($n = $node; null !== $n; $n = $n->getAttribute('parent')) {
+                if ($n->getAttribute('parent') === $method) {
+                    $index = array_search($n, $method->stmts ?? [], true);
+
+                    return false === $index ? null : $index;
+                }
+            }
+
+            return null;
+        };
+
+        $lastEvent = -1;
+        foreach ($events as [$call]) {
+            $index = $top($call);
+            if (null === $index) {
+                return 'appel hors du corps de la méthode';
+            }
+            $lastEvent = max($lastEvent, $index);
+        }
+
+        // Une sortie (return, break, continue, throw, exit) n'est admise qu'après la dernière instruction qui appelle,
+        // ou comme dernier return du corps
         $last = [] === $body ? null : $body[array_key_last($body)];
-        foreach ($finder->findInstanceOf($body, Node\Stmt\Return_::class) as $return) {
-            if ($return !== $last) {
-                return [null, 'return anticipé'];
+        $exits = $finder->find($body, static fn (Node $n): bool => $n instanceof Node\Stmt\Return_ || $n instanceof Node\Stmt\Break_
+            || $n instanceof Node\Stmt\Continue_ || $n instanceof Node\Expr\Throw_ || $n instanceof Node\Expr\Exit_);
+        foreach ($exits as $exit) {
+            if ($exit === $last) {
+                continue;
+            }
+            $index = $top($exit);
+            if (null === $index || $index <= $lastEvent) {
+                return "return, break, continue ou throw avant ou autour de l'appel";
             }
         }
 
         $total = 0;
-        $notes = [];
-        foreach ($sites as $site) {
+        foreach ($events as [$call, $weight]) {
             $times = 1;
-            for ($n = $site->getAttribute('parent'); null !== $n && $n !== $method; $n = $n->getAttribute('parent')) {
+            for ($n = $call->getAttribute('parent'); null !== $n && $n !== $method; $n = $n->getAttribute('parent')) {
                 if ($n instanceof Node\Stmt\For_) {
                     if (null === $count = $this->forIterations($n)) {
-                        return [null, 'boucle for à bornes non constantes'];
+                        return 'boucle for à bornes non constantes';
                     }
                     $times *= $count;
                     $notes[] = sprintf('boucle for : %d itération(s)', $count);
                 } elseif ($n instanceof Node\Stmt\Foreach_) {
                     if (null === $count = $this->foreachIterations($n, $method, $args, $assigns)) {
-                        return [null, "foreach sur une valeur que le test ne fournit pas en littéral"];
+                        return 'foreach sur une valeur que le test ne fournit pas en littéral';
                     }
                     $times *= $count;
                     $notes[] = sprintf('foreach : %d élément(s) fourni(s) par le test', $count);
                 } elseif ($this->isConditional($n)) {
-                    return [null, "appel conditionnel (if, switch, match, while, ?:, && ou ||)"];
+                    return 'appel conditionnel (if, switch, match, while, ?:, && ou ||)';
                 }
             }
-            $total += $times;
+            $total += $times * $weight;
         }
 
-        return [$total, [] === $notes ? 'appel direct, sans boucle' : implode(' ; ', array_unique($notes))];
+        return $total;
     }
 
     /**

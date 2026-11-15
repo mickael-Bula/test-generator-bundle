@@ -22,6 +22,9 @@ use PHPUnit\Framework\TestCase;
 #[UsesClass(SutPropertyFinder::class)]
 final class MockCountAnalyzerTest extends TestCase
 {
+    /**
+     * @throws \ReflectionException
+     */
     #[Test]
     public function testUnSutQuiNAtteintJamaisLaDependanceEstDeclareInjoignable(): void
     {
@@ -45,6 +48,9 @@ final class MockCountAnalyzerTest extends TestCase
         self::assertStringContainsString('méthodes parcourues : compute, double, offset', (string) $finding->neverCalled);
     }
 
+    /**
+     * @throws \ReflectionException
+     */
     #[Test]
     public function testLaDependanceAtteinteParUneMethodePriveeNEstPasDeclareeInjoignable(): void
     {
@@ -55,13 +61,16 @@ final class MockCountAnalyzerTest extends TestCase
         // QUAND on analyse le rapport
         $findings = $this->analyzer()->analyze($report, $code);
 
-        // ALORS aucune preuve « jamais appelé » et aucun nombre déduit : le comportement d'avant est conservé
+        // ALORS aucune preuve « jamais appelé », mais le nombre d'appels est déduit à travers la méthode privée
         self::assertCount(1, $findings);
         self::assertNull($findings[0]->neverCalled);
-        self::assertNull($findings[0]->derived);
-        self::assertStringContainsString('méthode privée', $findings[0]->derivation);
+        self::assertSame(1, $findings[0]->derived);
+        self::assertStringContainsString('lookup() : 1 appel(s)', $findings[0]->derivation);
     }
 
+    /**
+     * @throws \ReflectionException
+     */
     #[Test]
     public function testUnTestQuiAppelleLuiMemeLaMethodeDuMockNEstPasDeclareInjoignable(): void
     {
@@ -78,6 +87,9 @@ final class MockCountAnalyzerTest extends TestCase
         self::assertNull($findings[0]->neverCalled);
     }
 
+    /**
+     * @throws \ReflectionException
+     */
     #[DataProvider('provideUnprovableCases')]
     #[Test]
     public function testUneSituationOuLaPreuveNEstPasSureNeDonneAucunNeverCalled(string $sut, string $call): void
@@ -102,6 +114,9 @@ final class MockCountAnalyzerTest extends TestCase
         yield from MockCountScenario::unprovableCases();
     }
 
+    /**
+     * @throws \ReflectionException
+     */
     #[Test]
     public function testUnScalairePasseEnArgumentNEmpecheNiLaPreuveNiLeParcours(): void
     {
@@ -117,6 +132,9 @@ final class MockCountAnalyzerTest extends TestCase
         self::assertStringContainsString('méthodes parcourues : passScalar, scale', (string) $findings[0]->neverCalled);
     }
 
+    /**
+     * @throws \ReflectionException
+     */
     #[Test]
     public function testUneBoucleSurUnTableauLitteralDonneLeNombreDAppelsDeduit(): void
     {
@@ -135,6 +153,9 @@ final class MockCountAnalyzerTest extends TestCase
         self::assertNull($findings[0]->neverCalled);
     }
 
+    /**
+     * @throws \ReflectionException
+     */
     #[Test]
     public function testUnTableauVideDonneZeroAppelSansPreuveDeChemin(): void
     {
@@ -151,6 +172,9 @@ final class MockCountAnalyzerTest extends TestCase
         self::assertNull($findings[0]->neverCalled);
     }
 
+    /**
+     * @throws \ReflectionException
+     */
     #[Test]
     public function testUnRapportSansProblemeDeComptageNeDonneAucunFinding(): void
     {
@@ -164,6 +188,9 @@ final class MockCountAnalyzerTest extends TestCase
         self::assertSame([], $findings);
     }
 
+    /**
+     * @throws \ReflectionException
+     */
     #[Test]
     public function testUnCodeDeTestIllisibleNeDonneAucunFinding(): void
     {
@@ -175,6 +202,70 @@ final class MockCountAnalyzerTest extends TestCase
 
         // ALORS l'analyseur s'abstient
         self::assertSame([], $findings);
+    }
+
+    /**
+     * @throws \ReflectionException
+     */
+    #[Test]
+    public function testUnAppelRelayeParUneAutreMethodePubliqueEstCompte(): void
+    {
+        // ÉTANT DONNÉ une méthode qui appelle une autre méthode publique, laquelle appelle fetch() une fois
+        $code = MockCountScenario::testCode('ForwardingService', MockCountScenario::expectation('self::exactly(2)'), 'quantity(3)');
+
+        // QUAND on analyse un rapport « attendu 2 fois, appelé 1 fois »
+        $findings = $this->analyzer()->analyze(MockCountScenario::wrongCount(2, 1), $code);
+
+        // ALORS le nombre déduit est 1, malgré le return anticipé placé après l'appel
+        self::assertCount(1, $findings);
+        self::assertSame(1, $findings[0]->derived);
+        self::assertNull($findings[0]->neverCalled);
+        self::assertStringContainsString('snapshot() : 1 appel(s)', $findings[0]->derivation);
+    }
+
+    /**
+     * @throws \ReflectionException
+     */
+    #[Test]
+    public function testDeuxAppelsRelayesSAdditionnent(): void
+    {
+        // ÉTANT DONNÉ une méthode qui appelle deux fois la méthode relais
+        $code = MockCountScenario::testCode('ForwardingService', MockCountScenario::expectation('self::once()'), 'twice(3)');
+
+        // QUAND on analyse le rapport
+        $findings = $this->analyzer()->analyze(MockCountScenario::tooMany(), $code);
+
+        // ALORS le nombre déduit est 2
+        self::assertCount(1, $findings);
+        self::assertSame(2, $findings[0]->derived);
+    }
+
+    /**
+     * @throws \ReflectionException
+     */
+    #[DataProvider('provideUnderivableRelays')]
+    #[Test]
+    public function testUnAppelRelayeNonProuveNeDonneAucunNombre(string $call, string $reason): void
+    {
+        // ÉTANT DONNÉ un appel relayé dont l'exécution n'est pas certaine
+        $code = MockCountScenario::testCode('ForwardingService', MockCountScenario::expectation('self::exactly(2)'), $call);
+
+        // QUAND on analyse le rapport
+        $findings = $this->analyzer()->analyze(MockCountScenario::wrongCount(2, 1), $code);
+
+        // ALORS aucun nombre n'est déduit, avec la raison
+        self::assertCount(1, $findings);
+        self::assertNull($findings[0]->derived);
+        self::assertStringContainsString($reason, $findings[0]->derivation);
+    }
+
+    /**
+     * @return iterable<string, array{string, string}>
+     */
+    public static function provideUnderivableRelays(): iterable
+    {
+        yield 'return avant l\'appel' => ['guarded(3)', 'avant ou autour'];
+        yield 'appel conditionnel' => ['conditional(3)', 'conditionnel'];
     }
 
     private function analyzer(): MockCountAnalyzer

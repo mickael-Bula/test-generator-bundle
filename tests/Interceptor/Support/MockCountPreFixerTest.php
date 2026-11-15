@@ -175,6 +175,32 @@ final class MockCountPreFixerTest extends TestCase
         self::assertNull($fixed);
     }
 
+    #[Test]
+    public function testUnAppelRelayeParUneAutreMethodeEstCorrigeQuandPhpunitConfirme(): void
+    {
+        // ÉTANT DONNÉ une attente exactly(2) alors que le code relayé appelle fetch() une fois, et PHPUnit qui a mesuré un appel
+        $code = MockCountScenario::testCode('ForwardingService', MockCountScenario::expectation('self::exactly(2)'), 'quantity(3)');
+
+        // QUAND le correcteur s'applique
+        $fixed = $this->fixer()->fix(MockCountScenario::wrongCount(2, 1), $code);
+
+        // ALORS exactly(2) devient once()
+        self::assertSame(str_replace('self::exactly(2)', 'self::once()', $code), $fixed);
+    }
+
+    #[Test]
+    public function testUnReturnAvantLAppelRelayeInterditLaCorrection(): void
+    {
+        // ÉTANT DONNÉ un return anticipé placé avant l'appel relayé
+        $code = MockCountScenario::testCode('ForwardingService', MockCountScenario::expectation('self::exactly(2)'), 'guarded(3)');
+
+        // QUAND le correcteur s'applique
+        $fixed = $this->fixer()->fix(MockCountScenario::wrongCount(2, 1), $code);
+
+        // ALORS il s'abstient : la preuve n'est pas établie
+        self::assertNull($fixed);
+    }
+
     private function fixer(): MockCountPreFixer
     {
         return new MockCountPreFixer(new MockCountAnalyzer(
