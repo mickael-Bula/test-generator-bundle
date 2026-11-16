@@ -173,6 +173,17 @@ La boucle s’arrête dans l’un de ces trois états :
 - **Aucun correcteur ne s’applique** : la dernière étape est le prochain problème à traiter. C’est l’objet même de la méthode, qui traite un problème à la fois.
 - **Limite** `--max-steps` atteinte. La limite peut être augmentée avec le flag `--max-steps`.
 
+### Capturer un fichier de test
+
+Il suffit de créer le fichier (ex : `var/failed_tests/attempts/performance_only.php`), puis d'exécuter :
+
+```bash
+# Capture créée dans `tests/Fixtures/FailedTests/performance-double-stub` avec création des fichiers `hints.txt`, `meta.json`...
+# Possibilité de modifier input.php pour réduire à un seul test au besoin. Possible égalemet d'éditer hints.txt et forbidden.txt
+php bin/console llm:fixture:capture performance-double-stub var/failed_tests/attempts/performance_only.php -v --chain
+vendor/bin/phpunit tests/TestGenerator/FailedTestFixturesTest.php # Joue les tests à partir des fixtures, y compris la nouvellement créée ou modifiée
+```
+
 #### Afficher toute la chaîne
 
 La commande `llm:fix:test` permet de capturer les échecs du LLM afin d'alimenter les fixtures :

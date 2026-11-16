@@ -9,6 +9,7 @@ use PhpParser\Error;
 use PhpParser\Node;
 use PhpParser\NodeFinder;
 use PhpParser\Parser;
+use Psr\Cache\InvalidArgumentException;
 
 /** @noinspection PhpUnused */
 final readonly class StubShadowingInterceptor implements ErrorInterceptorInterface
@@ -22,22 +23,51 @@ final readonly class StubShadowingInterceptor implements ErrorInterceptorInterfa
     {
         // La vérification par 'str_contains' évite l’analyse sur les rapports sans rapport.
         return (str_contains($errorOutput, 'Undefined array key') || str_contains($errorOutput, 'Expectation failed for method name is'))
-            && [] !== $this->lines($errorOutput);
+            && [] !== $this->entries($errorOutput);
     }
 
+    /**
+     * @throws InvalidArgumentException
+     */
     public function intercept(string $errorOutput): ?string
     {
-        $lines = $this->lines($errorOutput);
-        if ([] === $lines) {
-            return null;
+        $entries = $this->entries($errorOutput);
+
+        return [] === $entries ? null : self::render($entries);
+    }
+
+    /**
+     * @param list<array{kind: string, text: string}> $entries kind : « setup » (masqué par setUp()) ou « duplicate » (stubé deux fois dans le test)
+     */
+    public static function render(array $entries): string
+    {
+        $texts = static fn (string $kind): array => array_values(array_column(
+            array_filter($entries, static fn (array $e): bool => $kind === $e['kind']),
+            'text',
+        ));
+        $setUp = $texts('setup');
+        $duplicates = $texts('duplicate');
+
+        $md = "### Stubs masqués\n";
+        if ([] !== $setUp) {
+            $md .= "PHPUnit renvoie la valeur du PREMIER stub enregistré qui correspond à l'appel ; les suivants ne font que compter les appels.\n"
+                . implode("\n", $setUp) . "\n"
+                . "Correction : retire du `setUp()` tout stub (`->method(...)`). Si plusieurs tests partagent la même base, crée une méthode "
+                . "privée `stubXxx(...)` (valeurs en paramètres) appelée explicitement par chaque test, avec UN seul stub par méthode et par test. "
+                . "Un tableau retourné par un mock doit contenir toutes les clés que le SUT lit.\n";
+        }
+        if ([] !== $duplicates) {
+            $md .= "Une même méthode de mock est déclarée plusieurs fois DANS le test. Chaque appel du SUT est évalué par TOUTES ces attentes : "
+                . "le `with()` de l'une rejette les appels destinés à l'autre.\n"
+                . implode("\n", $duplicates) . "\n"
+                . "Correction : garde UNE seule attente `expects(...)->method('x')` par méthode dans ce test.\n"
+                . "- Si la méthode est appelée plusieurs fois avec des arguments différents, un seul stub ne peut pas porter deux `with()` : "
+                . "utilise `expects(self::exactly(N))->method('x')->willReturnCallback(...)`, N étant le nombre d'appels du SUT, "
+                . "qui répond selon les arguments reçus (la recette figure dans « Arguments d'un mock » quand cette section est présente).\n"
+                . "- Ne modifie pas `setUp()` : il n'est pas en cause ici.\n";
         }
 
-        return "### Stubs masqués\n"
-            . "PHPUnit renvoie la valeur du PREMIER stub enregistré qui correspond à l'appel ; les suivants ne font que compter les appels.\n"
-            . implode("\n", $lines) . "\n"
-            . "Correction : retire du `setUp()` tout stub (`->method(...)`). Si plusieurs tests partagent la même base, crée une méthode "
-            . "privée `stubXxx(...)` (valeurs en paramètres) appelée explicitement par chaque test, avec UN seul stub par méthode et par test. "
-            . "Un tableau retourné par un mock doit contenir toutes les clés que le SUT lit.\n";
+        return $md;
     }
 
     /**
@@ -69,9 +99,10 @@ final readonly class StubShadowingInterceptor implements ErrorInterceptorInterfa
     }
 
     /**
-     * @return list<string>
+     * @return list<array{kind: string, text: string}>
+     * @throws InvalidArgumentException
      */
-    private function lines(string $errorOutput): array
+    private function entries(string $errorOutput): array
     {
         $file = $this->locator->locate($errorOutput)->testFile;
         if (null === $file) {
@@ -98,7 +129,7 @@ final readonly class StubShadowingInterceptor implements ErrorInterceptorInterfa
         preg_match_all('/::(\w+)/', $errorOutput, $names);
         $failing = array_flip($names[1]);
 
-        $lines = [];
+        $entries = [];
         foreach ($stubs as $test => $list) {
             if ('setUp' === $test || !isset($failing[$test])) {
                 continue;
@@ -106,14 +137,26 @@ final readonly class StubShadowingInterceptor implements ErrorInterceptorInterfa
             $seen = [];
             foreach ($list as [$key, $line]) {
                 if (isset($setUp[$key])) {
-                    $lines[] = sprintf('- `%s` : le stub de `%s` (ligne %d) est masqué par celui de `setUp()` (ligne %d).', $test, $key, $line, $setUp[$key]);
+                    $entries[] = [
+                        'kind' => 'setup',
+                        'text' => sprintf(
+                            '- `%s` : le stub de `%s` (ligne %d) est masqué par celui de `setUp()` (ligne %d).',
+                            $test, $key, $line, $setUp[$key]
+                        )
+                    ];
                 } elseif (isset($seen[$key])) {
-                    $lines[] = sprintf('- `%s` : `%s` est stubé deux fois (lignes %d puis %d) ; seul le premier compte.', $test, $key, $seen[$key], $line);
+                    $entries[] = [
+                        'kind' => 'duplicate',
+                        'text' => sprintf(
+                            '- `%s` : `%s` est stubé deux fois (lignes %d puis %d).',
+                            $test, $key, $seen[$key], $line
+                        )
+                    ];
                 }
                 $seen[$key] ??= $line;
             }
         }
 
-        return $lines;
+        return $entries;
     }
 }
