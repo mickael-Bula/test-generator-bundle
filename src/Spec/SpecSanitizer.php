@@ -66,10 +66,23 @@ final readonly class SpecSanitizer
     private function dropSutMocks(string $chunk, string $sut): string
     {
         // le SUT n'est jamais un mock
-        $chunk = preg_replace('/^[ \t]*- `' . preg_quote($sut, '/') . '::\w+\(\)`.*\R?/m', '', $chunk) ?? $chunk;
+        $mock = '/^[ \t]*- `' . preg_quote($sut, '/') . '::\w+\(\)`.*\R?/m';
+        $guard = new ExpectedValueGuard();
 
-        // En-tête « Attentes Mocks » resté sans aucune ligne
-        return preg_replace('/^\* \*\*Attentes Mocks\*\* :\R(?=\*|#|[ \t]*\R|\s*\z)/m', '', $chunk) ?? $chunk;
+        $parts = preg_split('/(?=^#### )/m', $chunk) ?: [$chunk];
+        $kept = [(string) array_shift($parts)]; // en-tête de la section
+
+        foreach ($parts as $block) {
+            $orphaned = 1 === preg_match($mock, $block);
+            $block = preg_replace($mock, '', $block) ?? $block;
+
+            // En-tête « Attentes Mocks » resté sans aucune ligne
+            $block = preg_replace('/^\* \*\*Attentes Mocks\*\* :\R(?=\*|#|[ \t]*\R|\s*\z)/m', '', $block) ?? $block;
+
+            $kept[] = $guard->apply($block, $orphaned);
+        }
+
+        return implode('', $kept);
     }
 
     private function coverageNote(\ReflectionClass $rc): string
