@@ -11,6 +11,7 @@ use PhpParser\Node;
 use PhpParser\NodeFinder;
 use PhpParser\Parser;
 use Psr\Log\LoggerInterface;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 final readonly class SpecSanitizer
 {
@@ -18,6 +19,7 @@ final readonly class SpecSanitizer
         private Parser $parser,
         private SpecExpectationChecker $expectations,
         private ?LoggerInterface $logger = null,
+        #[Autowire('%env(bool:default::MIKA_ENABLE_SPEC_GUARD)%')] private bool $enableValueGuard = false,
     ) {
     }
 
@@ -79,7 +81,7 @@ final readonly class SpecSanitizer
             // En-tête « Attentes Mocks » resté sans aucune ligne
             $block = preg_replace('/^\* \*\*Attentes Mocks\*\* :\R(?=\*|#|[ \t]*\R|\s*\z)/m', '', $block) ?? $block;
 
-            $kept[] = $guard->apply($block, $orphaned);
+            $kept[] = $this->enableValueGuard ? $guard->apply($block, $orphaned) : $block;
         }
 
         return implode('', $kept);
