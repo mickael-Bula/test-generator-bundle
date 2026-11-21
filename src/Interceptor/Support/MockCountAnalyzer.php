@@ -23,6 +23,10 @@ final readonly class MockCountAnalyzer
     // language=RegExp
     private const WRONG = '/^\d+\)\s+[\w\\\\]+::(?<test>\w+)[^\r\n]*\RExpectation failed for method name is "(?<method>\w+)" when invoked \d+ times?\.\RMethod was expected to be called \d+ times?, actually called (?<observed>\d+) times?\./m';
 
+    // « Classe::méthode(args): type was not expected to be called. » (never() violé, sans « more than »)
+    // language=RegExp
+    private const NEVER_VIOLATED = '/^\d+\)\s+[\w\\\\]+::(?<test>\w+)[^\r\n]*\R[\w\\\\]+::(?<method>\w+)\(.*?\)(?::\s*\S+)?\s+was not expected to be called\./m';
+
     public function __construct(
         private Parser $parser,
         private CoveredClassReader $coveredClass,
@@ -34,9 +38,9 @@ final readonly class MockCountAnalyzer
      * @return list<MockCountFinding>
      * @throws \ReflectionException
      */
-    public function analyze(string $report, string $testCode): array
+    public function analyze(string $report, string $testCode, bool $withNever = false): array
     {
-        $problems = $this->problems($report);
+        $problems = $this->problems($report, $withNever);
         if ([] === $problems) {
             return [];
         }
@@ -68,7 +72,7 @@ final readonly class MockCountAnalyzer
     /**
      * @return list<array{kind: string, test: string, method: string, observed: ?int}>
      */
-    private function problems(string $report): array
+    private function problems(string $report, bool $withNever): array
     {
         $found = [];
         preg_match_all(self::TOO_MANY, $report, $m, PREG_SET_ORDER);
@@ -78,6 +82,12 @@ final readonly class MockCountAnalyzer
         preg_match_all(self::WRONG, $report, $m, PREG_SET_ORDER);
         foreach ($m as $e) {
             $found[] = ['kind' => 'wrong-count', 'test' => $e['test'], 'method' => $e['method'], 'observed' => (int) $e['observed']];
+        }
+        if ($withNever) {
+            preg_match_all(self::NEVER_VIOLATED, $report, $m, PREG_SET_ORDER);
+            foreach ($m as $e) {
+                $found[] = ['kind' => 'never-violated', 'test' => $e['test'], 'method' => $e['method'], 'observed' => null];
+            }
         }
 
         return $found;
@@ -157,7 +167,12 @@ final readonly class MockCountAnalyzer
         $neverCalled = null;
         if (null !== $sut && 1 === \count($calls)) {
             $entry = $sut->getMethod($calls[0]->name->toString());
-            $neverCalled = $this->calledByTest($body, $p['method']) ? null : $this->neverCalledFrom($sut, $entry, $p['method']);
+
+            // PHPUnit a mesuré un appel, la preuve statique « jamais appelé » ne doit donc pas être produite pour ce type
+            $neverCalled = ('never-violated' === $p['kind'] || $this->calledByTest($body, $p['method']))
+                ? null
+                : $this->neverCalledFrom($sut, $entry, $p['method']);
+
             if (null !== $neverCalled) {
                 $why = $neverCalled;
             } else {

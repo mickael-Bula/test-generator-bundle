@@ -26,12 +26,14 @@ final readonly class MockCountExpectationInterceptor implements ErrorInterceptor
     }
 
     /**
-     * @throws InvalidArgumentException
+     * @throws InvalidArgumentException|\ReflectionException
      */
     public function intercept(string $errorOutput): ?string
     {
         $file = $this->locator->locate($errorOutput)->testFile;
-        $findings = null !== $file && is_file($file) ? $this->analyzer->analyze($errorOutput, (string) file_get_contents($file)) : [];
+        $findings = null !== $file && is_file($file)
+            ? $this->analyzer->analyze($errorOutput, (string) file_get_contents($file), withNever: true)
+            : [];
 
         return self::render($findings);
     }
@@ -47,15 +49,28 @@ final readonly class MockCountExpectationInterceptor implements ErrorInterceptor
         }
 
         $unreachable = array_filter($findings, static fn (MockCountFinding $f): bool => null !== $f->neverCalled);
+        $violated = array_filter($findings, static fn (MockCountFinding $f): bool => 'never-violated' === $f->kind);
+        $counted = array_filter($findings, static fn (MockCountFinding $f): bool => null === $f->neverCalled && 'never-violated' !== $f->kind);
 
         $md .= "\nRègles :\n";
         if ([] !== $unreachable) {
             $md .= "- Mock signalé « jamais appelé » : aucune donnée n'y changera rien. Remplace son matcher par `never()`. "
                 . "N'ajoute ni `with()` ni valeur de retour : ils ne serviraient jamais.\n";
         }
-        if ([] === $findings || \count($unreachable) < \count($findings)) {
-            $md .= "- Écris l'attendu avec `exactly(N)`, N = itérations de la boucle du SUT × appels par itération, calculé sur les données de CE test.\n"
-                . "- N'utilise PAS `any()` ni `atLeastOnce()` et ne supprime pas l'attente pour faire passer le test : la vérification disparaîtrait.\n"
+        if ([] !== $violated) {
+            $md .= "- `never()` violé : le SUT appelle bien la méthode avec les données du test. "
+                . "Lis le SUT, puis applique UNE des deux corrections, sans supprimer l'attente :\n"
+                . "  - le nom du test annonce qu'il ne se passe rien (aucun changement, entrée ignorée…) : "
+                . "change les DONNÉES pour que la condition du SUT empêche l'appel, et garde `never()` ;\n"
+                . "  - le nom du test annonce un appel ou un enregistrement : remplace `never()` par `exactly(N)`, "
+                . "N calculé sur les données de CE test.\n"
+                . "- N'utilise PAS `any()` ni `atLeastOnce()` : la vérification disparaîtrait.\n";
+        }
+        if ([] === $findings || [] !== $counted) {
+            $md .= "- Écris l'attendu avec `exactly(N)`, N = itérations de la boucle du SUT × appels par itération, "
+                . "calculé sur les données de CE test.\n"
+                . "- N'utilise PAS `any()` ni `atLeastOnce()` et ne supprime pas l'attente pour faire passer le test : "
+                . "la vérification disparaîtrait.\n"
                 . "- Une attente `expects()` se déclare AVANT l'appel du SUT : PHPUnit ne compte que les appels faits après.\n"
                 . "- Si le code du SUT ne fait pas ce que le nom du test annonce, adapte les DONNÉES du test "
                 . "(taille de la collection, valeurs qui franchissent la condition).\n";
@@ -66,6 +81,14 @@ final readonly class MockCountExpectationInterceptor implements ErrorInterceptor
 
     private static function describe(MockCountFinding $f): string
     {
+        if ('never-violated' === $f->kind) {
+            $md = sprintf("\n- `%s` : mock `%s()` déclaré avec `never()`, mais appelé par le SUT", $f->test, $f->method);
+
+            return $md . (null !== $f->derived && $f->derived > 0
+                    ? sprintf("\n  - Le code du SUT donne %d appel(s) pour ce test (%s).", $f->derived, $f->derivation)
+                    : sprintf("\n  - Nombre d'appels non déductible automatiquement (%s) : lis la méthode du SUT.", $f->derivation));
+        }
+
         $md = sprintf("\n- `%s` : mock `%s()`", $f->test, $f->method);
         $md .= 'too-many' === $f->kind
             ? ', appelé plus souvent que l\'attente' . (null !== $f->limit ? sprintf(' (%d)', $f->limit) : '')
@@ -73,8 +96,8 @@ final readonly class MockCountExpectationInterceptor implements ErrorInterceptor
 
         if (null !== $f->neverCalled) {
             return $md . sprintf(
-                "\n  - Le SUT ne peut pas appeler `%s()` : %s. L'attente est donc fausse, quelles que soient les données.",
-                $f->method, $f->neverCalled
+                    "\n  - Le SUT ne peut pas appeler `%s()` : %s. L'attente est donc fausse, quelles que soient les données.",
+                    $f->method, $f->neverCalled
                 );
         }
 
