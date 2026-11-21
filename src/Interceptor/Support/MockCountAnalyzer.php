@@ -220,7 +220,7 @@ final readonly class MockCountAnalyzer
      * Toutes les variables de l'instruction sont-elles déjà affectées avant le point d'insertion ?
      * Les paramètres et les variables locales des closures n'existent pas dans la méthode de test : on les ignore.
      */
-    private function movable(Node\Stmt $expectation, array $before): bool
+    public function movable(Node\Stmt $expectation, array $before): bool
     {
         $finder = new NodeFinder();
         $defined = [];

@@ -6,6 +6,7 @@ namespace Mika\TestGeneratorBundle\Service;
 
 use Mika\TestGeneratorBundle\Dto\GenerationResult;
 use Mika\TestGeneratorBundle\Exception\TestCorrectionException;
+use Mika\TestGeneratorBundle\Interceptor\Support\LateExpectationNormalizer;
 use Mika\TestGeneratorBundle\Interceptor\Support\PreFixerChain;
 use Mika\TestGeneratorBundle\Interceptor\Support\ProblemSignatures;
 use Mika\TestGeneratorBundle\Interceptor\Support\ReportBlocks;
@@ -53,6 +54,7 @@ final class TestGeneratorV2
         #[Autowire('%env(bool:default::MIKA_DISABLE_SOFT_ASSERTIONS)%')] private readonly bool $disableSoftAssertions = false,
         private readonly Filesystem $filesystem = new Filesystem(),
         private readonly ?SoftAssertionCollector $softAssertions = null,
+        private readonly ?LateExpectationNormalizer $lateExpectations = null,
     ) {
         if (!$this->filesystem->exists($this->tmpDir)) {
             $this->filesystem->mkdir($this->tmpDir);
@@ -418,6 +420,7 @@ final class TestGeneratorV2
      */
     private function runWithPreFix(string $testCode, string $className): array
     {
+        $testCode = $this->normalizeLateExpectations($testCode);
         $run = $this->runPhpUnit($testCode, $className);
         $problems = ProblemSignatures::of($run['output']);
         $seen = [sha1($testCode) => true];
@@ -479,6 +482,32 @@ final class TestGeneratorV2
 
         // ['valid' => true, 'output' => 'OK', 'code' => '<?php …', 'applied' => '...']
         return [...$run, 'code' => $testCode, 'applied' => $applied, 'rejected' => $rejected];
+    }
+
+    /**
+     * Remonte avant le QUAND les attentes déclarées après l'appel du SUT, sauf dans les tests déjà présents (mode fusion).
+     * La différence est tracée avec MIKA_TEST_TRACE=1.
+     */
+    private function normalizeLateExpectations(string $testCode): string
+    {
+        if (null === $this->lateExpectations) {
+            return $testCode;
+        }
+
+        $skip = null === $this->baseline ? [] : $this->patcher->names($this->baseline);
+        $normalized = $this->lateExpectations->normalize($testCode, $skip);
+        if (null === $normalized) {
+            return $testCode;
+        }
+
+        if ($this->trace) {
+            $this->filesystem->appendToFile(
+                sprintf('%s/repairs/%s_late.log', rtrim($this->failedTestsDir, '/\\'), $this->runId),
+                $this->unifiedDiff($testCode, $normalized) . "\n----\n",
+            );
+        }
+
+        return $normalized;
     }
 
     /**
