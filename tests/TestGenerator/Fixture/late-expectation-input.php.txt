@@ -1,0 +1,85 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Tests\Dynamic;
+
+use Mika\TestGeneratorBundle\Tests\TestGenerator\Fixture\AuditLogger;
+use Mika\TestGeneratorBundle\Tests\TestGenerator\Fixture\RecordStoreInterface;
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\MockObject\MockObject;
+use PHPUnit\Framework\TestCase;
+
+#[CoversClass(AuditLogger::class)]
+final class AuditLoggerDynamicTest extends TestCase
+{
+    private RecordStoreInterface&MockObject $storeMock;
+    private AuditLogger $sut;
+
+    protected function setUp(): void
+    {
+        $this->storeMock = $this->createMock(RecordStoreInterface::class);
+        $this->sut = new AuditLogger($this->storeMock);
+    }
+
+    #[Test]
+    public function testLogDeleteStoresOneRecord(): void
+    {
+        // ÉTANT DONNÉ
+        $subjectId = 10;
+
+        // QUAND
+        $this->sut->logDelete($subjectId);
+
+        // ALORS
+        $this->storeMock->expects($this->once())->method('persist');
+    }
+
+    #[Test]
+    public function testLogUpdateStoresOneRecordPerChangedField(): void
+    {
+        // ÉTANT DONNÉ
+        $old = ['object' => 'Ancien objet', 'status' => 'open'];
+        $new = ['object' => 'Nouvel objet', 'status' => 'closed'];
+
+        // QUAND
+        $this->sut->logUpdate(3, $old, $new);
+
+        // ALORS
+        $this->storeMock->expects($this->exactly(2))->method('persist');
+    }
+
+    #[Test]
+    public function testLogUpdateWithSingleFieldChange(): void
+    {
+        // ÉTANT DONNÉ
+        $old = ['object' => 'Ancien objet'];
+        $new = ['object' => 'Nouvel objet'];
+
+        // QUAND
+        $this->sut->logUpdate(2, $old, $new);
+
+        // ALORS
+        $this->storeMock
+            ->expects($this->once())
+            ->method('persist')
+            ->with($this->isType('array'));
+    }
+
+    #[Test]
+    public function testLogDeleteStoresDeleteRecord(): void
+    {
+        // ÉTANT DONNÉ
+        $subjectId = 11;
+
+        // QUAND
+        $this->sut->logDelete($subjectId);
+
+        // ALORS
+        $this->storeMock
+            ->expects($this->once())
+            ->method('persist')
+            ->with($this->callback(static fn (array $record): bool => 'DELETE' === $record['action']));
+    }
+}

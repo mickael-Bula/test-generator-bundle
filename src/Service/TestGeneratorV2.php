@@ -1120,6 +1120,7 @@ final class TestGeneratorV2
 
         return $failing;
     }
+
     /**
      * Un test déjà présent dans le fichier existant (mode fusion) n'est jamais retiré.
      *
@@ -1209,7 +1210,9 @@ final class TestGeneratorV2
         return $path;
     }
 
-    /** Bloc de code Markdown dont la clôture est plus longue que toute suite de guillemets obliques du contenu. */
+    /**
+     * Bloc de code Markdown dont la clôture est plus longue que toute suite de guillemets obliques du contenu.
+     */
     private function fenced(string $content, string $language): string
     {
         $longest = 0;

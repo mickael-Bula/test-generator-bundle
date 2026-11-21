@@ -218,6 +218,7 @@ final readonly class MockCountAnalyzer
 
     /**
      * Toutes les variables de l'instruction sont-elles déjà affectées avant le point d'insertion ?
+     * Les paramètres et les variables locales des closures n'existent pas dans la méthode de test : on les ignore.
      */
     private function movable(Node\Stmt $expectation, array $before): bool
     {
@@ -230,8 +231,32 @@ final readonly class MockCountAnalyzer
                 }
             }
         }
+
+        $local = [];
+        $closures = $finder->find($expectation, static fn (Node $n): bool => $n instanceof Node\Expr\Closure || $n instanceof Node\Expr\ArrowFunction);
+        foreach ($closures as $closure) {
+            foreach ($closure->params as $param) {
+                if ($param->var instanceof Node\Expr\Variable && \is_string($param->var->name)) {
+                    $local[$param->var->name] = true;
+                }
+            }
+            if ($closure instanceof Node\Expr\Closure) {
+                foreach ($finder->findInstanceOf($closure->stmts, Node\Expr\Assign::class) as $assign) {
+                    if ($assign->var instanceof Node\Expr\Variable && \is_string($assign->var->name)) {
+                        $local[$assign->var->name] = true;
+                    }
+                }
+            }
+        }
+
         foreach ($finder->findInstanceOf($expectation, Node\Expr\Variable::class) as $variable) {
-            if (!\is_string($variable->name) || ('this' !== $variable->name && !isset($defined[$variable->name]))) {
+            if (!\is_string($variable->name)) {
+                return false;
+            }
+            if ('this' === $variable->name || isset($local[$variable->name])) {
+                continue;
+            }
+            if (!isset($defined[$variable->name])) {
                 return false;
             }
         }

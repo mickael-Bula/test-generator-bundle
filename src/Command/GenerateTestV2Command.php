@@ -315,7 +315,7 @@ class GenerateTestV2Command extends Command
         $names = array_map(static fn (array $item): string => $item['test'], $result->removed);
 
         $this->io->warning([
-            sprintf('%d test(s) retiré(s) du fichier livré, car irréparables : %s', count($names), implode(', ', $names)),
+            sprintf('%d test(s) retiré(s) du fichier livré, car irréparable(s) : %s', count($names), implode(', ', $names)),
             sprintf('Rapport de revue : %s', $result->reviewPath ?? 'non écrit'),
         ]);
     }

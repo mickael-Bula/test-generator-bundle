@@ -16,10 +16,14 @@ final readonly class LateExpectationPreFixer implements TestPreFixerInterface
 {
     public function __construct(private MockCountAnalyzer $analyzer) {}
 
+    /**
+     * @throws \ReflectionException
+     */
     public function fix(string $errorOutput, string $testCode): ?string
     {
         $edits = []; // [position, longueur, texte]
         $inserts = [];
+        $eol = str_contains($testCode, "\r\n") ? "\r\n" : "\n";
 
         foreach ($this->analyzer->analyze($errorOutput, $testCode) as $f) {
             if ('wrong-count' !== $f->kind || 0 !== $f->observed || null === $f->expectation || null === $f->moveBefore) {
@@ -40,7 +44,7 @@ final readonly class LateExpectationPreFixer implements TestPreFixerInterface
                 continue; // du code précède l'ancre sur sa ligne : on ne touche pas
             }
 
-            $inserts[$lineStart] = ($inserts[$lineStart] ?? '') . $indent . substr($testCode, $start, $end - $start + 1) . "\n\n";
+            $inserts[$lineStart] = ($inserts[$lineStart] ?? '') . $indent . substr($testCode, $start, $end - $start + 1) . $eol . $eol;
             [$from, $length] = SourceSpan::lines($testCode, $start, $end);
             $edits[] = [$from, $length, ''];
         }
