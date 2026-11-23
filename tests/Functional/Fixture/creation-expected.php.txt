@@ -1,0 +1,33 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Tests\Functional;
+
+use App\Tests\E2ETest;
+
+final class CreerUnePositionEnAttenteDynamicTest extends E2ETest
+{
+    public function testCreerUnePositionEnAttente(): void
+    {
+        // ÉTANT DONNÉ
+        $this->loginAs('trader');
+        $page = $this->open('/');
+        $positionRowsBefore = $this->countRows('position');
+
+        // QUAND
+        $page->locator('button[data-bs-target="#offcanvasNewPositionwaiting"]')->click();
+        $panel = $page->locator('#offcanvasNewPositionwaiting');
+        $this->waitUntilVisible($panel);
+        $panel->locator('#position_buyPrice')->fill('7200.00');
+        $panel->locator('#position_quantity')->fill('25');
+        $this->selectValue($panel->locator('#position_side'), 'buy');
+        $this->setChecked($panel->locator('#isActive'), true);
+        $panel->locator('button[type="submit"]')->click();
+        $this->waitUntilHidden($panel);
+
+        // ALORS
+        self::assertFalse($panel->isVisible());
+        self::assertSame($positionRowsBefore + 1, $this->countRows('position'));
+    }
+}
