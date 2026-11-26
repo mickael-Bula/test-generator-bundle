@@ -32,18 +32,25 @@ final class GenerationReportFormatter
             }
         }
 
-        if (GenerationStatus::NeedsDecision === $report->status && null !== $report->pending && null !== $report->pendingStep) {
+        if (null !== $report->pending && null !== $report->pendingStep) {
+            $needsDecision = GenerationStatus::NeedsDecision === $report->status;
             $lines[] = sprintf(
-                'Décision requise à l\'étape %d : %s (%s)',
+                '%s à l\'étape %d : %s (%s)',
+                $needsDecision ? 'Décision requise' : 'Étape non résolue par les règles',
                 $report->pendingStep->index,
                 $report->pendingStep->raw,
                 ResolutionStatus::Ambiguous === $report->pending->status ? 'plusieurs éléments correspondent' : 'aucun élément ne correspond',
             );
+            if (null !== $report->pending->path) {
+                $lines[] = sprintf('Page courante : %s', $report->pending->path);
+            }
             $lines[] = 'Candidats :';
             foreach ($report->pending->candidates as $position => $candidate) {
                 $lines[] = sprintf('  %d. %s', $position + 1, ElementDescriber::describe($candidate));
             }
-            $lines[] = 'Précisez le libellé de l\'étape dans le scénario, ou relancez sans --no-llm pour que le LLM tranche.';
+            if ($needsDecision) {
+                $lines[] = 'Précisez le libellé de l\'étape dans le scénario, ou relancez sans --no-llm pour que le LLM tranche.';
+            }
         }
 
         foreach ($report->warnings as $warning) {

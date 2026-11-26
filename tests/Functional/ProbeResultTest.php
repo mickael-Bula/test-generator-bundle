@@ -146,4 +146,19 @@ final class ProbeResultTest extends TestCase
             }
         }
     }
+
+    #[Test]
+    public function testPendingDecisionKeepsThePageItStoppedOnThroughJson(): void
+    {
+        // ÉTANT DONNÉ une décision en attente sur la page /login
+        $pending = new PendingDecision(2, ResolutionStatus::NotFound, [new ScannedElement(tag: 'button', selector: '#go')], '/login');
+
+        // QUAND le résultat est sérialisé puis relu
+        $copy = ProbeResult::fromJson(ProbeResult::needsDecision([], $pending)->toJson());
+
+        // ALORS la page est conservée ; sans page, elle reste nulle
+        self::assertSame('/login', $copy->pending?->path);
+        $without = ProbeResult::fromJson(ProbeResult::needsDecision([], new PendingDecision(1, ResolutionStatus::Ambiguous, []))->toJson());
+        self::assertNull($without->pending?->path);
+    }
 }

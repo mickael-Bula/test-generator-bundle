@@ -31,6 +31,9 @@ use Mika\TestGeneratorBundle\Functional\Runtime\ScenarioExecutor;
  */
 trait ScenarioProbeTrait
 {
+    /**
+     * @throws \JsonException
+     */
     protected function runScenarioProbe(): void
     {
         $scenarioPath = (string) getenv('MIKA_PROBE_SCENARIO');

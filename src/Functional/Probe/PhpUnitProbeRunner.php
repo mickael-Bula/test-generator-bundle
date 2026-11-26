@@ -7,6 +7,7 @@ namespace Mika\TestGeneratorBundle\Functional\Probe;
 use Mika\TestGeneratorBundle\Functional\Dto\ProbeResult;
 use Mika\TestGeneratorBundle\Functional\Dto\ScenarioDecisions;
 use Mika\TestGeneratorBundle\Functional\Exception\ProbeException;
+use Mika\TestGeneratorBundle\Functional\Process\ProcessExecutor;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 /**
@@ -18,7 +19,6 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
  */
 final class PhpUnitProbeRunner implements ProbeRunnerInterface
 {
-    private const MAX_LOG_BYTES = 65536;
     private const TAIL_LINES = 30;
 
     /**
@@ -32,6 +32,7 @@ final class PhpUnitProbeRunner implements ProbeRunnerInterface
         private readonly int $timeoutSeconds = 120,
         private readonly array $environment = ['APP_ENV' => 'test', 'PLAYWRIGHT_E2E' => '1', 'XDEBUG_MODE' => 'off'],
         private readonly ?array $command = null,
+        private readonly ProcessExecutor $executor = new ProcessExecutor(),
     ) {
     }
 
@@ -47,22 +48,34 @@ final class PhpUnitProbeRunner implements ProbeRunnerInterface
                 throw new ProbeException(sprintf('Scénario introuvable : %s', $scenarioPath));
             }
 
-            [$exitCode, $log] = $this->execute($command, $this->processEnvironment($scenario, $output, $decisionsFile));
+            try {
+                $process = $this->executor->run($command, $this->projectDir, $this->processEnvironment($scenario, $output, $decisionsFile), $this->timeoutSeconds);
+            } catch (\RuntimeException) {
+                throw new ProbeException('Impossible de lancer le processus de la sonde.');
+            }
+
+            if ($process->timedOut) {
+                throw new ProbeException(sprintf(
+                    "Délai de %d s dépassé : la sonde a été interrompue.\nSortie du processus (fin) :\n%s",
+                    $this->timeoutSeconds,
+                    $process->tail(self::TAIL_LINES),
+                ));
+            }
 
             $json = (string) file_get_contents($output);
             if ('' === trim($json)) {
                 throw new ProbeException(sprintf(
                     "La sonde n'a produit aucun résultat (code de sortie %d).\nSortie du processus (fin) :\n%s",
-                    $exitCode,
-                    $this->tail($log),
+                    $process->exitCode,
+                    $process->tail(self::TAIL_LINES),
                 ));
             }
 
             return ProbeResult::fromJson($json);
         } finally {
-            @unlink($output);
+            $this->remove($output);
             if (null !== $decisionsFile) {
-                @unlink($decisionsFile);
+                $this->remove($decisionsFile);
             }
         }
     }
@@ -105,90 +118,16 @@ final class PhpUnitProbeRunner implements ProbeRunnerInterface
         return $env;
     }
 
-    /**
-     * @param list<string>          $command
-     * @param array<string, string> $env
-     *
-     * @return array{0: int, 1: string} code de sortie et sortie (standard + erreur)
-     */
-    private function execute(array $command, array $env): array
-    {
-        $pipes = [];
-        $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $this->projectDir, $env);
-        if (!is_resource($process)) {
-            throw new ProbeException('Impossible de lancer le processus de la sonde.');
-        }
-
-        stream_set_blocking($pipes[1], false);
-        stream_set_blocking($pipes[2], false);
-
-        $log = '';
-        $deadline = microtime(true) + $this->timeoutSeconds;
-
-        try {
-            while (true) {
-                $log = $this->drain($pipes, $log);
-                $status = proc_get_status($process);
-
-                if (!$status['running']) {
-                    $log = $this->drain($pipes, $log);
-
-                    return [$status['exitcode'], $log];
-                }
-
-                if (microtime(true) > $deadline) {
-                    proc_terminate($process);
-                    usleep(200000);
-                    $status = proc_get_status($process);
-                    if ($status['running']) {
-                        proc_terminate($process, 9);
-                    }
-
-                    throw new ProbeException(sprintf(
-                        "Délai de %d s dépassé : la sonde a été interrompue.\nSortie du processus (fin) :\n%s",
-                        $this->timeoutSeconds,
-                        $this->tail($this->drain($pipes, $log)),
-                    ));
-                }
-
-                usleep(20000);
-            }
-        } finally {
-            fclose($pipes[1]);
-            fclose($pipes[2]);
-            proc_close($process);
-        }
-    }
-
-    /**
-     * @param array<int, resource> $pipes
-     */
-    private function drain(array $pipes, string $log): string
-    {
-        foreach ([1, 2] as $index) {
-            while (true) {
-                $chunk = fread($pipes[$index], 8192);
-                if (!is_string($chunk) || '' === $chunk) {
-                    break;
-                }
-
-                $log .= $chunk;
-            }
-        }
-
-        return strlen($log) > self::MAX_LOG_BYTES ? substr($log, -self::MAX_LOG_BYTES / 2) : $log;
-    }
-
-    private function tail(string $log): string
-    {
-        $lines = preg_split('/\R/', trim($log)) ?: [];
-
-        return implode("\n", array_slice($lines, -self::TAIL_LINES));
-    }
-
     private function absolute(string $path): string
     {
         return 1 === preg_match('#^(/|[A-Za-z]:[\\\\/])#', $path) ? $path : rtrim($this->projectDir, '/\\') . '/' . $path;
+    }
+
+    private function remove(string $path): void
+    {
+        if (is_file($path)) {
+            unlink($path);
+        }
     }
 
     private function tempFile(string $name, string $content): string

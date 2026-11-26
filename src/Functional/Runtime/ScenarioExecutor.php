@@ -72,6 +72,7 @@ final class ScenarioExecutor
                             $step->index,
                             $resolution->status,
                             array_map(static fn (Candidate $c) => $c->element, $resolution->candidates),
+                            $scan->path(),
                         ));
                     }
 

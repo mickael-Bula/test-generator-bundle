@@ -10,11 +10,13 @@ final readonly class PendingDecision
 {
     /**
      * @param list<ScannedElement> $candidates
+     * @param string|null          $path       chemin de la page sur laquelle la sonde s'est arrêtée (aide au diagnostic)
      */
     public function __construct(
         public int $stepIndex,
         public ResolutionStatus $status,
         public array $candidates,
+        public ?string $path = null,
     ) {
     }
 
@@ -27,6 +29,7 @@ final readonly class PendingDecision
             'stepIndex' => $this->stepIndex,
             'status' => $this->status->value,
             'candidates' => array_map(static fn (ScannedElement $e): array => $e->toArray(), $this->candidates),
+            'path' => $this->path,
         ];
     }
 
@@ -46,6 +49,7 @@ final readonly class PendingDecision
             (int) ($data['stepIndex'] ?? 0),
             ResolutionStatus::from((string) ($data['status'] ?? 'not_found')),
             $candidates,
+            isset($data['path']) && is_string($data['path']) && '' !== $data['path'] ? $data['path'] : null,
         );
     }
 }

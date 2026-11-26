@@ -9,6 +9,7 @@ use PhpParser\ParserFactory;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Random\RandomException;
 use Symfony\Component\Process\Process;
 
 /**
@@ -121,7 +122,7 @@ PHP;
             ['line' => 108, 'source' => "self::assertSame('x', \$r['b']);", 'message' => 'Failed asserting that two strings are identical.', 'diff' => "--- Expected\n+++ Actual\n@@ @@\n-'x'\n+'y'"],
         ];
 
-        // QUAND on fabrique la section
+        // QUAND on fabrique la section.
         $md = SoftAssertionRewriter::render($items);
 
         // ALORS le diff n'apparaît que pour les chaînes
@@ -141,6 +142,9 @@ PHP;
         return new SoftAssertionRewriter((new ParserFactory())->createForNewestSupportedVersion());
     }
 
+    /**
+     * @throws RandomException
+     */
     private function runPhpUnit(string $code): string
     {
         $dir = sys_get_temp_dir() . '/mika_soft_' . bin2hex(random_bytes(4));
@@ -159,8 +163,10 @@ PHP;
 
             return $process->getOutput();
         } finally {
-            @unlink($file);
-            @rmdir($dir);
+            if (is_file($file)) {
+                unlink($file);
+                rmdir($dir);
+            }
         }
     }
 }

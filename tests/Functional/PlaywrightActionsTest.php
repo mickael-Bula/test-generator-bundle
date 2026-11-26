@@ -141,6 +141,33 @@ final class PlaywrightActionsTest extends TestCase
     }
 
     #[Test]
+    public function testWaitUntilUrlLeavesReturnsOnceThePageHasMoved(): void
+    {
+        // ÉTANT DONNÉ une page encore sur /login à la première lecture, puis redirigée vers l'accueil
+        $page = new FakePage(['http://localhost/login', 'http://localhost/login?next=1', 'http://localhost/']);
+
+        // QUAND on attend qu'elle quitte /login
+        $this->actions->waitUntilUrlLeaves($page, '/login');
+
+        // ALORS l'attente se termine, la requête de l'URL ne comptant pas comme un départ
+        self::assertSame('http://localhost/', $page->url());
+    }
+
+    #[Test]
+    public function testWaitUntilUrlLeavesTimesOutWhenTheLoginIsRefused(): void
+    {
+        // ÉTANT DONNÉ une page qui reste sur /login (identifiants refusés)
+        $page = new FakePage(['http://localhost/login']);
+
+        // QUAND on attend qu'elle quitte /login
+        // ALORS l'erreur dit que la page est restée dessus
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('la page est restée sur « /login »');
+
+        $this->actions->waitUntilUrlLeaves($page, '/login');
+    }
+
+    #[Test]
     public function testWaitUntilUrlContains(): void
     {
         // ÉTANT DONNÉ une page dont l'URL finit par contenir « settings »

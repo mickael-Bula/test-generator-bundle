@@ -21,7 +21,7 @@ final class GeneratedTestPath
         if (null !== $output && '' !== trim($output)) {
             $output = $this->absolute($projectDir, trim($output));
 
-            return str_ends_with(strtolower($output), '.php') ? $output : rtrim($output, '/\\') . '/' . $className . '.php';
+            return str_ends_with(strtolower($output), '.php') ? $output : rtrim($output, '/\\') . 'GeneratedTestPath.php/' . $className . '.php';
         }
 
         $namespace = trim($namespace, '\\');
@@ -32,6 +32,37 @@ final class GeneratedTestPath
         $relative = str_replace('\\', '/', substr($namespace, strlen('App\Tests')));
 
         return $projectDir . '/tests' . $relative . '/' . $className . '.php';
+    }
+
+    /**
+     * Dossier absolu pour un chemin relatif au projet (ou déjà absolu).
+     */
+    public function directory(string $projectDir, string $path): string
+    {
+        return rtrim($this->absolute(rtrim($projectDir, '/\\'), trim($path)), '/\\');
+    }
+
+    /**
+     * Namespace correspondant à un dossier situé sous tests/ (inverse de resolve()), ou null si le dossier
+     * est ailleurs ou si un segment n'est pas un identifiant PHP valide.
+     */
+    public function namespaceFor(string $projectDir, string $directory): ?string
+    {
+        $root = rtrim($projectDir, '/\\') . '/tests';
+        $directory = rtrim(str_replace('\\', '/', $directory), '/');
+
+        if ($directory !== $root && !str_starts_with($directory, $root . '/')) {
+            return null;
+        }
+
+        $segments = '' === ($rest = trim(substr($directory, strlen($root)), '/')) ? [] : explode('/', $rest);
+        foreach ($segments as $segment) {
+            if (1 !== preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $segment)) {
+                return null;
+            }
+        }
+
+        return implode('\\', ['App\\Tests', ...$segments]);
     }
 
     private function absolute(string $projectDir, string $path): string

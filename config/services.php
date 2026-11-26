@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 
+use Mika\TestGeneratorBundle\Functional\Choice\LlmClientStepChooser;
+use Mika\TestGeneratorBundle\Functional\Choice\StepChooserInterface;
 use Mika\TestGeneratorBundle\Interceptor\ErrorInterceptorInterface;
 use Mika\TestGeneratorBundle\Interceptor\Support\RepoMapProvider;
 use Mika\TestGeneratorBundle\Interceptor\Support\SeedExtractor;
@@ -40,6 +42,9 @@ return static function (ContainerConfigurator $container): void {
     $services->instanceof(TestPreFixerInterface::class)
         ->tag('mika_test_generator.pre_fixer');
 
+    // Création d'un alias explicite pour le choix (deux implémentations existent)
+    $services->alias(StepChooserInterface::class, LlmClientStepChooser::class);
+
     // 2. Chargement automatique de toutes les classes PHP du bundle
     $services->load('Mika\\TestGeneratorBundle\\', '../src/*')
         ->exclude([
@@ -48,6 +53,10 @@ return static function (ContainerConfigurator $container): void {
             '../src/RepoMap/{RepoMap,EdgeCollector}.php',
             '../src/Interceptor/Support/{PhpUnitFailure,TypeErrorInfo,MockCountFinding}.php',
             '../src/Quality/{QualityViolation,QualityAnalysis}.php',
+            // Classes qui ne sont pas des services
+            '/src/Functional/{Dto,Enum,Exception,Runtime,Support}',
+            '/src/Functional/Render/RenderOptions.php',
+            '/src/Functional/Choice/LlmStepChooser.php',
         ]);
 
     // 3. Enregistrement du Registry d'intercepteurs avec l'itérateur tagué

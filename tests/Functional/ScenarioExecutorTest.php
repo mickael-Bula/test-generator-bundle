@@ -102,6 +102,7 @@ MD;
         self::assertSame(1, $result->pending?->stepIndex);
         self::assertSame(ResolutionStatus::Ambiguous, $result->pending?->status);
         self::assertCount(2, $result->pending->candidates);
+        self::assertSame('/', $result->pending->path);
         self::assertSame([], $result->steps);
     }
 

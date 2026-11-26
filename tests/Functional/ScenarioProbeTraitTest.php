@@ -40,6 +40,9 @@ final class ScenarioProbeTraitTest extends TestCase
         }
     }
 
+    /**
+     * @throws \JsonException
+     */
     #[Test]
     public function testWritesAnOkResultForAResolvableScenario(): void
     {
@@ -50,7 +53,7 @@ final class ScenarioProbeTraitTest extends TestCase
         $scan = json_decode((string) file_get_contents(__DIR__ . '/Fixture/scan-dashboard.json'), true, 512, JSON_THROW_ON_ERROR);
         ContractE2ETest::$page = new FakePage(scan: $scan);
 
-        // QUAND on exécute la sonde
+        // QUAND on exécute la sonde.
         (new ProbeHostStub('run'))->run();
 
         // ALORS le résultat écrit est « ok », la connexion a eu lieu avec le profil du scénario et le clic a visé le lien

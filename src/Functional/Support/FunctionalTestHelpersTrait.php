@@ -90,6 +90,16 @@ trait FunctionalTestHelpersTrait
     }
 
     /**
+     * Attend que la page quitte ce chemin ; échoue au délai si elle y reste (connexion refusée, par exemple).
+     *
+     * @param \Playwright\Page\PageInterface $page
+     */
+    protected function waitUntilUrlLeaves(object $page, string $path): void
+    {
+        $this->functionalActions()->waitUntilUrlLeaves($page, $path);
+    }
+
+    /**
      * @param \Playwright\Page\PageInterface $page
      */
     protected function waitUntilUrlContains(object $page, string $needle): void

@@ -49,9 +49,10 @@ final readonly class GenerationReport
     /**
      * @param list<StepReport> $steps
      * @param list<string>     $warnings
+     * @param Step|null        $pendingStep étape non résolue par les règles, quand l'échec survient en cherchant à la trancher
      */
-    public static function failed(string $title, string $className, array $steps, string $error, int $probeRuns, array $warnings = []): self
+    public static function failed(string $title, string $className, array $steps, string $error, int $probeRuns, array $warnings = [], ?Step $pendingStep = null, ?PendingDecision $pending = null): self
     {
-        return new self(GenerationStatus::Failed, $title, $className, null, $steps, $warnings, $error, null, null, $probeRuns);
+        return new self(GenerationStatus::Failed, $title, $className, null, $steps, $warnings, $error, $pendingStep, $pending, $probeRuns);
     }
 }

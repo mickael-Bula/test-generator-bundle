@@ -6,10 +6,13 @@ namespace Mika\TestGeneratorBundle\Command;
 
 use Mika\TestGeneratorBundle\Functional\Choice\NullStepChooser;
 use Mika\TestGeneratorBundle\Functional\Enum\GenerationStatus;
+use Mika\TestGeneratorBundle\Functional\Exception\VerificationException;
 use Mika\TestGeneratorBundle\Functional\Generation\FunctionalTestGenerator;
+use Mika\TestGeneratorBundle\Functional\Generation\GeneratedTestDelivery;
 use Mika\TestGeneratorBundle\Functional\Generation\GeneratedTestPath;
 use Mika\TestGeneratorBundle\Functional\Generation\GenerationReportFormatter;
 use Mika\TestGeneratorBundle\Functional\Render\RenderOptions;
+use Mika\TestGeneratorBundle\Functional\Verification\GeneratedTestRunnerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
@@ -25,12 +28,16 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
 final class GenerateFunctionalTestCommand extends Command
 {
     public const EXIT_NEEDS_DECISION = 2;
+    public const DEFAULT_GREEN_DIR = 'tests/Functional';
+    public const DEFAULT_FAILED_DIR = 'var/failed_tests/functional';
 
     public function __construct(
         private readonly FunctionalTestGenerator $generator,
+        private readonly GeneratedTestRunnerInterface $runner,
         #[Autowire('%kernel.project_dir%')] private readonly string $projectDir,
         private readonly GenerationReportFormatter $formatter = new GenerationReportFormatter(),
         private readonly GeneratedTestPath $paths = new GeneratedTestPath(),
+        private readonly GeneratedTestDelivery $delivery = new GeneratedTestDelivery(),
     ) {
         parent::__construct();
     }
@@ -40,14 +47,12 @@ final class GenerateFunctionalTestCommand extends Command
         $this
             ->addArgument(
                 'scenario',
-                InputArgument::REQUIRED,
-                'Chemin du scénario Markdown'
-            )
+                InputArgument::REQUIRED, 'Chemin du scénario Markdown')
             ->addOption(
                 'output',
                 'o',
                 InputOption::VALUE_REQUIRED,
-                'Fichier .php ou dossier de sortie (défaut : déduit du namespace)'
+                'Fichier .php ou dossier de sortie : le test y reste, sans déplacement (défaut : zone d\'attente déduite du namespace)'
             )
             ->addOption(
                 'namespace',
@@ -92,6 +97,26 @@ final class GenerateFunctionalTestCommand extends Command
                 null,
                 InputOption::VALUE_NONE,
                 'Écraser le fichier s\'il existe'
+            )
+            ->addOption(
+                'no-run',
+                null,
+                InputOption::VALUE_NONE,
+                'Ne pas lancer PHPUnit : écrire le test dans la zone d\'attente et s\'arrêter'
+            )
+            ->addOption(
+                'green-dir',
+                null,
+                InputOption::VALUE_REQUIRED,
+                'Dossier des tests verts (relatif au projet)',
+                self::DEFAULT_GREEN_DIR
+            )
+            ->addOption(
+                'failed-dir',
+                null,
+                InputOption::VALUE_REQUIRED,
+                'Dossier des tests en échec, avec leur journal (relatif au projet)',
+                self::DEFAULT_FAILED_DIR
             )
         ;
     }
@@ -142,26 +167,31 @@ final class GenerateFunctionalTestCommand extends Command
             return Command::SUCCESS;
         }
 
+        $explicitOutput = $this->nullIfEmpty($input->getOption('output'));
+        $force = true === $input->getOption('force');
+        $run = true !== $input->getOption('no-run');
+        $moves = $run && null === $explicitOutput;
+
         try {
-            $path = $this->paths->resolve(
-                $this->projectDir,
-                $options->namespace,
-                $report->className,
-                $this->nullIfEmpty($input->getOption('output'))
-            );
+            $path = $this->paths->resolve($this->projectDir, $options->namespace, $report->className, $explicitOutput);
         } catch (\InvalidArgumentException $e) {
             $output->writeln('<error>' . $e->getMessage() . '</error>');
 
             return Command::FAILURE;
         }
 
-        if (is_file($path) && true !== $input->getOption('force')) {
-            $output->writeln(sprintf(
-                '<error>Le fichier existe déjà : %s (utilisez --force pour l\'écraser, ou --dry-run pour l\'afficher).</error>',
-                $path
-            ));
+        $greenDir = $this->paths->directory($this->projectDir, (string) $input->getOption('green-dir'));
+        $failedDir = $this->paths->directory($this->projectDir, (string) $input->getOption('failed-dir'));
 
-            return Command::FAILURE;
+        foreach ($this->conflicts($path, $moves ? $greenDir . '/' . $report->className . '.php' : null) as $existing) {
+            if (!$force) {
+                $output->writeln(sprintf(
+                    '<error>Le fichier existe déjà : %s (utilisez --force pour l\'écraser, ou --dry-run pour l\'afficher).</error>',
+                    $existing
+                ));
+
+                return Command::FAILURE;
+            }
         }
 
         $directory = dirname($path);
@@ -179,7 +209,69 @@ final class GenerateFunctionalTestCommand extends Command
 
         $output->writeln(sprintf('<info>Test écrit : %s</info>', $path));
 
-        return Command::SUCCESS;
+        if (!$run) {
+            return Command::SUCCESS;
+        }
+
+        return $this->verify($output, $path, $moves, $greenDir, $failedDir, $options->baseClass, $force);
+    }
+
+    /**
+     * Lance PHPUnit sur le test écrit, puis, si l'option --output n'est pas présente, le sort de la zone d'attente selon le résultat.
+     */
+    private function verify(OutputInterface $output, string $path, bool $moves, string $greenDir, string $failedDir, string $baseClass, bool $force): int
+    {
+        $output->writeln('Exécution de PHPUnit sur le test généré…');
+
+        try {
+            $result = $this->runner->run($path);
+        } catch (VerificationException $e) {
+            $output->writeln('<error>' . $e->getMessage() . '</error>');
+            $output->writeln(sprintf('<comment>Le test n\'a pas pu être vérifié ; il reste en place : %s</comment>', $path));
+
+            return Command::FAILURE;
+        }
+
+        try {
+            if ($result->passed) {
+                if (!$moves) {
+                    $output->writeln('<info>PHPUnit : vert. Test conservé : ' . $path . '</info>');
+
+                    return Command::SUCCESS;
+                }
+
+                $target = $this->delivery->promote($this->projectDir, $path, $greenDir, $baseClass, $force);
+                $output->writeln('<info>PHPUnit : vert. Test déplacé : ' . $target . '</info>');
+
+                return Command::SUCCESS;
+            }
+
+            $output->writeln('<error>PHPUnit : rouge' . ($result->timedOut ? ' (délai dépassé)' : '') . '.</error>');
+            $output->writeln("Sortie de PHPUnit (fin) :\n" . $result->tail(), OutputInterface::OUTPUT_RAW);
+
+            if (!$moves) {
+                $output->writeln('<comment>Test conservé : ' . $path . '</comment>');
+
+                return Command::FAILURE;
+            }
+
+            [$target, $log] = $this->delivery->quarantine($path, $failedDir, $result->output);
+            $output->writeln('<comment>Test mis de côté : ' . $target . '</comment>');
+            $output->writeln('<comment>Journal PHPUnit  : ' . $log . '</comment>');
+        } catch (\RuntimeException $e) {
+            $output->writeln('<error>' . $e->getMessage() . '</error>');
+            $output->writeln(sprintf('<comment>Le test reste dans la zone d\'attente : %s</comment>', $path));
+        }
+
+        return Command::FAILURE;
+    }
+
+    /**
+     * @return list<string> fichiers déjà présents qu'une exécution écraserait
+     */
+    private function conflicts(string $path, ?string $greenPath): array
+    {
+        return array_values(array_filter([$path, $greenPath], static fn (?string $file): bool => null !== $file && is_file($file)));
     }
 
     private function nullIfEmpty(mixed $value): ?string

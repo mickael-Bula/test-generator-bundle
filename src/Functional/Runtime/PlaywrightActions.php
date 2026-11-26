@@ -54,6 +54,19 @@ final class PlaywrightActions
     }
 
     /**
+     * Attend que la page ne soit plus sur ce chemin (ex. après la soumission du formulaire de connexion).
+     *
+     * @param object $page Playwright\Page\PageInterface
+     */
+    public function waitUntilUrlLeaves(object $page, string $path): void
+    {
+        $this->waitUntil(
+            fn (): bool => $this->comparableUrl((string) $page->url(), false) !== $this->comparableUrl($path, false),
+            sprintf('la page est restée sur « %s »', $path),
+        );
+    }
+
+    /**
      * @param object $page Playwright\Page\PageInterface
      */
     public function waitUntilUrlContains(object $page, string $needle): void

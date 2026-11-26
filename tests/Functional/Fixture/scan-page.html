@@ -1,0 +1,41 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><style>
+.offcanvas{visibility:hidden;position:fixed;top:0;right:0;width:420px;height:100%;background:#fff;overflow:auto}
+.offcanvas.show{visibility:visible}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+</style></head><body>
+<header><button type="button"><i>&#xF035C;</i></button> WebTrader <button type="button" data-bs-toggle="offcanvas" data-bs-target="#offcanvasEditCore"><i>&#xF03EB;</i></button></header>
+<nav>Menu<ul>
+ <li><a href="/">&#xF0BDF; Dashboard</a></li><li><a href="/portfolio">&#xF0584; Portefeuille</a></li>
+ <li><a href="/settings">&#xF04D3; Paramètres</a></li></ul></nav>
+<main>
+ <button type="button" data-bs-toggle="offcanvas" data-bs-target="#offcanvasEditCore"><i>&#xF03EB;</i></button>
+ <button type="button"><i>&#xF00EC;</i></button>
+ <div class="bar"><button type="button">Horaire</button><button type="button">Quotidien</button><button type="button">Hebdo</button></div>
+ <table><tr><th>Date</th><th>Clôture</th></tr><tr><td>25/09/26</td><td>8 077,80</td></tr></table>
+ <section>Aucune position en attente
+   <button type="button" data-bs-toggle="offcanvas" data-bs-target="#offcanvasNewPositionwaiting"><i>&#xF0417;</i></button></section>
+ <div id="log"><p>[22/11/26] Stratégie activée</p></div>
+
+ <div class="offcanvas" id="offcanvasNewPositionwaiting" tabindex="-1" aria-labelledby="ocLabel1">
+  <div class="offcanvas-header"><h5 class="offcanvas-title" id="ocLabel1">Nouvelle Position en attente</h5><button type="button" class="btn-close" aria-label="Close"></button></div>
+  <div class="offcanvas-body"><form>
+   <div class="mb-3"><span>Prix Achat CAC</span><input type="text" id="position_buyPrice" name="position[buyPrice]" placeholder="7200.00"></div>
+   <div class="mb-3"><span>Prix Achat LVC (€)</span><div class="input-group"><input type="text" id="position_lvcBuyPrice" name="position[lvcBuyPrice]" placeholder="12.50"><span>€</span></div></div>
+   <div class="mb-3"><span>Objectif CAC</span><input type="text" id="position_targetPrice" name="position[targetPrice]" placeholder="7920.00"></div>
+   <div class="mb-3"><span>Objectif LVC (€)</span><input type="text" id="position_lvcTargetPrice" name="position[lvcTargetPrice]" placeholder="15.00"></div><hr>
+   <div class="mb-3"><span>Quantité</span><input type="number" id="position_quantity" name="position[quantity]" placeholder="Ex: 100"><small>Calculé automatiquement : Quantité / Prix LVC</small></div><hr>
+   <div class="mb-3"><span>Date de l'opération</span><input type="date" id="position_createdAt" name="position[createdAt]"></div>
+   <div class="mb-3"><span>Date de validité</span><input type="date" id="position_expiresAt" name="position[expiresAt]"><small>Annulation de l'ordre après cette date (Défaut : +3 mois).</small></div><hr>
+   <div class="form-check"><input type="checkbox" id="isActive" name="is_active"><span>Rendre le point d'entrée Actif</span></div>
+   <div class="mb-3"><span>Sens</span><select name="position[side]" id="position_side"><option value="">—</option><option value="buy">Achat</option><option value="sell">Vente</option></select></div>
+   <button type="submit">Enregistrer la position</button>
+  </form></div>
+ </div>
+
+ <div class="offcanvas" id="offcanvasEditCore" tabindex="-1" aria-labelledby="ocLabel2">
+  <div class="offcanvas-header"><h5 class="offcanvas-title" id="ocLabel2">Modifier l'objectif Core</h5><button type="button" class="btn-close" aria-label="Close"></button></div>
+  <div class="offcanvas-body"><form>
+   <div class="mb-3"><span>Quantité</span><input type="number" id="core_quantity" name="core[quantity]" placeholder="Ex: 100"></div>
+   <button type="submit">Enregistrer</button></form></div>
+ </div>
+</main></body></html>

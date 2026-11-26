@@ -98,7 +98,7 @@ final class FunctionalTestGenerator
             try {
                 $element = $chooser->choose($scenario, $step, $pending);
             } catch (\Throwable $e) {
-                return GenerationReport::failed($title, $className, $steps, sprintf('Étape %d : choix impossible : %s', $step->index, $e->getMessage()), $runs);
+                return GenerationReport::failed($title, $className, $steps, sprintf('Étape %d : choix impossible : %s', $step->index, $e->getMessage()), $runs, [], $step, $pending);
             }
 
             if (null === $element) {

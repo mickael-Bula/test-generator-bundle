@@ -13,6 +13,9 @@ final class ProbeHostStub extends ContractE2ETest
 {
     use ScenarioProbeTrait;
 
+    /**
+     * @throws \JsonException
+     */
     public function run(): void
     {
         $this->runScenarioProbe();
