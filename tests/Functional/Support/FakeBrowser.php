@@ -20,6 +20,14 @@ final class FakeBrowser implements BrowserPort
 
     public int $rows = 10;
 
+    /** Nombre de scans pendant lesquels l'ancien état reste affiché après le clic sur $lagSelector (page lente à réagir). */
+    public int $lagScans = 0;
+    public string $lagSelector = '#offcanvasNewPositionwaiting button[type="submit"]';
+
+    private ?string $pendingState = null;
+    private int $pendingRows = 0;
+    private int $pendingScans = 0;
+
     /**
      * @param array<string, ScanResult>                                 $scans   état => instantané
      * @param array<string, array{to: string, addRows?: int}>           $clicks  sélecteur complet => transition
@@ -56,6 +64,13 @@ final class FakeBrowser implements BrowserPort
 
     public function scan(): ScanResult
     {
+        if (null !== $this->pendingState && --$this->pendingScans <= 0) {
+            $this->state = $this->pendingState;
+            $this->rows += $this->pendingRows;
+            $this->pendingState = null;
+            $this->pendingRows = 0;
+        }
+
         return $this->scans[$this->state];
     }
 
@@ -64,10 +79,21 @@ final class FakeBrowser implements BrowserPort
         $this->guard($target);
         $this->log[] = 'click ' . $target->selector;
 
-        if (isset($this->clicks[$target->selector])) {
-            $this->state = $this->clicks[$target->selector]['to'];
-            $this->rows += $this->clicks[$target->selector]['addRows'] ?? 0;
+        if (!isset($this->clicks[$target->selector])) {
+            return;
         }
+
+        $transition = $this->clicks[$target->selector];
+        if ($this->lagScans > 0 && $target->selector === $this->lagSelector) {
+            $this->pendingState = $transition['to'];
+            $this->pendingRows = $transition['addRows'] ?? 0;
+            $this->pendingScans = $this->lagScans;
+
+            return;
+        }
+
+        $this->state = $transition['to'];
+        $this->rows += $transition['addRows'] ?? 0;
     }
 
     public function fill(Target $target, string $value): void

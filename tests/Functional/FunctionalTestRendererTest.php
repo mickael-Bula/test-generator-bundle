@@ -15,7 +15,7 @@ use Mika\TestGeneratorBundle\Functional\Parser\FunctionalScenarioParser;
 use Mika\TestGeneratorBundle\Functional\Render\FunctionalTestRenderer;
 use Mika\TestGeneratorBundle\Functional\Render\RenderOptions;
 use Mika\TestGeneratorBundle\Functional\Runtime\ScenarioExecutor;
-use Mika\TestGeneratorBundle\Tests\Functional\Support\ContractE2ETest;
+use Mika\TestGeneratorBundle\Tests\Functional\Support\ContractE2EBase;
 use Mika\TestGeneratorBundle\Tests\Functional\Support\FakeBrowser;
 use Mika\TestGeneratorBundle\Tests\Functional\Support\FakeLocator;
 use Mika\TestGeneratorBundle\Tests\Functional\Support\FakePage;
@@ -42,7 +42,7 @@ final class FunctionalTestRendererTest extends TestCase
     {
         // ÉTANT DONNÉ le scénario de création exécuté par la sonde
         $scenario = $this->parse($this->creationMarkdown());
-        $probe = (new ScenarioExecutor())->execute($scenario, FakeBrowser::realisticApp());
+        $probe = (new ScenarioExecutor(expectationTimeoutMs: 0))->execute($scenario, FakeBrowser::realisticApp());
 
         // QUAND on génère le test
         $source = $this->renderer->render($scenario, $probe, $this->options);
@@ -56,7 +56,7 @@ final class FunctionalTestRendererTest extends TestCase
     {
         // ÉTANT DONNÉ un test généré
         $scenario = $this->parse($this->creationMarkdown());
-        $probe = (new ScenarioExecutor())->execute($scenario, FakeBrowser::realisticApp());
+        $probe = (new ScenarioExecutor(expectationTimeoutMs: 0))->execute($scenario, FakeBrowser::realisticApp());
         $file = tempnam(sys_get_temp_dir(), 'mika_render_') . '.php';
         file_put_contents($file, $this->renderer->render($scenario, $probe, $this->options));
 
@@ -218,7 +218,7 @@ MD);
     {
         // ÉTANT DONNÉ le scénario de création (le panneau se ferme à la dernière étape)
         $scenario = $this->parse($this->creationMarkdown());
-        $probe = (new ScenarioExecutor())->execute($scenario, FakeBrowser::realisticApp());
+        $probe = (new ScenarioExecutor(expectationTimeoutMs: 0))->execute($scenario, FakeBrowser::realisticApp());
 
         // QUAND on génère
         $source = $this->renderer->render($scenario, $probe, $this->options);
@@ -233,17 +233,17 @@ MD);
         // ÉTANT DONNÉ le test généré, une page factice dont le panneau s'ouvre puis se ferme
         // et les vraies aides du bundle comme classe de base
         $scenario = $this->parse($this->creationMarkdown());
-        $probe = (new ScenarioExecutor())->execute($scenario, FakeBrowser::realisticApp());
-        $options = new RenderOptions('Mika\TestGeneratorBundle\Tests\Functional\Generated', ContractE2ETest::class, 'ContractGeneratedTest');
+        $probe = (new ScenarioExecutor(expectationTimeoutMs: 0))->execute($scenario, FakeBrowser::realisticApp());
+        $options = new RenderOptions('Mika\TestGeneratorBundle\Tests\Functional\Generated', ContractE2EBase::class, 'ContractGeneratedTest');
         $source = $this->renderer->render($scenario, $probe, $options);
 
         $log = new \ArrayObject();
         $panel = new FakeLocator(self::PANEL, [true, false], log: $log);
-        ContractE2ETest::$page = new FakePage(prepared: [self::PANEL => $panel]);
-        ContractE2ETest::$page->log = $log;
-        ContractE2ETest::$logins = [];
-        ContractE2ETest::$visited = [];
-        ContractE2ETest::$counts = ['position' => [3, 4]];
+        ContractE2EBase::$page = new FakePage(prepared: [self::PANEL => $panel]);
+        ContractE2EBase::$page->log = $log;
+        ContractE2EBase::$logins = [];
+        ContractE2EBase::$visited = [];
+        ContractE2EBase::$counts = ['position' => [3, 4]];
 
         $class = 'Mika\TestGeneratorBundle\Tests\Functional\Generated\ContractGeneratedTest';
         if (!class_exists($class, false)) {
@@ -258,8 +258,8 @@ MD);
         $generated->testCreerUnePositionEnAttente();
 
         // ALORS les actions arrivent dans l'ordre sur les bons éléments, avec les bonnes valeurs
-        self::assertSame(['trader'], ContractE2ETest::$logins);
-        self::assertSame(['/'], ContractE2ETest::$visited);
+        self::assertSame(['trader'], ContractE2EBase::$logins);
+        self::assertSame(['/'], ContractE2EBase::$visited);
         self::assertSame(
             [
                 'button[data-bs-target="#offcanvasNewPositionwaiting"] :: click',
@@ -269,9 +269,9 @@ MD);
                 self::PANEL . ' >> #isActive :: check',
                 self::PANEL . ' >> button[type="submit"] :: click',
             ],
-            ContractE2ETest::$page->log->getArrayCopy(),
+            ContractE2EBase::$page->log->getArrayCopy(),
         );
-        self::assertSame([], ContractE2ETest::$counts['position']);
+        self::assertSame([], ContractE2EBase::$counts['position']);
     }
 
     private function parse(string $markdown): FunctionalScenario

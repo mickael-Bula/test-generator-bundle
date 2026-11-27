@@ -30,8 +30,16 @@ use Mika\TestGeneratorBundle\Functional\Text\TextNormalizer;
  */
 final class ScenarioExecutor
 {
-    public function __construct(private readonly StepResolver $resolver = new StepResolver())
-    {
+    /**
+     * @param int $expectationTimeoutMs durée pendant laquelle une attente non encore vraie est réévaluée (rescan de la page)
+     *                                  avant d'être déclarée non constatée : une fermeture de panneau, une redirection ou
+     *                                  une ligne ajoutée arrivent après le clic, parfois après le calme du réseau
+     */
+    public function __construct(
+        private readonly StepResolver $resolver = new StepResolver(),
+        private readonly int $expectationTimeoutMs = 3000,
+        private readonly int $pollMs = 100,
+    ) {
     }
 
     public function execute(FunctionalScenario $scenario, BrowserPort $browser, ?ScenarioDecisions $decisions = null): ProbeResult
@@ -149,15 +157,20 @@ final class ScenarioExecutor
 
             switch ($expectation->type) {
                 case ExpectationType::UrlIs:
-                    $actual = str_contains($subject, '?') ? $scan->url : $scan->path();
-                    if ($actual !== $subject) {
-                        return $this->unmet($resolved, $expectation, sprintf('l\'URL actuelle est « %s »', $actual));
+                    $observed = $this->await($browser, $scan, static function (ScanResult $now) use ($subject): ?string {
+                        $actual = str_contains($subject, '?') ? $now->url : $now->path();
+
+                        return $actual === $subject ? null : sprintf('l\'URL actuelle est « %s »', $actual);
+                    });
+                    if (null !== $observed) {
+                        return $this->unmet($resolved, $expectation, $observed);
                     }
                     break;
 
                 case ExpectationType::UrlContains:
-                    if (!str_contains($scan->url, $subject)) {
-                        return $this->unmet($resolved, $expectation, sprintf('l\'URL actuelle est « %s »', $scan->url));
+                    $observed = $this->await($browser, $scan, static fn (ScanResult $now): ?string => str_contains($now->url, $subject) ? null : sprintf('l\'URL actuelle est « %s »', $now->url));
+                    if (null !== $observed) {
+                        return $this->unmet($resolved, $expectation, $observed);
                     }
                     break;
 
@@ -175,17 +188,22 @@ final class ScenarioExecutor
 
                 case ExpectationType::PanelOpen:
                 case ExpectationType::PanelClosed:
-                    $panel = $this->findPanel($subject, $scan, $knownPanels);
-                    if (null === $panel) {
-                        $titles = array_map(static fn (Panel $p): string => sprintf('« %s »', (string) $p->title), $knownPanels);
-
-                        return $this->unmet($resolved, $expectation, sprintf('aucun panneau de ce titre n\'a été vu (panneaux connus : %s)', [] === $titles ? 'aucun' : implode(', ', $titles)));
-                    }
-
-                    $visibleNow = $this->isVisibleNow($panel, $scan);
                     $wantOpen = ExpectationType::PanelOpen === $expectation->type;
-                    if ($visibleNow !== $wantOpen) {
-                        return $this->unmet($resolved, $expectation, sprintf('le panneau est %s', $visibleNow ? 'ouvert' : 'fermé'));
+                    $panel = null;
+                    $observed = $this->await($browser, $scan, function (ScanResult $now) use ($subject, $knownPanels, $wantOpen, &$panel): ?string {
+                        $panel = $this->findPanel($subject, $now, $knownPanels);
+                        if (null === $panel) {
+                            $titles = array_map(static fn (Panel $p): string => sprintf('« %s »', (string) $p->title), $knownPanels);
+
+                            return sprintf('aucun panneau de ce titre n\'a été vu (panneaux connus : %s)', [] === $titles ? 'aucun' : implode(', ', $titles));
+                        }
+
+                        $visibleNow = $this->isVisibleNow($panel, $now);
+
+                        return $visibleNow === $wantOpen ? null : sprintf('le panneau est %s', $visibleNow ? 'ouvert' : 'fermé');
+                    });
+                    if (null !== $observed || null === $panel) {
+                        return $this->unmet($resolved, $expectation, $observed ?? 'panneau introuvable');
                     }
 
                     $expectations[] = new ResolvedExpectation($expectation->index, $panel->selector);
@@ -193,16 +211,24 @@ final class ScenarioExecutor
 
                 case ExpectationType::RowsDelta:
                     $before = $countsBefore[$subject] ?? 0;
-                    $now = $browser->countRows($subject);
-                    if ($now - $before !== $expectation->count) {
-                        return $this->unmet($resolved, $expectation, sprintf('la table « %s » est passée de %d à %d ligne(s)', $subject, $before, $now));
+                    $observed = $this->await($browser, $scan, static function () use ($browser, $subject, $before, $expectation): ?string {
+                        $now = $browser->countRows($subject);
+
+                        return $now - $before === $expectation->count ? null : sprintf('la table « %s » est passée de %d à %d ligne(s)', $subject, $before, $now);
+                    });
+                    if (null !== $observed) {
+                        return $this->unmet($resolved, $expectation, $observed);
                     }
                     break;
 
                 case ExpectationType::RowsTotal:
-                    $now = $browser->countRows($subject);
-                    if ($now !== $expectation->count) {
-                        return $this->unmet($resolved, $expectation, sprintf('la table « %s » contient %d ligne(s)', $subject, $now));
+                    $observed = $this->await($browser, $scan, static function () use ($browser, $subject, $expectation): ?string {
+                        $now = $browser->countRows($subject);
+
+                        return $now === $expectation->count ? null : sprintf('la table « %s » contient %d ligne(s)', $subject, $now);
+                    });
+                    if (null !== $observed) {
+                        return $this->unmet($resolved, $expectation, $observed);
                     }
                     break;
             }
@@ -216,6 +242,32 @@ final class ScenarioExecutor
     /**
      * @param list<ResolvedStep> $resolved
      */
+    /**
+     * Évalue une attente, puis la réévalue (nouveau scan de la page) jusqu'au délai tant qu'elle n'est pas vraie.
+     *
+     * @param \Closure(ScanResult): ?string $observe renvoie null si l'attente est vraie, sinon ce qui est observé
+     */
+    private function await(BrowserPort $browser, ScanResult &$scan, \Closure $observe): ?string
+    {
+        $deadline = microtime(true) + $this->expectationTimeoutMs / 1000;
+
+        while (true) {
+            $observed = $observe($scan);
+            if (null === $observed) {
+                return null;
+            }
+
+            if (microtime(true) >= $deadline) {
+                return $this->expectationTimeoutMs > 0
+                    ? sprintf('%s, après %.1f s d\'attente', $observed, $this->expectationTimeoutMs / 1000)
+                    : $observed;
+            }
+
+            usleep($this->pollMs * 1000);
+            $scan = $browser->scan();
+        }
+    }
+
     private function unmet(array $resolved, Expectation $expectation, string $observed): ProbeResult
     {
         return ProbeResult::failed($resolved, sprintf('Attente %d (« %s ») non constatée : %s.', $expectation->index, $expectation->raw, $observed));

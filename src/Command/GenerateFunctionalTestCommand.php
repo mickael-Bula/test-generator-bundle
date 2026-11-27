@@ -45,79 +45,18 @@ final class GenerateFunctionalTestCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addArgument(
-                'scenario',
-                InputArgument::REQUIRED, 'Chemin du scénario Markdown')
-            ->addOption(
-                'output',
-                'o',
-                InputOption::VALUE_REQUIRED,
-                'Fichier .php ou dossier de sortie : le test y reste, sans déplacement (défaut : zone d\'attente déduite du namespace)'
-            )
-            ->addOption(
-                'namespace',
-                null,
-                InputOption::VALUE_REQUIRED,
-                'Namespace de la classe générée',
-                'App\Tests\Dynamic\Functional'
-            )
-            ->addOption(
-                'base-class',
-                null,
-                InputOption::VALUE_REQUIRED,
-                'Classe de base des tests E2E de l\'hôte',
-                'App\Tests\E2E\E2ETest'
-            )
-            ->addOption(
-                'class',
-                null,
-                InputOption::VALUE_REQUIRED,
-                'Nom de la classe générée (défaut : dérivé du titre du scénario)'
-            )
-            ->addOption(
-                'no-llm',
-                null,
-                InputOption::VALUE_NONE,
-                'Ne pas solliciter le LLM : s\'arrêter et lister les candidats aux étapes ambiguës'
-            )
-            ->addOption(
-                'max-decisions',
-                null,
-                InputOption::VALUE_REQUIRED,
-                'Nombre maximal d\'étapes tranchées par le LLM', '5'
-            )
-            ->addOption(
-                'dry-run',
-                null,
-                InputOption::VALUE_NONE,
-                'Afficher le test au lieu de l\'écrire'
-            )
-            ->addOption(
-                'force',
-                null,
-                InputOption::VALUE_NONE,
-                'Écraser le fichier s\'il existe'
-            )
-            ->addOption(
-                'no-run',
-                null,
-                InputOption::VALUE_NONE,
-                'Ne pas lancer PHPUnit : écrire le test dans la zone d\'attente et s\'arrêter'
-            )
-            ->addOption(
-                'green-dir',
-                null,
-                InputOption::VALUE_REQUIRED,
-                'Dossier des tests verts (relatif au projet)',
-                self::DEFAULT_GREEN_DIR
-            )
-            ->addOption(
-                'failed-dir',
-                null,
-                InputOption::VALUE_REQUIRED,
-                'Dossier des tests en échec, avec leur journal (relatif au projet)',
-                self::DEFAULT_FAILED_DIR
-            )
+            ->addArgument('scenario', InputArgument::REQUIRED, 'Chemin du scénario Markdown')
+            ->addOption('output', 'o', InputOption::VALUE_REQUIRED, 'Fichier .php ou dossier de sortie : le test y reste, sans déplacement (défaut : zone d\'attente déduite du namespace)')
+            ->addOption('namespace', null, InputOption::VALUE_REQUIRED, 'Namespace de la classe générée', 'App\Tests\Dynamic\Functional')
+            ->addOption('base-class', null, InputOption::VALUE_REQUIRED, 'Classe de base des tests E2E de l\'hôte', 'App\Tests\E2E\E2ETest')
+            ->addOption('class', null, InputOption::VALUE_REQUIRED, 'Nom de la classe générée (défaut : dérivé du titre du scénario)')
+            ->addOption('no-llm', null, InputOption::VALUE_NONE, 'Ne pas solliciter le LLM : s\'arrêter et lister les candidats aux étapes ambiguës')
+            ->addOption('max-decisions', null, InputOption::VALUE_REQUIRED, 'Nombre maximal d\'étapes tranchées par le LLM', '5')
+            ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Afficher le test au lieu de l\'écrire')
+            ->addOption('force', null, InputOption::VALUE_NONE, 'Écraser le fichier s\'il existe')
+            ->addOption('no-run', null, InputOption::VALUE_NONE, 'Ne pas lancer PHPUnit : écrire le test dans la zone d\'attente et s\'arrêter')
+            ->addOption('green-dir', null, InputOption::VALUE_REQUIRED, 'Dossier des tests verts (relatif au projet)', self::DEFAULT_GREEN_DIR)
+            ->addOption('failed-dir', null, InputOption::VALUE_REQUIRED, 'Dossier des tests en échec, avec leur journal (relatif au projet)', self::DEFAULT_FAILED_DIR)
         ;
     }
 
@@ -185,10 +124,7 @@ final class GenerateFunctionalTestCommand extends Command
 
         foreach ($this->conflicts($path, $moves ? $greenDir . '/' . $report->className . '.php' : null) as $existing) {
             if (!$force) {
-                $output->writeln(sprintf(
-                    '<error>Le fichier existe déjà : %s (utilisez --force pour l\'écraser, ou --dry-run pour l\'afficher).</error>',
-                    $existing
-                ));
+                $output->writeln(sprintf('<error>Le fichier existe déjà : %s (utilisez --force pour l\'écraser, ou --dry-run pour l\'afficher).</error>', $existing));
 
                 return Command::FAILURE;
             }
@@ -217,7 +153,7 @@ final class GenerateFunctionalTestCommand extends Command
     }
 
     /**
-     * Lance PHPUnit sur le test écrit, puis, si l'option --output n'est pas présente, le sort de la zone d'attente selon le résultat.
+     * Lance PHPUnit sur le test écrit, puis, sauf --output, le sort de la zone d'attente selon le résultat.
      */
     private function verify(OutputInterface $output, string $path, bool $moves, string $greenDir, string $failedDir, string $baseClass, bool $force): int
     {

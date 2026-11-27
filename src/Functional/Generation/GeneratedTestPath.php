@@ -21,7 +21,7 @@ final class GeneratedTestPath
         if (null !== $output && '' !== trim($output)) {
             $output = $this->absolute($projectDir, trim($output));
 
-            return str_ends_with(strtolower($output), '.php') ? $output : rtrim($output, '/\\') . 'GeneratedTestPath.php/' . $className . '.php';
+            return str_ends_with(strtolower($output), '.php') ? $output : rtrim($output, '/\\') . '/' . $className . '.php';
         }
 
         $namespace = trim($namespace, '\\');
@@ -48,7 +48,7 @@ final class GeneratedTestPath
      */
     public function namespaceFor(string $projectDir, string $directory): ?string
     {
-        $root = rtrim($projectDir, '/\\') . '/tests';
+        $root = rtrim(str_replace('\\', '/', $projectDir), '/') . '/tests';
         $directory = rtrim(str_replace('\\', '/', $directory), '/');
 
         if ($directory !== $root && !str_starts_with($directory, $root . '/')) {

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Mika\TestGeneratorBundle\Tests\Functional;
 
 use Mika\TestGeneratorBundle\Functional\Support\FunctionalTestHelpersTrait;
-use Mika\TestGeneratorBundle\Tests\Functional\Support\ContractE2ETest;
+use Mika\TestGeneratorBundle\Tests\Functional\Support\ContractE2EBase;
 use Mika\TestGeneratorBundle\Tests\Functional\Support\FakePage;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
@@ -44,7 +44,7 @@ final class FunctionalTestHelpersTraitTest extends TestCase
 
     private function host(): object
     {
-        return new class('leave') extends ContractE2ETest {
+        return new class('leave') extends ContractE2EBase {
             protected function functionalTimeoutMs(): int
             {
                 return 400;

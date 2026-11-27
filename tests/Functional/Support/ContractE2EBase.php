@@ -10,7 +10,7 @@ use PHPUnit\Framework\TestCase;
 /**
  * Classe de base E2E factice : les vraies aides du bundle (trait) sur une fausse page.
  */
-abstract class ContractE2ETest extends TestCase
+abstract class ContractE2EBase extends TestCase
 {
     use FunctionalTestHelpersTrait;
 

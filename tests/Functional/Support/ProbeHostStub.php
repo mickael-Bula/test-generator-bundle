@@ -9,14 +9,11 @@ use Mika\TestGeneratorBundle\Functional\Support\ScenarioProbeTrait;
 /**
  * Équivalent de la classe MikaScenarioProbe que l'hôte doit créer.
  */
-final class ProbeHostStub extends ContractE2ETest
+final class ProbeHostStub extends ContractE2EBase
 {
     use ScenarioProbeTrait;
 
-    /**
-     * @throws \JsonException
-     */
-    public function run(): void
+    public function probe(): void
     {
         $this->runScenarioProbe();
     }

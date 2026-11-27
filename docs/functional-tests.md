@@ -15,7 +15,7 @@ sollicité que pour désigner un élément de page quand les règles hésitent.
    donc le valide. Chaque relance repart d'une base de test restaurée (DAMA).
 4. Le gabarit écrit le test à partir du résultat de la sonde, sans LLM.
 5. Le test est écrit dans la **zone d'attente** (`tests/Dynamic/Functional/`), puis **PHPUnit est lancé dessus**.
-   Vert : le test est déplacé dans `tests/Unit/`. Rouge : il est mis de côté dans `var/failed_tests/functional/`,
+   Vert : le test est déplacé dans `tests/Functional/`. Rouge : il est mis de côté dans `var/failed_tests/functional/`,
    avec le journal PHPUnit. La zone d'attente ne conserve donc jamais un test dont le résultat est connu.
 
 Un libellé mal orthographié n'est jamais « deviné » en silence : il devient un candidat, au mieux, et la commande
@@ -57,7 +57,7 @@ La resource qui charge `src/` doit **exclure** les classes qui ne sont pas des s
 'Functional/Choice/LlmStepChooser.php',
 ```
 
-Il faut un alias explicite pour le choix (deux implémentations existent) :
+Et il faut un alias explicite pour le choix (deux implémentations existent) :
 
 ```php
 use Mika\TestGeneratorBundle\Functional\Choice\LlmClientStepChooser;
@@ -90,7 +90,7 @@ abstract class E2ETest extends PlaywrightTestCase
             default => throw new \InvalidArgumentException(sprintf('Profil de connexion inconnu : « %s ».', $profile)),
         };
 
-        // Projet WEBSSO : remplacer ce bloc par la stratégie éprouvée (jeton valide en session).
+        // Projet WEBSSO : remplacer ce bloc par votre stratégie éprouvée (jeton valide en session).
         $page = $this->open('/login');
         $page->locator('input[name="email"]')->fill($email);
         $page->locator('input[name="password"]')->fill($password);
@@ -112,8 +112,8 @@ Le trait fournit `open()`, `countRows()` (via la connexion du test, donc dans la
 Le trait reste dans le bundle : les classes Playwright n'y apparaissent que dans des commentaires de type
 (`@param \Playwright\Page\PageInterface`), jamais en type PHP, donc rien n'est chargé sans les paquets Playwright.
 Ces commentaires servent l'analyse statique de l'hôte (`$page->locator()` dans les tests générés). Si PHPStan analyse
-le bundle seul, il faut installer les paquets en développement (`composer require --dev playwright-php/playwright`) ou
-ignorer l'erreur de type de commentaire inconnu pour ce fichier.
+le bundle seul, installez les paquets en développement (`composer require --dev playwright-php/playwright`) ou
+ignorez l'erreur de type de commentaire inconnu pour ce fichier.
 
 **2. La classe de sonde**, dans un fichier qui ne finit pas par `Test.php` (la suite normale l'ignore) :
 
@@ -208,6 +208,9 @@ une étape reste à trancher (aucun test écrit).
   toute écriture, sauf `--force`. Dans `--failed-dir`, un test rouge précédent est remplacé.
 - Avec `--output`, le test reste exactement où demandé, mais PHPUnit est lancé et le code de sortie en tient compte.
 
+> Ces tests pilotent un navigateur : selon la façon dont `E2ETest` se protège (variable `PLAYWRIGHT_E2E`, groupe,
+> suite PHPUnit dédiée), ils peuvent être exécutés avec la suite habituelle. `--green-dir` change la destination.
+
 Exemple de compte rendu (étape ambiguë tranchée par le LLM) :
 
 ```
@@ -218,7 +221,7 @@ Avertissement : Étape 1 : sélecteur fragile (chemin dans le DOM, il cassera si
 Exécutions de la sonde : 2
 Test écrit : /…/tests/Dynamic/Functional/ModifierLObjectifDynamicTest.php
 Exécution de PHPUnit sur le test généré…
-PHPUnit : vert. Test déplacé : /…/tests/Unit/ModifierLObjectifDynamicTest.php
+PHPUnit : vert. Test déplacé : /…/tests/Functional/ModifierLObjectifDynamicTest.php
 ```
 
 Pour un scénario résolu par les règles seules, chaque étape porte `[règle]` et la sonde ne s'exécute qu'une fois.
@@ -248,6 +251,9 @@ d'être devinée.
 - **Sélecteurs fragiles** : sans `data-testid`, `id` ou `name`, la sonde retombe sur un chemin DOM
   (`body > main > button:nth-of-type(2)`). Le test fonctionne mais cassera si la page change ; la commande le
   signale. Ajouter un `aria-label` ou un `data-testid` sur ces éléments les fiabilise.
+- Les attentes (panneau ouvert ou fermé, URL, nombre de lignes) sont réévaluées pendant 3 s avant d'être déclarées
+  non constatées : une fermeture de panneau ou une redirection arrivent souvent après le calme du réseau. Un échec
+  « après 3.0 s d'attente » est donc un vrai échec (formulaire refusé, par exemple), pas une course.
 - Les relances de la sonde coûtent chacune une exécution de navigateur (quelques secondes).
 - La sonde et le test généré s'exécutent contre la base de test restaurée par DAMA ; la commande ne vérifie pas
   elle-même la base (`db:resolve` n'est pas appelée).

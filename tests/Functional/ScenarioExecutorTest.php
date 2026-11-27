@@ -46,7 +46,7 @@ MD;
 
     protected function setUp(): void
     {
-        $this->executor = new ScenarioExecutor();
+        $this->executor = new ScenarioExecutor(expectationTimeoutMs: 0);
         $this->parser = new FunctionalScenarioParser();
     }
 
@@ -86,6 +86,36 @@ MD;
             ],
             $browser->log,
         );
+    }
+
+    #[Test]
+    public function testWaitsForAPanelThatClosesAfterTheClick(): void
+    {
+        // ÉTANT DONNÉ une application qui ne ferme le panneau et n'ajoute la ligne que quelques relevés après le clic
+        $browser = FakeBrowser::realisticApp();
+        $browser->lagScans = 4;
+
+        // QUAND on exécute le scénario avec un délai d'attente suffisant
+        $result = (new ScenarioExecutor(expectationTimeoutMs: 2000, pollMs: 1))->execute($this->parser->parse(self::CREATION), $browser);
+
+        // ALORS les attentes sont constatées une fois la page à jour
+        self::assertSame(ProbeStatus::Ok, $result->status, (string) $result->error);
+        self::assertSame(self::PANEL, $result->expectationFor(1)?->panelSelector);
+    }
+
+    #[Test]
+    public function testReportsTheWaitWhenAnExpectationNeverComesTrue(): void
+    {
+        // ÉTANT DONNÉ une application dont le panneau ne se ferme jamais
+        $browser = FakeBrowser::realisticApp();
+        $browser->lagScans = 1000000;
+
+        // QUAND on exécute le scénario avec un délai court
+        $result = (new ScenarioExecutor(expectationTimeoutMs: 30, pollMs: 1))->execute($this->parser->parse(self::CREATION), $browser);
+
+        // ALORS l'échec dit que le panneau est resté ouvert et combien de temps on a attendu
+        self::assertSame(ProbeStatus::Failed, $result->status);
+        self::assertStringContainsString('le panneau est ouvert, après 0.0 s d\'attente', (string) $result->error);
     }
 
     #[Test]

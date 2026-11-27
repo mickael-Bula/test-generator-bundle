@@ -241,15 +241,15 @@ final class GenerateFunctionalTestCommandTest extends TestCase
         // QUAND on lance la commande
         $status = $tester->execute(['scenario' => $this->scenario($this->creation())]);
 
-        // ALORS PHPUnit a reçu le fichier de la zone d'attente, puis le test a été déplacé dans tests/Unit
+        // ALORS PHPUnit a reçu le fichier de la zone d'attente, puis le test a été déplacé dans tests/Functional
         $waiting = $this->project . '/tests/Dynamic/Functional/CreerUnePositionEnAttenteDynamicTest.php';
-        $green = $this->project . '/tests/Unit/CreerUnePositionEnAttenteDynamicTest.php';
+        $green = $this->project . '/tests/Functional/CreerUnePositionEnAttenteDynamicTest.php';
         self::assertSame(0, $status, $tester->getDisplay());
         self::assertSame([$waiting], $this->runner->files);
         self::assertFileDoesNotExist($waiting);
         self::assertFileExists($green);
         $source = (string) file_get_contents($green);
-        self::assertStringContainsString('namespace App\Tests\Unit;', $source);
+        self::assertStringContainsString('namespace App\Tests\Functional;', $source);
         self::assertStringContainsString('use App\Tests\E2E\E2ETest;', $source);
         self::assertStringContainsString('PHPUnit : vert. Test déplacé : ' . $green, $tester->getDisplay());
     }
@@ -271,7 +271,7 @@ final class GenerateFunctionalTestCommandTest extends TestCase
         self::assertStringContainsString('namespace App\Tests\Dynamic\Functional;', (string) file_get_contents($failed));
         self::assertStringContainsString('Failures: 1', (string) file_get_contents(substr($failed, 0, -4) . '.log'));
         self::assertFileDoesNotExist($this->project . '/tests/Dynamic/Functional/CreerUnePositionEnAttenteDynamicTest.php');
-        self::assertFileDoesNotExist($this->project . '/tests/Unit/CreerUnePositionEnAttenteDynamicTest.php');
+        self::assertFileDoesNotExist($this->project . '/tests/Functional/CreerUnePositionEnAttenteDynamicTest.php');
         self::assertStringContainsString('PHPUnit : rouge', $tester->getDisplay());
         self::assertStringContainsString('Failures: 1', $tester->getDisplay());
         self::assertStringContainsString('Test mis de côté : ' . $failed, $tester->getDisplay());
@@ -315,8 +315,8 @@ final class GenerateFunctionalTestCommandTest extends TestCase
     public function testRefusesBeforeRunningWhenTheGreenDestinationAlreadyExists(): void
     {
         // ÉTANT DONNÉ un test déjà présent dans le dossier des tests verts
-        mkdir($this->project . '/tests/Unit', 0777, true);
-        $green = $this->project . '/tests/Unit/CreerUnePositionEnAttenteDynamicTest.php';
+        mkdir($this->project . '/tests/Functional', 0777, true);
+        $green = $this->project . '/tests/Functional/CreerUnePositionEnAttenteDynamicTest.php';
         file_put_contents($green, 'à la main');
         $tester = $this->tester();
 

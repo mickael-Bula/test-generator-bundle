@@ -134,6 +134,8 @@ final readonly class ScannedElement
             'button' === $this->tag, 'summary' === $this->tag => 'button',
             in_array($role, ['button', 'tab', 'menuitem'], true) => 'button',
             'link' === $role => 'link',
+            in_array($role, ['checkbox', 'switch'], true) => 'checkbox',
+            'radio' === $role => 'radio',
             default => 'other',
         };
     }

@@ -7,7 +7,7 @@ namespace Mika\TestGeneratorBundle\Tests\Functional;
 use Mika\TestGeneratorBundle\Functional\Dto\ProbeResult;
 use Mika\TestGeneratorBundle\Functional\Enum\ProbeStatus;
 use Mika\TestGeneratorBundle\Functional\Support\ScenarioProbeTrait;
-use Mika\TestGeneratorBundle\Tests\Functional\Support\ContractE2ETest;
+use Mika\TestGeneratorBundle\Tests\Functional\Support\ContractE2EBase;
 use Mika\TestGeneratorBundle\Tests\Functional\Support\FakePage;
 use Mika\TestGeneratorBundle\Tests\Functional\Support\ProbeHostStub;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -22,9 +22,9 @@ final class ScenarioProbeTraitTest extends TestCase
 
     protected function setUp(): void
     {
-        ContractE2ETest::$logins = [];
-        ContractE2ETest::$visited = [];
-        ContractE2ETest::$counts = [];
+        ContractE2EBase::$logins = [];
+        ContractE2EBase::$visited = [];
+        ContractE2EBase::$counts = [];
     }
 
     protected function tearDown(): void
@@ -40,9 +40,6 @@ final class ScenarioProbeTraitTest extends TestCase
         }
     }
 
-    /**
-     * @throws \JsonException
-     */
     #[Test]
     public function testWritesAnOkResultForAResolvableScenario(): void
     {
@@ -51,18 +48,18 @@ final class ScenarioProbeTraitTest extends TestCase
         $output = $this->file('');
         $this->env($scenario, $output);
         $scan = json_decode((string) file_get_contents(__DIR__ . '/Fixture/scan-dashboard.json'), true, 512, JSON_THROW_ON_ERROR);
-        ContractE2ETest::$page = new FakePage(scan: $scan);
+        ContractE2EBase::$page = new FakePage(scan: $scan);
 
-        // QUAND on exécute la sonde.
-        (new ProbeHostStub('run'))->run();
+        // QUAND on exécute la sonde
+        (new ProbeHostStub('probe'))->probe();
 
         // ALORS le résultat écrit est « ok », la connexion a eu lieu avec le profil du scénario et le clic a visé le lien
         $result = ProbeResult::fromJson((string) file_get_contents($output));
         self::assertSame(ProbeStatus::Ok, $result->status, (string) $result->error);
         self::assertSame('a[href="/settings"]', $result->stepFor(1)?->target?->selector);
-        self::assertSame(['trader'], ContractE2ETest::$logins);
-        self::assertSame(['/'], ContractE2ETest::$visited);
-        self::assertSame(['a[href="/settings"] :: click'], ContractE2ETest::$page->log->getArrayCopy());
+        self::assertSame(['trader'], ContractE2EBase::$logins);
+        self::assertSame(['/'], ContractE2EBase::$visited);
+        self::assertSame(['a[href="/settings"] :: click'], ContractE2EBase::$page->log->getArrayCopy());
     }
 
     #[Test]
@@ -74,15 +71,15 @@ final class ScenarioProbeTraitTest extends TestCase
         $decisions = $this->file(json_encode(['1' => ['tag' => 'a', 'href' => '/portfolio', 'text' => 'Portefeuille', 'selector' => 'a[href="/portfolio"]', 'relative' => 'a[href="/portfolio"]']], JSON_THROW_ON_ERROR));
         $this->env($scenario, $output, $decisions);
         $scan = json_decode((string) file_get_contents(__DIR__ . '/Fixture/scan-dashboard.json'), true, 512, JSON_THROW_ON_ERROR);
-        ContractE2ETest::$page = new FakePage(scan: $scan);
+        ContractE2EBase::$page = new FakePage(scan: $scan);
 
         // QUAND on exécute la sonde
-        (new ProbeHostStub('run'))->run();
+        (new ProbeHostStub('probe'))->probe();
 
         // ALORS la décision est appliquée sans demander de nouvelle décision
         $result = ProbeResult::fromJson((string) file_get_contents($output));
         self::assertSame(ProbeStatus::Ok, $result->status, (string) $result->error);
-        self::assertSame(['a[href="/portfolio"] :: click'], ContractE2ETest::$page->log->getArrayCopy());
+        self::assertSame(['a[href="/portfolio"] :: click'], ContractE2EBase::$page->log->getArrayCopy());
     }
 
     #[Test]
@@ -93,16 +90,16 @@ final class ScenarioProbeTraitTest extends TestCase
         $output = $this->file('');
         $this->env($scenario, $output);
         $scan = json_decode((string) file_get_contents(__DIR__ . '/Fixture/scan-dashboard.json'), true, 512, JSON_THROW_ON_ERROR);
-        ContractE2ETest::$page = new FakePage(scan: $scan);
+        ContractE2EBase::$page = new FakePage(scan: $scan);
 
         // QUAND on exécute la sonde
-        (new ProbeHostStub('run'))->run();
+        (new ProbeHostStub('probe'))->probe();
 
         // ALORS la décision attendue est décrite dans le fichier de sortie et rien n'a été cliqué
         $result = ProbeResult::fromJson((string) file_get_contents($output));
         self::assertSame(ProbeStatus::NeedsDecision, $result->status);
         self::assertSame(1, $result->pending?->stepIndex);
-        self::assertSame([], ContractE2ETest::$page->log->getArrayCopy());
+        self::assertSame([], ContractE2EBase::$page->log->getArrayCopy());
     }
 
     #[Test]
@@ -111,10 +108,10 @@ final class ScenarioProbeTraitTest extends TestCase
         // ÉTANT DONNÉ un chemin de scénario inexistant
         $output = $this->file('');
         $this->env('/nonexistent/scenario.md', $output);
-        ContractE2ETest::$page = new FakePage();
+        ContractE2EBase::$page = new FakePage();
 
         // QUAND on exécute la sonde
-        (new ProbeHostStub('run'))->run();
+        (new ProbeHostStub('probe'))->probe();
 
         // ALORS la sortie contient un échec explicite
         $result = ProbeResult::fromJson((string) file_get_contents($output));
