@@ -49,7 +49,8 @@ final class GenerateFunctionalTestCommand extends Command
             ->addOption('output', 'o', InputOption::VALUE_REQUIRED, 'Fichier .php ou dossier de sortie : le test y reste, sans déplacement (défaut : zone d\'attente déduite du namespace)')
             ->addOption('namespace', null, InputOption::VALUE_REQUIRED, 'Namespace de la classe générée', 'App\Tests\Dynamic\Functional')
             ->addOption('base-class', null, InputOption::VALUE_REQUIRED, 'Classe de base des tests E2E de l\'hôte', 'App\Tests\E2E\E2ETest')
-            ->addOption('class', null, InputOption::VALUE_REQUIRED, 'Nom de la classe générée (défaut : dérivé du titre du scénario)')
+            ->addOption('class', null, InputOption::VALUE_REQUIRED, 'Nom de la classe générée (défaut : dérivé du titre du scénario, suivi du suffixe)')
+            ->addOption('class-suffix', null, InputOption::VALUE_REQUIRED, 'Suffixe du nom de classe dérivé du titre', 'Test')
             ->addOption('no-llm', null, InputOption::VALUE_NONE, 'Ne pas solliciter le LLM : s\'arrêter et lister les candidats aux étapes ambiguës')
             ->addOption('max-decisions', null, InputOption::VALUE_REQUIRED, 'Nombre maximal d\'étapes tranchées par le LLM', '5')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Afficher le test au lieu de l\'écrire')
@@ -70,10 +71,18 @@ final class GenerateFunctionalTestCommand extends Command
             return Command::FAILURE;
         }
 
+        $suffix = (string) $input->getOption('class-suffix');
+        if (1 !== preg_match('/^[A-Za-z0-9_]*$/', $suffix)) {
+            $output->writeln('<error>--class-suffix ne peut contenir que des lettres, des chiffres et des tirets bas.</error>');
+
+            return Command::FAILURE;
+        }
+
         $options = new RenderOptions(
             (string) $input->getOption('namespace'),
             (string) $input->getOption('base-class'),
             $this->nullIfEmpty($input->getOption('class')),
+            $suffix,
         );
 
         $report = $this->generator->generate(

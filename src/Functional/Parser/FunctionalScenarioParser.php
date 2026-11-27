@@ -17,7 +17,7 @@ use Mika\TestGeneratorBundle\Functional\Text\TextNormalizer;
  * Transforme un scénario Markdown écrit à la main en FunctionalScenario, sans LLM.
  *
  * Format : un titre « # », puis les sections « ## Contexte », « ## Étapes » et « ## Attentes ».
- * Les valeurs et libellés se placent entre « guillemets français » (ALT + 0171, ALT + 0187).
+ * Les valeurs et libellés se placent entre « guillemets français ».
  */
 final class FunctionalScenarioParser
 {
@@ -186,60 +186,31 @@ final class FunctionalScenarioParser
         }
 
         // Cliquer sur [le bouton] « X »
-        if (1 === preg_match(
-            '/^(?:cliquer|appuyer|presser)\s+(?:sur|dans)\s+' . $article . '(?:(bouton|lien|onglet|menu|icone|element|bascule|case|carte)\s+)?\{(\d+)\}$/',
-            $folded,
-            $m
-            )
-        ) {
+        if (1 === preg_match('/^(?:cliquer|appuyer|presser)\s+(?:sur|dans)\s+' . $article . '(?:(bouton|lien|onglet|menu|icone|element|bascule|case|carte)\s+)?\{(\d+)\}$/', $folded, $m)) {
             return $make(StepAction::Click, $values[(int) $m[2]], null, '' === $m[1] ? null : $m[1]);
         }
 
         // Saisir « valeur » dans [le champ] « X »
-        if (1 === preg_match(
-            '/^(?:saisir|renseigner|entrer|taper|ecrire)\s+\{(\d+)\}\s+(?:dans|pour)\s+' . $article . '(?:(?:champ|zone de texte|zone|input|saisie)\s+)?\{(\d+)\}$/',
-            $folded,
-            $m
-            )
-        ) {
+        if (1 === preg_match('/^(?:saisir|renseigner|entrer|taper|ecrire)\s+\{(\d+)\}\s+(?:dans|pour)\s+' . $article . '(?:(?:champ|zone de texte|zone|input|saisie)\s+)?\{(\d+)\}$/', $folded, $m)) {
             return $make(StepAction::Fill, $values[(int) $m[2]], $values[(int) $m[1]]);
         }
 
         // Remplir [le champ] « X » avec « valeur »
-        if (1 === preg_match(
-            '/^remplir\s+' . $article . '(?:(?:champ|zone de texte|zone)\s+)?\{(\d+)\}\s+avec\s+\{(\d+)\}$/',
-            $folded,
-            $m
-            )
-        ) {
+        if (1 === preg_match('/^remplir\s+' . $article . '(?:(?:champ|zone de texte|zone)\s+)?\{(\d+)\}\s+avec\s+\{(\d+)\}$/', $folded, $m)) {
             return $make(StepAction::Fill, $values[(int) $m[1]], $values[(int) $m[2]]);
         }
 
         // Sélectionner « valeur » dans [la liste] « X »
-        if (1 === preg_match(
-            '/^(?:selectionner|choisir)\s+\{(\d+)\}\s+(?:dans|pour)\s+' . $article . '(?:(?:liste deroulante|liste|menu deroulant|menu|champ|selecteur|select|zone)\s+)?\{(\d+)\}$/',
-            $folded,
-            $m
-            )
-        ) {
+        if (1 === preg_match('/^(?:selectionner|choisir)\s+\{(\d+)\}\s+(?:dans|pour)\s+' . $article . '(?:(?:liste deroulante|liste|menu deroulant|menu|champ|selecteur|select|zone)\s+)?\{(\d+)\}$/', $folded, $m)) {
             return $make(StepAction::Select, $values[(int) $m[2]], $values[(int) $m[1]]);
         }
 
         // Cocher / Décocher [la case] « X »
-        if (1 === preg_match(
-            '/^(cocher|decocher)\s+' . $article . '(?:(?:case a cocher|case|option|interrupteur|bascule)\s+)?\{(\d+)\}$/',
-            $folded,
-            $m
-            )
-        ) {
+        if (1 === preg_match('/^(cocher|decocher)\s+' . $article . '(?:(?:case a cocher|case|option|interrupteur|bascule)\s+)?\{(\d+)\}$/', $folded, $m)) {
             return $make('cocher' === $m[1] ? StepAction::Check : StepAction::Uncheck, $values[(int) $m[2]]);
         }
 
-        throw ScenarioParseException::atLine(
-            $line,
-            'étape non reconnue. Verbes acceptés : ' . self::VERBS_HELP . '. Les libellés et valeurs se placent entre « ».',
-            $text
-        );
+        throw ScenarioParseException::atLine($line, 'étape non reconnue. Verbes acceptés : ' . self::VERBS_HELP . '. Les libellés et valeurs se placent entre « ».', $text);
     }
 
     private function parseExpectation(string $text, int $index, int $line): Expectation

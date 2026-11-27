@@ -14,7 +14,9 @@ use Mika\TestGeneratorBundle\Functional\Exception\ProbeException;
 interface ProbeRunnerInterface
 {
     /**
+     * @param string|null $baseClass classe de base E2E de l'hôte, pour générer la classe de sonde si l'hôte n'en fournit pas
+     *
      * @throws ProbeException si la sonde n'a pas pu s'exécuter ou n'a rien rapporté
      */
-    public function run(string $scenarioPath, ScenarioDecisions $decisions): ProbeResult;
+    public function run(string $scenarioPath, ScenarioDecisions $decisions, ?string $baseClass = null): ProbeResult;
 }

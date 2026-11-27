@@ -117,11 +117,6 @@ final readonly class ScannedElement
         $type = strtolower((string) $this->type);
         $role = strtolower((string) $this->role);
 
-        /**
-         * Les branches du match() ne doivent pas être fusionnées, au risque de modifier l'ordre de résolution.
-         *
-         * @noinspection PhpDuplicateMatchArmBodyInspection
-         */
         return match (true) {
             'a' === $this->tag => 'link',
             'select' === $this->tag => 'select',
@@ -142,12 +137,7 @@ final readonly class ScannedElement
 
     public function toTarget(): Target
     {
-        return new Target(
-            $this->selector,
-            '' === $this->relative ? $this->selector : $this->relative,
-            $this->container,
-            $this->fragile
-        );
+        return new Target($this->selector, '' === $this->relative ? $this->selector : $this->relative, $this->container, $this->fragile);
     }
 
     /**

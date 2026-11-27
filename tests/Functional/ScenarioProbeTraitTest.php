@@ -23,6 +23,7 @@ final class ScenarioProbeTraitTest extends TestCase
     protected function setUp(): void
     {
         ContractE2EBase::$logins = [];
+        ContractE2EBase::$strategies = [];
         ContractE2EBase::$visited = [];
         ContractE2EBase::$counts = [];
     }
@@ -58,6 +59,7 @@ final class ScenarioProbeTraitTest extends TestCase
         self::assertSame(ProbeStatus::Ok, $result->status, (string) $result->error);
         self::assertSame('a[href="/settings"]', $result->stepFor(1)?->target?->selector);
         self::assertSame(['trader'], ContractE2EBase::$logins);
+        self::assertSame(['password'], ContractE2EBase::$strategies);
         self::assertSame(['/'], ContractE2EBase::$visited);
         self::assertSame(['a[href="/settings"] :: click'], ContractE2EBase::$page->log->getArrayCopy());
     }

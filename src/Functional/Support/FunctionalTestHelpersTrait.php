@@ -14,7 +14,7 @@ use Mika\TestGeneratorBundle\Functional\Runtime\PlaywrightActions;
  *     {
  *         use FunctionalTestHelpersTrait;
  *
- *         protected function loginAs(string $profile): void { ... }
+ *         protected function loginAs(string $profile, ?string $strategy = null): void { ... }
  *     }
  *
  * Les attentes sont des scrutations d'un résultat précis (jamais « réseau inactif ») ; les assertions
@@ -28,7 +28,15 @@ trait FunctionalTestHelpersTrait
      * Connecte l'utilisateur correspondant au profil nommé dans le scénario (« trader », « admin »…).
      * Spécifique à chaque projet : formulaire de connexion, jeton WEBSSO en session, etc.
      */
-    abstract protected function loginAs(string $profile): void;
+    /**
+     * Connecte l'utilisateur du scénario (sonde et test généré appellent cette même méthode).
+     *
+     * @param string      $profile  profil indiqué par le scénario (« profil « connecté » ») ; 'default' si le scénario n'en donne pas
+     * @param string|null $strategy 'password' (formulaire de connexion) ou 'websso' selon la ligne « Authentification » du scénario
+     *
+     * Un profil ou une stratégie que la méthode ne sait pas traiter doit lever une exception.
+     */
+    abstract protected function loginAs(string $profile, ?string $strategy = null): void;
 
     /**
      * Délai maximal des attentes et des actions Playwright, en millisecondes.

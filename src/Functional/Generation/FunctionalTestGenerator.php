@@ -61,7 +61,7 @@ final class FunctionalTestGenerator
 
         while (true) {
             try {
-                $probe = $this->runner->run($scenarioPath, $decisions);
+                $probe = $this->runner->run($scenarioPath, $decisions, $options->baseClass);
             } catch (\Throwable $e) {
                 return GenerationReport::failed($title, $className, [], $e->getMessage(), $runs);
             }

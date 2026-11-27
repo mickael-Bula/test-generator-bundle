@@ -8,7 +8,7 @@ use Mika\TestGeneratorBundle\Functional\Dto\ScanResult;
 use Mika\TestGeneratorBundle\Functional\Dto\Target;
 
 /**
- * Ce dont la sonde a besoin de la part d'un navigateur. L'implémentation Playwright vit dans l'hôte
+ * Ce dont la sonde a besoin d'un navigateur. L'implémentation Playwright vit dans l'hôte
  * (via le trait de sonde) ; les tests du bundle utilisent un faux navigateur.
  */
 interface BrowserPort

@@ -6,12 +6,12 @@ namespace App\Tests\Functional;
 
 use App\Tests\E2ETest;
 
-final class CreerUnePositionEnAttenteDynamicTest extends E2ETest
+final class CreerUnePositionEnAttenteTest extends E2ETest
 {
     public function testCreerUnePositionEnAttente(): void
     {
         // ÉTANT DONNÉ
-        $this->loginAs('trader');
+        $this->loginAs('trader', 'password');
         $page = $this->open('/');
         $positionRowsBefore = $this->countRows('position');
 

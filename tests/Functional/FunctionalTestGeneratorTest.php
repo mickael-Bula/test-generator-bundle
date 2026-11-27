@@ -47,6 +47,20 @@ final class FunctionalTestGeneratorTest extends TestCase
     }
 
     #[Test]
+    public function testGivesTheBaseClassOptionToTheProbeRunner(): void
+    {
+        // ÉTANT DONNÉ une classe de base E2E choisie par les options de rendu
+        $runner = new ExecutorProbeRunner();
+        $generator = new FunctionalTestGenerator($runner, new FakeStepChooser());
+
+        // QUAND on génère
+        $generator->generate($this->scenarioFile($this->creation()), new RenderOptions('App\Tests\Dynamic\Functional', 'Acme\Tests\BaseTest'));
+
+        // ALORS la sonde est lancée avec cette classe de base (elle en génère la classe de sonde si l'hôte n'en a pas)
+        self::assertSame(['Acme\Tests\BaseTest'], $runner->baseClasses);
+    }
+
+    #[Test]
     public function testGeneratesWithoutTheChooserWhenTheRulesResolveEverything(): void
     {
         // ÉTANT DONNÉ le scénario de création, que les règles résolvent seules
@@ -63,8 +77,8 @@ final class FunctionalTestGeneratorTest extends TestCase
         self::assertSame(0, $chooser->calls);
         self::assertCount(6, $report->steps);
         self::assertSame([ResolutionMethod::Rule], array_values(array_unique(array_map(static fn ($s) => $s->method, $report->steps), SORT_REGULAR)));
-        self::assertSame('CreerUnePositionEnAttenteDynamicTest', $report->className);
-        self::assertStringContainsString('final class CreerUnePositionEnAttenteDynamicTest extends E2ETest', (string) $report->source);
+        self::assertSame('CreerUnePositionEnAttenteTest', $report->className);
+        self::assertStringContainsString('final class CreerUnePositionEnAttenteTest extends E2ETest', (string) $report->source);
         self::assertSame([], $report->warnings);
     }
 

@@ -142,17 +142,122 @@ final class PhpUnitProbeRunnerTest extends TestCase
     }
 
     #[Test]
-    public function testExplainsAMissingProbeClass(): void
+    public function testExplainsAMissingPhpunitBinary(): void
     {
-        // ÉTANT DONNÉ un projet sans classe de sonde, avec la commande PHPUnit par défaut
+        // ÉTANT DONNÉ un projet sans vendor/bin/phpunit, avec la commande PHPUnit par défaut
         $runner = new PhpUnitProbeRunner(sys_get_temp_dir());
 
         // QUAND on lance la sonde
-        // ALORS l'erreur nomme la classe à créer et renvoie à la documentation.
+        // ALORS l'erreur nomme le chemin attendu
         $this->expectException(ProbeException::class);
-        $this->expectExceptionMessage('Créez MikaScenarioProbe');
+        $this->expectExceptionMessage('PHPUnit introuvable : ' . sys_get_temp_dir() . '/vendor/bin/phpunit');
 
         $runner->run($this->scenarioFile(), new ScenarioDecisions());
+    }
+
+    #[Test]
+    public function testGeneratesTheProbeClassFromTheBaseClassWhenTheHostHasNone(): void
+    {
+        // ÉTANT DONNÉ un projet sans MikaScenarioProbe
+        // QUAND on lance la sonde avec une classe de base
+        $result = $this->generatingRunner()->run($this->scenarioFile(), new ScenarioDecisions(), 'Acme\Tests\BaseTest');
+
+        // ALORS PHPUnit a reçu un fichier MikaScenarioProbe.php généré, qui étend cette classe et utilise le trait de la sonde
+        $error = (string) $result->error;
+        self::assertMatchesRegularExpression('#probe=' . preg_quote(sys_get_temp_dir(), '#') . '/mika_probe_[0-9a-f]+/MikaScenarioProbe\.php;exists=1#', $error);
+        self::assertStringContainsString('args=' . '--colors=never --do-not-cache-result --filter testProbe', $error);
+        self::assertStringContainsString('final class MikaScenarioProbe extends \Acme\Tests\BaseTest', $error);
+        self::assertStringContainsString('use Mika\TestGeneratorBundle\Functional\Support\ScenarioProbeTrait;', $error);
+        self::assertStringContainsString('public function testProbe(): void', $error);
+        self::assertStringContainsString('$this->runScenarioProbe();', $error);
+    }
+
+    #[Test]
+    public function testGeneratedProbeIsRemovedAfterTheRun(): void
+    {
+        // ÉTANT DONNÉ les dossiers de sonde temporaires présents avant l'exécution
+        $before = glob(sys_get_temp_dir() . '/mika_probe_*') ?: [];
+
+        // QUAND on lance la sonde générée, puis une sonde générée qui échoue
+        $this->generatingRunner()->run($this->scenarioFile(), new ScenarioDecisions());
+        try {
+            $this->generatingRunner('silent')->run($this->scenarioFile(), new ScenarioDecisions());
+        } catch (ProbeException) {
+            // attendu
+        }
+
+        // ALORS aucun dossier temporaire ne subsiste
+        self::assertSame($before, glob(sys_get_temp_dir() . '/mika_probe_*') ?: []);
+    }
+
+    #[Test]
+    public function testUsesTheDefaultBaseClassWhenNoneIsGiven(): void
+    {
+        // ÉTANT DONNÉ un exécuteur sans classe de base explicite
+        // QUAND on lance la sonde
+        $result = $this->generatingRunner()->run($this->scenarioFile(), new ScenarioDecisions());
+
+        // ALORS la classe générée étend App\Tests\E2E\E2ETest
+        self::assertStringContainsString('extends \App\Tests\E2E\E2ETest', (string) $result->error);
+    }
+
+    #[Test]
+    public function testPrefersTheHostProbeClassWhenItExists(): void
+    {
+        // ÉTANT DONNÉ un projet qui a sa propre classe de sonde
+        $project = sys_get_temp_dir() . '/mika_project_' . bin2hex(random_bytes(4));
+        mkdir($project . '/tests/E2E', 0777, true);
+        $own = $project . '/tests/E2E/MikaScenarioProbe.php';
+        file_put_contents($own, "<?php // la mienne\n");
+        $this->files[] = $own;
+
+        try {
+            // QUAND on lance la sonde
+            $result = (new PhpUnitProbeRunner(
+                $project,
+                phpunitBinary: __DIR__ . '/Fixture/fake-phpunit-probe.php',
+                environment: ['FAKE_PROBE_MODE' => 'ok'],
+            ))->run($this->scenarioFile(), new ScenarioDecisions(), 'Acme\Tests\BaseTest');
+
+            // ALORS PHPUnit reçoit le fichier de l'hôte, rien n'est généré
+            self::assertStringContainsString('probe=' . $own . ';exists=1', (string) $result->error);
+            self::assertStringContainsString('la mienne', (string) $result->error);
+            self::assertStringNotContainsString('final class MikaScenarioProbe', (string) $result->error);
+        } finally {
+            unlink($own);
+            rmdir($project . '/tests/E2E');
+            rmdir($project . '/tests');
+            rmdir($project);
+        }
+    }
+
+    #[Test]
+    public function testRejectsAnInvalidBaseClassName(): void
+    {
+        // ÉTANT DONNÉ un nom de classe de base qui ne serait pas du PHP valide
+        // QUAND on lance la sonde
+        // ALORS elle est refusée avant toute écriture
+        $this->expectException(ProbeException::class);
+        $this->expectExceptionMessage('Classe de base invalide');
+
+        $this->generatingRunner()->run($this->scenarioFile(), new ScenarioDecisions(), 'Foo { } system("x"); class Bar');
+    }
+
+    #[Test]
+    public function testMentionsTheGeneratedProbeWhenNoResultIsWritten(): void
+    {
+        // ÉTANT DONNÉ une sonde générée dont le processus échoue sans résultat (classe de base introuvable, par exemple)
+        // QUAND on lance la sonde
+        // ALORS l'erreur dit que la classe a été générée, avec l'option et le fichier de remplacement
+        try {
+            $this->generatingRunner('silent')->run($this->scenarioFile(), new ScenarioDecisions(), 'Acme\Tests\BaseTest');
+            self::fail('Une ProbeException était attendue.');
+        } catch (ProbeException $e) {
+            self::assertStringContainsString('générée automatiquement à partir de la classe de base « Acme\Tests\BaseTest »', $e->getMessage());
+            self::assertStringContainsString('--base-class', $e->getMessage());
+            self::assertStringContainsString('tests/E2E/MikaScenarioProbe.php', $e->getMessage());
+            self::assertStringContainsString('boom', $e->getMessage());
+        }
     }
 
     #[Test]
@@ -184,6 +289,16 @@ final class PhpUnitProbeRunnerTest extends TestCase
             timeoutSeconds: $timeout,
             environment: $environment + ['FAKE_PROBE_MODE' => $mode],
             command: [PHP_BINARY, __DIR__ . '/Fixture/fake-probe.php'],
+        );
+    }
+
+    private function generatingRunner(string $mode = 'ok'): PhpUnitProbeRunner
+    {
+        return new PhpUnitProbeRunner(
+            __DIR__ . '/Fixture',
+            phpunitBinary: __DIR__ . '/Fixture/fake-phpunit-probe.php',
+            timeoutSeconds: 20,
+            environment: ['FAKE_PROBE_MODE' => $mode],
         );
     }
 

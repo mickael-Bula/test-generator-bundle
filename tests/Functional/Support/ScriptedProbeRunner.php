@@ -22,7 +22,7 @@ final class ScriptedProbeRunner implements ProbeRunnerInterface
     {
     }
 
-    public function run(string $scenarioPath, ScenarioDecisions $decisions): ProbeResult
+    public function run(string $scenarioPath, ScenarioDecisions $decisions, ?string $baseClass = null): ProbeResult
     {
         ++$this->runs;
         $response = count($this->responses) > 1 ? array_shift($this->responses) : $this->responses[0];

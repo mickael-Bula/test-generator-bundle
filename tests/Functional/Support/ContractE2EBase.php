@@ -19,15 +19,19 @@ abstract class ContractE2EBase extends TestCase
     /** @var list<string> */
     public static array $logins = [];
 
+    /** @var list<string|null> */
+    public static array $strategies = [];
+
     /** @var list<string> */
     public static array $visited = [];
 
     /** @var array<string, list<int>> comptages successifs par table */
     public static array $counts = [];
 
-    protected function loginAs(string $profile): void
+    protected function loginAs(string $profile, ?string $strategy = null): void
     {
         self::$logins[] = $profile;
+        self::$strategies[] = $strategy;
     }
 
     protected function visit(string $path): FakePage

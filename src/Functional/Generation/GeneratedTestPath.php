@@ -48,7 +48,7 @@ final class GeneratedTestPath
      */
     public function namespaceFor(string $projectDir, string $directory): ?string
     {
-        $root = rtrim(str_replace('\\', '/', $projectDir), '/') . '/tests';
+        $root = rtrim($projectDir, '/\\') . '/tests';
         $directory = rtrim(str_replace('\\', '/', $directory), '/');
 
         if ($directory !== $root && !str_starts_with($directory, $root . '/')) {

@@ -18,15 +18,15 @@ final class GeneratedTestPathTest extends TestCase
      */
     public static function pathProvider(): iterable
     {
-        yield 'namespace sous App\Tests' => ['App\Tests\Dynamic\Functional', null, '/srv/app/tests/Dynamic/Functional/FooDynamicTest.php'];
-        yield 'namespace App\Tests exact' => ['App\Tests', null, '/srv/app/tests/FooDynamicTest.php'];
-        yield 'antislash initial toléré' => ['\App\Tests\E2E', null, '/srv/app/tests/E2E/FooDynamicTest.php'];
-        yield 'dossier relatif' => ['App\Tests\X', 'var/out', '/srv/app/var/out/FooDynamicTest.php'];
-        yield 'dossier absolu avec barre finale' => ['App\Tests\X', '/tmp/out/', '/tmp/out/FooDynamicTest.php'];
+        yield 'namespace sous App\Tests' => ['App\Tests\Dynamic\Functional', null, '/srv/app/tests/Dynamic/Functional/FooTest.php'];
+        yield 'namespace App\Tests exact' => ['App\Tests', null, '/srv/app/tests/FooTest.php'];
+        yield 'antislash initial toléré' => ['\App\Tests\E2E', null, '/srv/app/tests/E2E/FooTest.php'];
+        yield 'dossier relatif' => ['App\Tests\X', 'var/out', '/srv/app/var/out/FooTest.php'];
+        yield 'dossier absolu avec barre finale' => ['App\Tests\X', '/tmp/out/', '/tmp/out/FooTest.php'];
         yield 'fichier relatif' => ['App\Tests\X', 'tests/Mon.php', '/srv/app/tests/Mon.php'];
         yield 'fichier absolu, extension en majuscules' => ['App\Tests\X', '/tmp/Mon.PHP', '/tmp/Mon.PHP'];
-        yield 'chemin Windows absolu' => ['App\Tests\X', 'C:\out', 'C:\out/FooDynamicTest.php'];
-        yield 'option vide ignorée' => ['App\Tests\Y', '  ', '/srv/app/tests/Y/FooDynamicTest.php'];
+        yield 'chemin Windows absolu' => ['App\Tests\X', 'C:\out', 'C:\out/FooTest.php'];
+        yield 'option vide ignorée' => ['App\Tests\Y', '  ', '/srv/app/tests/Y/FooTest.php'];
     }
 
     #[Test]
@@ -36,7 +36,7 @@ final class GeneratedTestPathTest extends TestCase
         // ÉTANT DONNÉ un projet, un namespace et une option --output éventuelle
         // QUAND on résout le chemin du test
         // ALORS il est celui attendu
-        self::assertSame($expected, (new GeneratedTestPath())->resolve('/srv/app/', $namespace, 'FooDynamicTest', $output));
+        self::assertSame($expected, (new GeneratedTestPath())->resolve('/srv/app/', $namespace, 'FooTest', $output));
     }
 
     #[Test]
@@ -48,7 +48,7 @@ final class GeneratedTestPathTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Utilisez --output');
 
-        (new GeneratedTestPath())->resolve('/srv/app', 'Acme\Tests', 'FooDynamicTest');
+        (new GeneratedTestPath())->resolve('/srv/app', 'Acme\Tests', 'FooTest');
     }
 
     #[Test]
@@ -59,7 +59,7 @@ final class GeneratedTestPathTest extends TestCase
         // ALORS il est refusé
         $this->expectException(\InvalidArgumentException::class);
 
-        (new GeneratedTestPath())->resolve('/srv/app', 'App\TestsExtra', 'FooDynamicTest');
+        (new GeneratedTestPath())->resolve('/srv/app', 'App\TestsExtra', 'FooTest');
     }
 
     /**

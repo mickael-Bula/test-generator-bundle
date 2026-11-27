@@ -38,6 +38,23 @@ final class FunctionalTestRendererTest extends TestCase
     }
 
     #[Test]
+    public function testDerivesTheClassNameFromTheTitleAndTheSuffix(): void
+    {
+        // ÉTANT DONNÉ un scénario sans nom de classe imposé
+        $scenario = $this->parse($this->creationMarkdown());
+
+        // QUAND on dérive le nom, avec le suffixe par défaut puis un suffixe choisi, puis avec un nom imposé
+        $default = $this->renderer->className($scenario, $this->options);
+        $custom = $this->renderer->className($scenario, new RenderOptions('App\Tests\Functional', 'App\Tests\E2ETest', null, 'Scenario'));
+        $forced = $this->renderer->className($scenario, new RenderOptions('App\Tests\Functional', 'App\Tests\E2ETest', 'MaClasse', 'Scenario'));
+
+        // ALORS le suffixe par défaut est « Test », sans « Dynamic », et le nom imposé l'emporte
+        self::assertSame('CreerUnePositionEnAttenteTest', $default);
+        self::assertSame('CreerUnePositionEnAttenteScenario', $custom);
+        self::assertSame('MaClasse', $forced);
+    }
+
+    #[Test]
     public function testRendersTheCreationScenarioExactly(): void
     {
         // ÉTANT DONNÉ le scénario de création exécuté par la sonde
@@ -96,6 +113,20 @@ final class FunctionalTestRendererTest extends TestCase
         $this->expectExceptionMessage('n\'a pas résolu l\'étape 1');
 
         $this->renderer->render($scenario, $probe, $this->options);
+    }
+
+    #[Test]
+    public function testPassesTheAuthenticationStrategyToLoginAs(): void
+    {
+        // ÉTANT DONNÉ un scénario WEBSSO avec un profil
+        $scenario = $this->parse("# T\n## Contexte\n- Authentification : websso\n- Profil : « admin »\n## Étapes\n1. Aller sur /x\n## Attentes\n- L'URL est /x\n");
+        $probe = ProbeResult::ok([new ResolvedStep(1, null, null, null, null, '/x')], [new ResolvedExpectation(1, null)]);
+
+        // QUAND on génère le test
+        $source = $this->renderer->render($scenario, $probe, $this->options);
+
+        // ALORS la connexion reçoit le profil et la stratégie
+        self::assertStringContainsString("\$this->loginAs('admin', 'websso');", $source);
     }
 
     #[Test]
@@ -242,6 +273,7 @@ MD);
         ContractE2EBase::$page = new FakePage(prepared: [self::PANEL => $panel]);
         ContractE2EBase::$page->log = $log;
         ContractE2EBase::$logins = [];
+        ContractE2EBase::$strategies = [];
         ContractE2EBase::$visited = [];
         ContractE2EBase::$counts = ['position' => [3, 4]];
 
@@ -259,6 +291,7 @@ MD);
 
         // ALORS les actions arrivent dans l'ordre sur les bons éléments, avec les bonnes valeurs
         self::assertSame(['trader'], ContractE2EBase::$logins);
+        self::assertSame(['password'], ContractE2EBase::$strategies);
         self::assertSame(['/'], ContractE2EBase::$visited);
         self::assertSame(
             [

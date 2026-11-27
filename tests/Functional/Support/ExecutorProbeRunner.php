@@ -18,9 +18,13 @@ final class ExecutorProbeRunner implements ProbeRunnerInterface
     /** @var list<ScenarioDecisions> */
     public array $decisionsSeen = [];
 
-    public function run(string $scenarioPath, ScenarioDecisions $decisions): ProbeResult
+    /** @var list<string|null> */
+    public array $baseClasses = [];
+
+    public function run(string $scenarioPath, ScenarioDecisions $decisions, ?string $baseClass = null): ProbeResult
     {
         $this->decisionsSeen[] = $decisions;
+        $this->baseClasses[] = $baseClass;
 
         return (new ScenarioExecutor(expectationTimeoutMs: 0))->execute((new FunctionalScenarioParser())->parseFile($scenarioPath), FakeBrowser::realisticApp(), $decisions);
     }

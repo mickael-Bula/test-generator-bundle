@@ -24,7 +24,7 @@ final class GenerationReportFormatterTest extends TestCase
     public function testListsEachStepWithItsResolutionMethod(): void
     {
         // ÉTANT DONNÉ un rapport de réussite avec une étape par règle, une par LLM (fragile) et une navigation
-        $report = GenerationReport::generated('Titre', 'TitreDynamicTest', '<?php', [
+        $report = GenerationReport::generated('Titre', 'TitreTest', '<?php', [
             new StepReport(1, 'Cliquer sur le bouton « A »', ResolutionMethod::Rule, '#a', '#panel', false),
             new StepReport(2, 'Cliquer sur « B »', ResolutionMethod::Llm, 'body > button', null, true),
             new StepReport(3, 'Aller sur /x', ResolutionMethod::Navigation, null, null, false),
@@ -49,7 +49,7 @@ final class GenerationReportFormatterTest extends TestCase
     public function testDoesNotRepeatThePanelWhenTheSelectorAlreadyStartsWithIt(): void
     {
         // ÉTANT DONNÉ un sélecteur déjà préfixé par son panneau (bouton « submit » non unique dans la page)
-        $report = GenerationReport::generated('T', 'TDynamicTest', '<?php', [
+        $report = GenerationReport::generated('T', 'TTest', '<?php', [
             new StepReport(1, 'Cliquer sur « Enregistrer »', ResolutionMethod::Rule, '#panel button[type="submit"]', '#panel', false),
         ], [], 1);
 
@@ -71,7 +71,7 @@ final class GenerationReportFormatterTest extends TestCase
         ]);
 
         // QUAND on formate le rapport
-        $lines = (new GenerationReportFormatter())->lines(GenerationReport::needsDecision('T', 'TDynamicTest', [], $step, $pending, 1));
+        $lines = (new GenerationReportFormatter())->lines(GenerationReport::needsDecision('T', 'TTest', [], $step, $pending, 1));
 
         // ALORS les candidats sont numérotés et la suite à donner est indiquée
         self::assertContains('Décision requise à l\'étape 1 : Cliquer sur « Modifier » (plusieurs éléments correspondent)', $lines);
@@ -86,7 +86,7 @@ final class GenerationReportFormatterTest extends TestCase
         // ÉTANT DONNÉ un échec survenu en cherchant à trancher une étape, sur la page /login
         $step = new Step(1, StepAction::Click, 'Nouvelle position', null, null, 'Cliquer sur « Nouvelle position »', 8);
         $pending = new PendingDecision(1, ResolutionStatus::NotFound, [new ScannedElement(tag: 'button', text: 'Se connecter', selector: 'button[type="submit"]')], '/login');
-        $report = GenerationReport::failed('T', 'TDynamicTest', [], 'Étape 1 : choix impossible : délai dépassé', 1, [], $step, $pending);
+        $report = GenerationReport::failed('T', 'TTest', [], 'Étape 1 : choix impossible : délai dépassé', 1, [], $step, $pending);
 
         // QUAND on formate le rapport
         $lines = (new GenerationReportFormatter())->lines($report);
@@ -107,7 +107,7 @@ final class GenerationReportFormatterTest extends TestCase
         $pending = new PendingDecision(2, ResolutionStatus::NotFound, [new ScannedElement(tag: 'a', text: 'Accueil', selector: '#home')]);
 
         // QUAND on formate le rapport
-        $lines = (new GenerationReportFormatter())->lines(GenerationReport::needsDecision('T', 'TDynamicTest', [], $step, $pending, 1));
+        $lines = (new GenerationReportFormatter())->lines(GenerationReport::needsDecision('T', 'TTest', [], $step, $pending, 1));
 
         // ALORS la raison est « aucun élément ne correspond »
         self::assertContains('Décision requise à l\'étape 2 : Cliquer sur « Zzz » (aucun élément ne correspond)', $lines);

@@ -31,9 +31,6 @@ use Mika\TestGeneratorBundle\Functional\Runtime\ScenarioExecutor;
  */
 trait ScenarioProbeTrait
 {
-    /**
-     * @throws \JsonException
-     */
     protected function runScenarioProbe(): void
     {
         $scenarioPath = (string) getenv('MIKA_PROBE_SCENARIO');
@@ -52,7 +49,7 @@ trait ScenarioProbeTrait
                 : new ScenarioDecisions();
 
             if (null !== $scenario->context->authStrategy) {
-                $this->loginAs($scenario->context->authProfile ?? 'default');
+                $this->loginAs($scenario->context->authProfile ?? 'default', $scenario->context->authStrategy);
             }
 
             $browser = new PlaywrightBrowser(

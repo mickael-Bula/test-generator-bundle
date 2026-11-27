@@ -84,7 +84,7 @@ final class FunctionalTestRenderer
      */
     public function className(FunctionalScenario $scenario, RenderOptions $options): string
     {
-        return $options->className ?? $this->pascalCase($scenario->title) . 'DynamicTest';
+        return $options->className ?? $this->pascalCase($scenario->title) . $options->classSuffix;
     }
 
     /**
@@ -94,7 +94,11 @@ final class FunctionalTestRenderer
     {
         $lines = [];
         if (null !== $scenario->context->authStrategy) {
-            $lines[] = sprintf('$this->loginAs(%s);', $this->quote($scenario->context->authProfile ?? 'default'));
+            $lines[] = sprintf(
+                '$this->loginAs(%s, %s);',
+                $this->quote($scenario->context->authProfile ?? 'default'),
+                $this->quote($scenario->context->authStrategy),
+            );
         }
 
         $lines[] = sprintf('$page = $this->open(%s);', $this->quote($scenario->context->startPath));

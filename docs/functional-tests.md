@@ -6,6 +6,9 @@ sollicité que pour désigner un élément de page quand les règles hésitent.
 
 ## Principe
 
+> Le déroulé complet (processus, appels à Playwright, au LLM et à PHPUnit, boucles) est décrit dans
+> `functional-tests-fonctionnement.md`.
+
 1. Le scénario est lu (aucun LLM) : `Mika\TestGeneratorBundle\Functional\Parser`.
 2. Une **sonde** rejoue le scénario dans le navigateur, dans un processus PHPUnit de l'hôte. À chaque étape elle
    scanne le DOM, retrouve l'élément visé par des règles (libellé, texte voisin, titre du panneau qu'un bouton ouvre,
@@ -68,21 +71,30 @@ $services->alias(StepChooserInterface::class, LlmClientStepChooser::class);
 
 `ProbeRunnerInterface` et `GeneratedTestRunnerInterface` n'ont chacune qu'une implémentation
 (`PhpUnitProbeRunner`, `PhpUnitGeneratedTestRunner`) : les alias sont automatiques. `PhpUnitProbeRunner` reçoit `%kernel.project_dir%` par attribut `#[Autowire]` ; ses autres paramètres ont des
-valeurs par défaut (`tests/E2E/MikaScenarioProbe.php`, `vendor/bin/phpunit`, délai de 120 s).
+valeurs par défaut (`tests/E2E/MikaScenarioProbe.php` si l'hôte en fournit une, `vendor/bin/phpunit`, délai de 120 s, classe de base `App\Tests\E2E\E2ETest` pour la sonde générée).
 `PhpUnitGeneratedTestRunner` fonctionne de même (`vendor/bin/phpunit`, délai de 300 s).
 
 ### Dans l'hôte
 
 **1. La classe de base E2E** utilise les aides du bundle et sait connecter chaque profil nommé dans les scénarios
-(`Authentification : mot de passe, profil « connecté »`) :
+(`Authentification : mot de passe, profil « connecté »`). `loginAs()` reçoit le profil **et la stratégie** de la ligne
+« Authentification » du scénario (`'password'` ou `'websso'`) :
 
 ```php
 abstract class E2ETest extends PlaywrightTestCase
 {
     use FunctionalTestHelpersTrait;
 
-    protected function loginAs(string $profile): void
+    protected function loginAs(string $profile, ?string $strategy = null): void
     {
+        // Projet WEBSSO : si le scénario dit « Authentification : websso », brancher ici votre stratégie éprouvée
+        // (jeton valide en session) et revenir sans passer par le formulaire.
+        if ('websso' === $strategy) {
+            $this->loginWithWebsso($profile); // à écrire dans votre projet
+
+            return;
+        }
+
         // Le profil « default » est utilisé quand le scénario n'en nomme pas.
         [$email, $password] = match ($profile) {
             'default', 'simple' => ['e2e@exemple.fr', 'MotDePasseE2E123!'],
@@ -90,7 +102,6 @@ abstract class E2ETest extends PlaywrightTestCase
             default => throw new \InvalidArgumentException(sprintf('Profil de connexion inconnu : « %s ».', $profile)),
         };
 
-        // Projet WEBSSO : remplacer ce bloc par votre stratégie éprouvée (jeton valide en session).
         $page = $this->open('/login');
         $page->locator('input[name="email"]')->fill($email);
         $page->locator('input[name="password"]')->fill($password);
@@ -103,8 +114,14 @@ abstract class E2ETest extends PlaywrightTestCase
 }
 ```
 
-Un profil inconnu doit **lever une exception** : une `loginAs()` qui ne fait rien lance le scénario sans être
-connecté, et les étapes échouent alors sur la page de connexion.
+Un profil ou une stratégie inconnus doivent **lever une exception** : une `loginAs()` qui ne fait rien lance le
+scénario sans être connecté, et les étapes échouent alors sur la page de connexion.
+
+> **Changement de signature.** Le deuxième paramètre `?string $strategy = null` est obligatoire dans la déclaration :
+> une `loginAs(string $profile)` à un seul paramètre est incompatible avec la méthode abstraite du trait et fait
+> échouer le chargement de la classe (« Declaration … must be compatible »). Ajouter `, ?string $strategy = null`
+> suffit ; les tests déjà générés (`$this->loginAs('trader')`) continuent de fonctionner. Les nouveaux tests
+> appellent `$this->loginAs('trader', 'password')`, comme la sonde, pour se connecter exactement de la même façon.
 
 Le trait fournit `open()`, `countRows()` (via la connexion du test, donc dans la transaction DAMA), les attentes
 `waitUntil*` (par scrutation d'un résultat précis, jamais « réseau inactif »), `selectValue()` et `setChecked()`.
@@ -115,10 +132,18 @@ Ces commentaires servent l'analyse statique de l'hôte (`$page->locator()` dans 
 le bundle seul, installez les paquets en développement (`composer require --dev playwright-php/playwright`) ou
 ignorez l'erreur de type de commentaire inconnu pour ce fichier.
 
-**2. La classe de sonde**, dans un fichier qui ne finit pas par `Test.php` (la suite normale l'ignore) :
+**2. La classe de sonde : rien à créer.** La commande génère elle-même la classe de sonde avant chaque lancement,
+dans un dossier temporaire supprimé ensuite. Elle étend la classe donnée par `--base-class`
+(`App\Tests\E2E\E2ETest` par défaut), utilise `ScenarioProbeTrait` et ne contient aucune logique : la connexion
+reste dans `loginAs()`.
+
+Pour la remplacer (cas rare : initialisation particulière avant la sonde), créer le fichier
+`tests/E2E/MikaScenarioProbe.php` ; **s'il existe, il a priorité** et `--base-class` ne s'applique plus à la sonde
+(il reste utilisé pour le test généré). Il doit se terminer par autre chose que `Test.php` (la suite normale
+l'ignore) :
 
 ```php
-// tests/E2E/MikaScenarioProbe.php
+// tests/E2E/MikaScenarioProbe.php (facultatif)
 final class MikaScenarioProbe extends E2ETest
 {
     use ScenarioProbeTrait;
@@ -130,7 +155,11 @@ final class MikaScenarioProbe extends E2ETest
 }
 ```
 
-La commande la lance avec `APP_ENV=test PLAYWRIGHT_E2E=1 XDEBUG_MODE=off`. Pour la lancer à la main (diagnostic) :
+Si vous aviez déjà créé ce fichier à la main, vous pouvez le supprimer pour passer à la génération automatique, ou
+le garder.
+
+La commande lance PHPUnit avec `APP_ENV=test PLAYWRIGHT_E2E=1 XDEBUG_MODE=off`. Pour reproduire la sonde à la main
+(diagnostic), avec votre propre fichier de sonde :
 
 ```bash
 MIKA_PROBE_SCENARIO=tests/Scenarios/creation.md MIKA_PROBE_OUTPUT=/tmp/probe.json \
@@ -138,6 +167,9 @@ APP_ENV=test PLAYWRIGHT_E2E=1 XDEBUG_MODE=off \
 vendor/bin/phpunit --filter testProbe tests/E2E/MikaScenarioProbe.php
 cat /tmp/probe.json
 ```
+
+Si la classe de base est introuvable, la sonde générée n'écrit aucun résultat : l'erreur le dit, avec la fin de la
+sortie de PHPUnit (« Class … not found »).
 
 ## Format du scénario
 
@@ -181,7 +213,8 @@ bin/console llm:generate:functional:test tests/Scenarios/creation.md --no-run   
 | `--output`, `-o` | fichier `.php` ou dossier où le test **reste** (PHPUnit est lancé mais rien n'est déplacé) ; par défaut, la zone d'attente déduite du namespace (`App\Tests\…` → `tests/…`) |
 | `--namespace` | `App\Tests\Dynamic\Functional` |
 | `--base-class` | `App\Tests\E2E\E2ETest` |
-| `--class` | dérivé du titre : `CreerUnePositionEnAttenteDynamicTest` |
+| `--class` | dérivé du titre : `CreerUnePositionEnAttenteTest` |
+| `--class-suffix` | suffixe du nom dérivé du titre : `Test` (le nom ne contient pas « Dynamic » : le test est ensuite déplacé hors de la zone d'attente) |
 | `--max-decisions` | 5 étapes tranchées par le LLM au plus, puis abandon |
 | `--no-llm` | s'arrête sur une étape ambiguë et liste les candidats |
 | `--dry-run` / `--force` | afficher sans écrire ni exécuter / écraser un fichier existant |
@@ -219,9 +252,9 @@ Scénario : Modifier l'objectif
   1. Cliquer sur « Modifier l'objectif Core »  [LLM] (fragile)  body > main > button:nth-of-type(1)
 Avertissement : Étape 1 : sélecteur fragile (chemin dans le DOM, il cassera si la page change) : body > main > button:nth-of-type(1)
 Exécutions de la sonde : 2
-Test écrit : /…/tests/Dynamic/Functional/ModifierLObjectifDynamicTest.php
+Test écrit : /…/tests/Dynamic/Functional/ModifierLObjectifTest.php
 Exécution de PHPUnit sur le test généré…
-PHPUnit : vert. Test déplacé : /…/tests/Functional/ModifierLObjectifDynamicTest.php
+PHPUnit : vert. Test déplacé : /…/tests/Functional/ModifierLObjectifTest.php
 ```
 
 Pour un scénario résolu par les règles seules, chaque étape porte `[règle]` et la sonde ne s'exécute qu'une fois.

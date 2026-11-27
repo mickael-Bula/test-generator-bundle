@@ -48,10 +48,10 @@ final class GenerateFunctionalTestCommandTest extends TestCase
         $status = $tester->execute(['scenario' => $this->scenario($this->creation()), '--no-run' => true]);
 
         // ALORS le test est écrit dans tests/Dynamic/Functional et le compte rendu est affiché
-        $file = $this->project . '/tests/Dynamic/Functional/CreerUnePositionEnAttenteDynamicTest.php';
+        $file = $this->project . '/tests/Dynamic/Functional/CreerUnePositionEnAttenteTest.php';
         self::assertSame(0, $status, $tester->getDisplay());
         self::assertFileExists($file);
-        self::assertStringContainsString('final class CreerUnePositionEnAttenteDynamicTest extends E2ETest', (string) file_get_contents($file));
+        self::assertStringContainsString('final class CreerUnePositionEnAttenteTest extends E2ETest', (string) file_get_contents($file));
         self::assertStringContainsString('Test écrit : ' . $file, $tester->getDisplay());
         self::assertStringContainsString('[règle]', $tester->getDisplay());
     }
@@ -63,7 +63,7 @@ final class GenerateFunctionalTestCommandTest extends TestCase
         $tester = $this->tester();
         $scenario = $this->scenario($this->creation());
         $tester->execute(['scenario' => $scenario, '--no-run' => true]);
-        $file = $this->project . '/tests/Dynamic/Functional/CreerUnePositionEnAttenteDynamicTest.php';
+        $file = $this->project . '/tests/Dynamic/Functional/CreerUnePositionEnAttenteTest.php';
         file_put_contents($file, 'modifié à la main');
 
         // QUAND on relance sans --force
@@ -94,7 +94,7 @@ final class GenerateFunctionalTestCommandTest extends TestCase
         // ALORS le code est affiché et aucun dossier de test n'est créé
         self::assertSame(0, $status);
         self::assertStringContainsString('<?php', $tester->getDisplay());
-        self::assertStringContainsString('$this->loginAs(\'trader\');', $tester->getDisplay());
+        self::assertStringContainsString('$this->loginAs(\'trader\', \'password\');', $tester->getDisplay());
         self::assertFalse(is_dir($this->project . '/tests'));
     }
 
@@ -130,7 +130,7 @@ final class GenerateFunctionalTestCommandTest extends TestCase
         self::assertSame(1, $this->chooser->calls);
         self::assertStringContainsString('[LLM] (fragile)', $tester->getDisplay());
         self::assertStringContainsString('Avertissement : Étape 1 : sélecteur fragile', $tester->getDisplay());
-        self::assertFileExists($this->project . '/tests/Dynamic/Functional/ModifierLObjectifDynamicTest.php');
+        self::assertFileExists($this->project . '/tests/Dynamic/Functional/ModifierLObjectifTest.php');
     }
 
     #[Test]
@@ -205,6 +205,36 @@ final class GenerateFunctionalTestCommandTest extends TestCase
     }
 
     #[Test]
+    public function testHonoursTheClassSuffixOption(): void
+    {
+        // ÉTANT DONNÉ un suffixe de classe personnalisé
+        $tester = $this->tester();
+
+        // QUAND on lance la commande
+        $status = $tester->execute(['scenario' => $this->scenario($this->creation()), '--class-suffix' => 'Scenario', '--no-run' => true]);
+
+        // ALORS le fichier et la classe portent ce suffixe
+        $file = $this->project . '/tests/Dynamic/Functional/CreerUnePositionEnAttenteScenario.php';
+        self::assertSame(0, $status, $tester->getDisplay());
+        self::assertStringContainsString('final class CreerUnePositionEnAttenteScenario extends', (string) file_get_contents($file));
+    }
+
+    #[Test]
+    public function testRejectsAnInvalidClassSuffix(): void
+    {
+        // ÉTANT DONNÉ un suffixe qui ne serait pas un identifiant PHP
+        $tester = $this->tester();
+
+        // QUAND on lance la commande
+        $status = $tester->execute(['scenario' => $this->scenario($this->creation()), '--class-suffix' => 'Test; evil()']);
+
+        // ALORS elle est refusée avant toute génération
+        self::assertSame(1, $status);
+        self::assertStringContainsString('--class-suffix', $tester->getDisplay());
+        self::assertSame([], $this->runner->files);
+    }
+
+    #[Test]
     public function testRejectsAnInvalidMaxDecisions(): void
     {
         // ÉTANT DONNÉ une valeur non numérique
@@ -242,8 +272,8 @@ final class GenerateFunctionalTestCommandTest extends TestCase
         $status = $tester->execute(['scenario' => $this->scenario($this->creation())]);
 
         // ALORS PHPUnit a reçu le fichier de la zone d'attente, puis le test a été déplacé dans tests/Functional
-        $waiting = $this->project . '/tests/Dynamic/Functional/CreerUnePositionEnAttenteDynamicTest.php';
-        $green = $this->project . '/tests/Functional/CreerUnePositionEnAttenteDynamicTest.php';
+        $waiting = $this->project . '/tests/Dynamic/Functional/CreerUnePositionEnAttenteTest.php';
+        $green = $this->project . '/tests/Functional/CreerUnePositionEnAttenteTest.php';
         self::assertSame(0, $status, $tester->getDisplay());
         self::assertSame([$waiting], $this->runner->files);
         self::assertFileDoesNotExist($waiting);
@@ -265,13 +295,13 @@ final class GenerateFunctionalTestCommandTest extends TestCase
         $status = $tester->execute(['scenario' => $this->scenario($this->creation())]);
 
         // ALORS le test est mis de côté avec son journal, la zone d'attente est vide, rien n'est livré et le code est 1
-        $failed = $this->project . '/var/failed_tests/functional/CreerUnePositionEnAttenteDynamicTest.php';
+        $failed = $this->project . '/var/failed_tests/functional/CreerUnePositionEnAttenteTest.php';
         self::assertSame(1, $status);
         self::assertFileExists($failed);
         self::assertStringContainsString('namespace App\Tests\Dynamic\Functional;', (string) file_get_contents($failed));
         self::assertStringContainsString('Failures: 1', (string) file_get_contents(substr($failed, 0, -4) . '.log'));
-        self::assertFileDoesNotExist($this->project . '/tests/Dynamic/Functional/CreerUnePositionEnAttenteDynamicTest.php');
-        self::assertFileDoesNotExist($this->project . '/tests/Functional/CreerUnePositionEnAttenteDynamicTest.php');
+        self::assertFileDoesNotExist($this->project . '/tests/Dynamic/Functional/CreerUnePositionEnAttenteTest.php');
+        self::assertFileDoesNotExist($this->project . '/tests/Functional/CreerUnePositionEnAttenteTest.php');
         self::assertStringContainsString('PHPUnit : rouge', $tester->getDisplay());
         self::assertStringContainsString('Failures: 1', $tester->getDisplay());
         self::assertStringContainsString('Test mis de côté : ' . $failed, $tester->getDisplay());
@@ -289,7 +319,7 @@ final class GenerateFunctionalTestCommandTest extends TestCase
 
         // ALORS le test reste là où l'utilisateur l'a demandé, sans déplacement, mais le code de sortie reflète l'échec
         self::assertSame(1, $status);
-        self::assertFileExists($this->project . '/tests/Mine/CreerUnePositionEnAttenteDynamicTest.php');
+        self::assertFileExists($this->project . '/tests/Mine/CreerUnePositionEnAttenteTest.php');
         self::assertFalse(is_dir($this->project . '/var/failed_tests'));
         self::assertStringContainsString('Test conservé', $tester->getDisplay());
     }
@@ -306,7 +336,7 @@ final class GenerateFunctionalTestCommandTest extends TestCase
 
         // ALORS le test n'est pas déplacé : il n'est ni validé ni en échec
         self::assertSame(1, $status);
-        self::assertFileExists($this->project . '/tests/Dynamic/Functional/CreerUnePositionEnAttenteDynamicTest.php');
+        self::assertFileExists($this->project . '/tests/Dynamic/Functional/CreerUnePositionEnAttenteTest.php');
         self::assertStringContainsString('PHPUnit introuvable', $tester->getDisplay());
         self::assertStringContainsString('n\'a pas pu être vérifié', $tester->getDisplay());
     }
@@ -316,7 +346,7 @@ final class GenerateFunctionalTestCommandTest extends TestCase
     {
         // ÉTANT DONNÉ un test déjà présent dans le dossier des tests verts
         mkdir($this->project . '/tests/Functional', 0777, true);
-        $green = $this->project . '/tests/Functional/CreerUnePositionEnAttenteDynamicTest.php';
+        $green = $this->project . '/tests/Functional/CreerUnePositionEnAttenteTest.php';
         file_put_contents($green, 'à la main');
         $tester = $this->tester();
 
@@ -327,7 +357,7 @@ final class GenerateFunctionalTestCommandTest extends TestCase
         self::assertSame(1, $status);
         self::assertSame('à la main', file_get_contents($green));
         self::assertSame([], $this->runner->files);
-        self::assertFileDoesNotExist($this->project . '/tests/Dynamic/Functional/CreerUnePositionEnAttenteDynamicTest.php');
+        self::assertFileDoesNotExist($this->project . '/tests/Dynamic/Functional/CreerUnePositionEnAttenteTest.php');
         self::assertStringContainsString($green, $tester->getDisplay());
 
         // QUAND on relance avec --force
@@ -362,7 +392,7 @@ final class GenerateFunctionalTestCommandTest extends TestCase
         $status = $tester->execute(['scenario' => $this->scenario($this->creation()), '--green-dir' => 'tests/Functional/Browser', '--failed-dir' => 'var/ko']);
 
         // ALORS le namespace suit le dossier
-        $green = $this->project . '/tests/Functional/Browser/CreerUnePositionEnAttenteDynamicTest.php';
+        $green = $this->project . '/tests/Functional/Browser/CreerUnePositionEnAttenteTest.php';
         self::assertSame(0, $status, $tester->getDisplay());
         self::assertStringContainsString('namespace App\Tests\Functional\Browser;', (string) file_get_contents($green));
 
@@ -373,8 +403,8 @@ final class GenerateFunctionalTestCommandTest extends TestCase
 
         // ALORS le test rouge est dans le dossier demandé
         self::assertSame(1, $status);
-        self::assertFileExists($this->project . '/var/ko/CreerUnePositionEnAttenteDynamicTest.php');
-        self::assertFileExists($this->project . '/var/ko/CreerUnePositionEnAttenteDynamicTest.log');
+        self::assertFileExists($this->project . '/var/ko/CreerUnePositionEnAttenteTest.php');
+        self::assertFileExists($this->project . '/var/ko/CreerUnePositionEnAttenteTest.log');
     }
 
     private function tester(): CommandTester

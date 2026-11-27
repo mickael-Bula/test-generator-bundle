@@ -20,6 +20,7 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
 final class PhpUnitProbeRunner implements ProbeRunnerInterface
 {
     private const TAIL_LINES = 30;
+    private const PROBE_CLASS = 'MikaScenarioProbe';
 
     /**
      * @param array<string, string> $environment variables ajoutées à l'environnement du processus
@@ -33,16 +34,24 @@ final class PhpUnitProbeRunner implements ProbeRunnerInterface
         private readonly array $environment = ['APP_ENV' => 'test', 'PLAYWRIGHT_E2E' => '1', 'XDEBUG_MODE' => 'off'],
         private readonly ?array $command = null,
         private readonly ProcessExecutor $executor = new ProcessExecutor(),
+        private readonly string $defaultBaseClass = 'App\Tests\E2E\E2ETest',
     ) {
     }
 
-    public function run(string $scenarioPath, ScenarioDecisions $decisions): ProbeResult
+    public function run(string $scenarioPath, ScenarioDecisions $decisions, ?string $baseClass = null): ProbeResult
     {
-        $command = $this->command ?? $this->phpunitCommand();
         $output = $this->tempFile('result', '');
         $decisionsFile = $decisions->isEmpty() ? null : $this->tempFile('decisions', $decisions->toJson());
+        $generatedDir = null;
+        $baseClass ??= $this->defaultBaseClass;
 
         try {
+            if (null !== $this->command) {
+                $command = $this->command;
+            } else {
+                [$command, $generatedDir] = $this->phpunitCommand($baseClass);
+            }
+
             $scenario = realpath($scenarioPath);
             if (false === $scenario) {
                 throw new ProbeException(sprintf('Scénario introuvable : %s', $scenarioPath));
@@ -65,8 +74,9 @@ final class PhpUnitProbeRunner implements ProbeRunnerInterface
             $json = (string) file_get_contents($output);
             if ('' === trim($json)) {
                 throw new ProbeException(sprintf(
-                    "La sonde n'a produit aucun résultat (code de sortie %d).\nSortie du processus (fin) :\n%s",
+                    "La sonde n'a produit aucun résultat (code de sortie %d).%s\nSortie du processus (fin) :\n%s",
                     $process->exitCode,
+                    null === $generatedDir ? '' : sprintf("\nLa classe de sonde a été générée automatiquement à partir de la classe de base « %s » (option --base-class) ; pour utiliser la vôtre, créez %s.", $baseClass, $this->probeFile),
                     $process->tail(self::TAIL_LINES),
                 ));
             }
@@ -77,25 +87,77 @@ final class PhpUnitProbeRunner implements ProbeRunnerInterface
             if (null !== $decisionsFile) {
                 $this->remove($decisionsFile);
             }
+            if (null !== $generatedDir) {
+                $this->remove($generatedDir . '/' . self::PROBE_CLASS . '.php');
+                if (is_dir($generatedDir)) {
+                    rmdir($generatedDir);
+                }
+            }
         }
     }
 
     /**
-     * @return list<string>
+     * Commande PHPUnit de la sonde. La classe de sonde de l'hôte (probeFile) a priorité si elle existe ;
+     * sinon une classe est générée dans un dossier temporaire à partir de la classe de base.
+     *
+     * @return array{0: list<string>, 1: ?string} la commande et le dossier temporaire à supprimer (null si la classe est celle de l'hôte)
      */
-    private function phpunitCommand(): array
+    private function phpunitCommand(string $baseClass): array
     {
-        $probe = $this->absolute($this->probeFile);
-        if (!is_file($probe)) {
-            throw new ProbeException(sprintf('Classe de sonde introuvable : %s. Créez MikaScenarioProbe dans l\'hôte (voir docs/functional-tests.md).', $probe));
-        }
-
         $phpunit = $this->absolute($this->phpunitBinary);
         if (!is_file($phpunit)) {
             throw new ProbeException(sprintf('PHPUnit introuvable : %s', $phpunit));
         }
 
-        return [PHP_BINARY, $phpunit, '--colors=never', '--do-not-cache-result', '--filter', 'testProbe', $probe];
+        $arguments = [PHP_BINARY, $phpunit, '--colors=never', '--do-not-cache-result', '--filter', 'testProbe'];
+
+        $own = $this->absolute($this->probeFile);
+        if (is_file($own)) {
+            return [[...$arguments, $own], null];
+        }
+
+        if (1 !== preg_match('/^\\\\?[A-Za-z_][A-Za-z0-9_]*(\\\\[A-Za-z_][A-Za-z0-9_]*)*$/', $baseClass)) {
+            throw new ProbeException(sprintf('Classe de base invalide : « %s » (attendu : un nom de classe complet, ex. App\\Tests\\E2E\\E2ETest).', $baseClass));
+        }
+
+        $directory = sys_get_temp_dir() . '/mika_probe_' . bin2hex(random_bytes(6));
+        if (!mkdir($directory, 0700, true) && !is_dir($directory)) {
+            throw new ProbeException('Impossible de créer le dossier temporaire de la classe de sonde.');
+        }
+
+        $file = $directory . '/' . self::PROBE_CLASS . '.php';
+        if (false === file_put_contents($file, $this->probeSource($baseClass))) {
+            rmdir($directory);
+
+            throw new ProbeException(sprintf('Impossible d\'écrire la classe de sonde : %s', $file));
+        }
+
+        return [[...$arguments, $file], $directory];
+    }
+
+    private function probeSource(string $baseClass): string
+    {
+        return sprintf(<<<'PHP'
+<?php
+
+declare(strict_types=1);
+
+// Classe de sonde générée par llm:generate:functional:test ; elle est supprimée après l'exécution.
+// Pour la remplacer par la vôtre, créez %s.
+
+use Mika\TestGeneratorBundle\Functional\Support\ScenarioProbeTrait;
+
+final class %s extends \%s
+{
+    use ScenarioProbeTrait;
+
+    public function testProbe(): void
+    {
+        $this->runScenarioProbe();
+    }
+}
+
+PHP, $this->probeFile, self::PROBE_CLASS, ltrim($baseClass, '\\'));
     }
 
     /**

@@ -8,9 +8,9 @@ namespace Mika\TestGeneratorBundle\Functional\Generation;
  * Sort le test généré de la zone d'attente : vers le dossier des tests validés s'il est vert,
  * vers le dossier des tests en échec (accompagné du journal PHPUnit) sinon.
  */
-final readonly class GeneratedTestDelivery
+final class GeneratedTestDelivery
 {
-    public function __construct(private GeneratedTestPath $paths = new GeneratedTestPath())
+    public function __construct(private readonly GeneratedTestPath $paths = new GeneratedTestPath())
     {
     }
 
